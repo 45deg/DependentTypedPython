@@ -7,6 +7,7 @@ pub enum Error {
     UnboundVariable(usize),
     ExpectedUniverse,
     ExpectedFunction,
+    ExpectedNat,
     TypeMismatch { expected: Tm, actual: Tm },
     UniverseOverflow,
     EscapingVariable,
@@ -17,6 +18,7 @@ impl fmt::Display for Error {
         match self {
             Self::UnboundVariable(i) => write!(f, "unbound core variable {i}"),
             Self::ExpectedUniverse => write!(f, "expected a type (a term inhabiting a universe)"),
+            Self::ExpectedNat => write!(f, "expected a natural number"),
             Self::ExpectedFunction => write!(f, "expected a dependent function"),
             Self::TypeMismatch { expected, actual } => {
                 write!(f, "type mismatch: expected {expected:?}, got {actual:?}")
@@ -129,6 +131,55 @@ fn synth(ctx: &Context, term: &Tm, budget: &mut Budget) -> Result<Val, Error> {
         Term::Universe(level) => Ok(Arc::new(Value::Universe(
             level.checked_add(1).ok_or(Error::UniverseOverflow)?,
         ))),
+        Term::NatElim {
+            level,
+            motive,
+            zero,
+            step,
+            scrutinee,
+        } => {
+            level.checked_add(1).ok_or(Error::UniverseOverflow)?;
+            let motive_ty = Term::Pi {
+                relevance: crate::Relevance::Runtime,
+                domain: Term::Nat.arc(),
+                codomain: Term::Universe(*level).arc(),
+            }
+            .arc();
+            let motive_ty = value::eval(&motive_ty, &ctx.env, budget)?;
+            check(ctx, motive, &motive_ty, budget)?;
+            let motive = value::eval(motive, &ctx.env, budget)?;
+            let zero_ty = value::apply(&motive, Arc::new(Value::Zero), budget)?;
+            check(ctx, zero, &zero_ty, budget)?;
+
+            // Evaluate a closed template in an environment extended by P.
+            // Under n, P is #1; under n and ih, P is #2 and n is #1.
+            let step_ty = Term::Pi {
+                relevance: crate::Relevance::Runtime,
+                domain: Term::Nat.arc(),
+                codomain: Term::Pi {
+                    relevance: crate::Relevance::Runtime,
+                    domain: Term::App {
+                        function: Term::Var(1).arc(),
+                        argument: Term::Var(0).arc(),
+                    }
+                    .arc(),
+                    codomain: Term::App {
+                        function: Term::Var(2).arc(),
+                        argument: Term::Succ(Term::Var(1).arc()).arc(),
+                    }
+                    .arc(),
+                }
+                .arc(),
+            }
+            .arc();
+            let mut env = ctx.env.clone();
+            env.push(motive.clone());
+            let step_ty = value::eval(&step_ty, &env, budget)?;
+            check(ctx, step, &step_ty, budget)?;
+            check(ctx, scrutinee, &Arc::new(Value::Nat), budget)?;
+            let n = value::eval(scrutinee, &ctx.env, budget)?;
+            value::apply(&motive, n, budget)
+        }
         Term::Nat => Ok(Arc::new(Value::Universe(0))),
         Term::Zero => Ok(Arc::new(Value::Nat)),
         Term::Succ(n) => {

@@ -36,7 +36,7 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 ## 3. 帰納型と証明
 
 - [x] Nat、Z、Sのコア項・型検査・NbE。
-- [ ] Natの依存eliminatorとι簡約。
+- [x] Natの依存eliminatorとι簡約。
 - [ ] 第1引数について再帰する加算、elaboratorへの接続。
 - [ ] Eq、refl、J、cong、限定したtransport。
 - [ ] Vec、Fin、fin0_elim。

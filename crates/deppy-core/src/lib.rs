@@ -23,6 +23,15 @@ pub enum Term {
     Nat,
     Zero,
     Succ(Tm),
+    /// P : Nat -> Type[level], zero : P Z,
+    /// step : (n : Nat) -> P n -> P (S n), result : P scrutinee.
+    NatElim {
+        level: u32,
+        motive: Tm,
+        zero: Tm,
+        step: Tm,
+        scrutinee: Tm,
+    },
     Pi {
         relevance: Relevance,
         domain: Tm,

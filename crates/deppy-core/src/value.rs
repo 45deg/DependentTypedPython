@@ -24,6 +24,13 @@ pub(crate) enum Neutral {
     // Semantic variables use levels (counted from the outermost binder).
     Var(usize),
     App(Val, Val),
+    NatElim {
+        level: u32,
+        motive: Val,
+        zero: Val,
+        step: Val,
+        scrutinee: Val,
+    },
 }
 
 /// Shared across checking, evaluation and conversion. Exhaustion is an error.
@@ -68,6 +75,19 @@ pub(crate) fn eval(term: &Tm, env: &Env, budget: &mut Budget) -> Result<Val, Err
                 .ok_or(Error::UnboundVariable(*index))
         }
         Term::Universe(level) => Value::Universe(*level),
+        Term::NatElim {
+            level,
+            motive,
+            zero,
+            step,
+            scrutinee,
+        } => {
+            let motive = eval(motive, env, budget)?;
+            let zero = eval(zero, env, budget)?;
+            let step = eval(step, env, budget)?;
+            let scrutinee = eval(scrutinee, env, budget)?;
+            return nat_elim(*level, &motive, &zero, &step, &scrutinee, budget);
+        }
         Term::Nat => Value::Nat,
         Term::Zero => Value::Zero,
         Term::Succ(n) => Value::Succ(eval(n, env, budget)?),
@@ -155,6 +175,26 @@ pub(crate) fn equal(a: &Val, b: &Val, depth: usize, budget: &mut Budget) -> Resu
         (Value::Neutral(Neutral::App(f, x)), Value::Neutral(Neutral::App(g, y))) => {
             Ok(equal(f, g, depth, budget)? && equal(x, y, depth, budget)?)
         }
+        (
+            Value::Neutral(Neutral::NatElim {
+                level: l,
+                motive: p,
+                zero: z,
+                step: s,
+                scrutinee: n,
+            }),
+            Value::Neutral(Neutral::NatElim {
+                level: l2,
+                motive: p2,
+                zero: z2,
+                step: s2,
+                scrutinee: n2,
+            }),
+        ) => Ok(l == l2
+            && equal(p, p2, depth, budget)?
+            && equal(z, z2, depth, budget)?
+            && equal(s, s2, depth, budget)?
+            && equal(n, n2, depth, budget)?),
         _ => Ok(false),
     }
 }
@@ -200,6 +240,19 @@ pub(crate) fn quote(value: &Val, depth: usize, budget: &mut Budget) -> Result<Tm
             domain: quote(domain, depth, budget)?,
             body: quote(&body.apply(fresh(depth), budget)?, depth + 1, budget)?,
         },
+        Value::Neutral(Neutral::NatElim {
+            level,
+            motive,
+            zero,
+            step,
+            scrutinee,
+        }) => Term::NatElim {
+            level: *level,
+            motive: quote(motive, depth, budget)?,
+            zero: quote(zero, depth, budget)?,
+            step: quote(step, depth, budget)?,
+            scrutinee: quote(scrutinee, depth, budget)?,
+        },
         Value::Neutral(Neutral::Var(level)) => Term::Var(
             depth
                 .checked_sub(level + 1)
@@ -211,4 +264,32 @@ pub(crate) fn quote(value: &Val, depth: usize, budget: &mut Budget) -> Result<Tm
         },
     }
     .arc())
+}
+
+/// Primitive structural recursion. A neutral scrutinee remains a neutral
+/// eliminator; no eta rule for Nat or arbitrary recursion is introduced.
+fn nat_elim(
+    level: u32,
+    motive: &Val,
+    zero: &Val,
+    step: &Val,
+    n: &Val,
+    budget: &mut Budget,
+) -> Result<Val, Error> {
+    budget.tick()?;
+    match n.as_ref() {
+        Value::Zero => Ok(zero.clone()),
+        Value::Succ(pred) => {
+            let ih = nat_elim(level, motive, zero, step, pred, budget)?;
+            apply(&apply(step, pred.clone(), budget)?, ih, budget)
+        }
+        Value::Neutral(_) => Ok(Arc::new(Value::Neutral(Neutral::NatElim {
+            level,
+            motive: motive.clone(),
+            zero: zero.clone(),
+            step: step.clone(),
+            scrutinee: n.clone(),
+        }))),
+        _ => Err(Error::ExpectedNat),
+    }
 }
