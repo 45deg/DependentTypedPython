@@ -65,7 +65,21 @@ impl State {
         self.tick()?;
         Ok(match term.as_ref() {
             Term::Local(id) => return Ok(map.get(id).cloned().unwrap_or_else(|| term.clone())),
-            Term::Universe(_) => return Ok(term.clone()),
+            Term::Universe(_) | Term::Nat | Term::Zero => return Ok(term.clone()),
+            Term::Succ(n) => Term::Succ(self.subst(n, map)?),
+            Term::NatElim {
+                level,
+                motive,
+                zero,
+                step,
+                scrutinee,
+            } => Term::NatElim {
+                level: *level,
+                motive: self.subst(motive, map)?,
+                zero: self.subst(zero, map)?,
+                step: self.subst(step, map)?,
+                scrutinee: self.subst(scrutinee, map)?,
+            },
             Term::App(f, x) => Term::App(self.subst(f, map)?, self.subst(x, map)?),
             Term::Meta(id, args) => Term::Meta(
                 *id,
@@ -140,6 +154,37 @@ impl State {
                     Ok(Term::App(f, x.clone()).arc())
                 }
             }
+            Term::NatElim {
+                level,
+                motive,
+                zero,
+                step,
+                scrutinee,
+            } => {
+                let n = self.whnf(scrutinee)?;
+                match n.as_ref() {
+                    Term::Zero => self.whnf(zero),
+                    Term::Succ(pred) => {
+                        let ih = Term::NatElim {
+                            level: *level,
+                            motive: motive.clone(),
+                            zero: zero.clone(),
+                            step: step.clone(),
+                            scrutinee: pred.clone(),
+                        }
+                        .arc();
+                        self.whnf(&Term::App(Term::App(step.clone(), pred.clone()).arc(), ih).arc())
+                    }
+                    _ => Ok(Term::NatElim {
+                        level: *level,
+                        motive: motive.clone(),
+                        zero: zero.clone(),
+                        step: step.clone(),
+                        scrutinee: n,
+                    }
+                    .arc()),
+                }
+            }
             _ => Ok(term.clone()),
         }
     }
@@ -147,7 +192,21 @@ impl State {
     fn zonk(&mut self, term: &T) -> Result<T, Error> {
         let term = self.whnf(term)?;
         Ok(match term.as_ref() {
-            Term::Local(_) | Term::Universe(_) => return Ok(term),
+            Term::Local(_) | Term::Universe(_) | Term::Nat | Term::Zero => return Ok(term),
+            Term::Succ(n) => Term::Succ(self.zonk(n)?),
+            Term::NatElim {
+                level,
+                motive,
+                zero,
+                step,
+                scrutinee,
+            } => Term::NatElim {
+                level: *level,
+                motive: self.zonk(motive)?,
+                zero: self.zonk(zero)?,
+                step: self.zonk(step)?,
+                scrutinee: self.zonk(scrutinee)?,
+            },
             Term::App(f, x) => Term::App(self.zonk(f)?, self.zonk(x)?),
             Term::Meta(id, args) => Term::Meta(
                 *id,
@@ -186,7 +245,7 @@ impl State {
     fn expand(&mut self, term: &T) -> Result<T, Error> {
         self.tick()?;
         Ok(match term.as_ref() {
-            Term::Local(_) | Term::Universe(_) => return Ok(term.clone()),
+            Term::Local(_) | Term::Universe(_) | Term::Nat | Term::Zero => return Ok(term.clone()),
             Term::Meta(id, args) => {
                 let meta = self.metas[*id].clone();
                 let solution = meta.solution.ok_or(Error::UnsolvedMeta { id: *id })?;
@@ -199,6 +258,20 @@ impl State {
                 let solution = self.subst(&solution, &map)?;
                 return self.expand(&solution);
             }
+            Term::Succ(n) => Term::Succ(self.expand(n)?),
+            Term::NatElim {
+                level,
+                motive,
+                zero,
+                step,
+                scrutinee,
+            } => Term::NatElim {
+                level: *level,
+                motive: self.expand(motive)?,
+                zero: self.expand(zero)?,
+                step: self.expand(step)?,
+                scrutinee: self.expand(scrutinee)?,
+            },
             Term::App(f, x) => Term::App(self.expand(f)?, self.expand(x)?),
             Term::Pi {
                 id,
@@ -249,6 +322,62 @@ impl State {
                 Term::Universe(*level).arc(),
                 Term::Universe(level.checked_add(1).ok_or(Error::UniverseOverflow)?).arc(),
             )),
+            Expr::Nat => Ok((Term::Nat.arc(), Term::Universe(0).arc())),
+            Expr::Zero => Ok((Term::Zero.arc(), Term::Nat.arc())),
+            Expr::Succ(n) => {
+                let n = self.check(ctx, n, &Term::Nat.arc())?;
+                Ok((Term::Succ(n).arc(), Term::Nat.arc()))
+            }
+            Expr::NatElim {
+                level,
+                motive,
+                zero,
+                step,
+                scrutinee,
+            } => {
+                level.checked_add(1).ok_or(Error::UniverseOverflow)?;
+                let motive_ty = Term::Pi {
+                    id: self.fresh(),
+                    plicity: Plicity::Explicit,
+                    domain: Term::Nat.arc(),
+                    body: Term::Universe(*level).arc(),
+                }
+                .arc();
+                let motive = self.check(ctx, motive, &motive_ty)?;
+                let zero_ty = Term::App(motive.clone(), Term::Zero.arc()).arc();
+                let zero = self.check(ctx, zero, &zero_ty)?;
+                let n = self.fresh();
+                let ih_ty = Term::App(motive.clone(), Term::Local(n).arc()).arc();
+                let result_ty =
+                    Term::App(motive.clone(), Term::Succ(Term::Local(n).arc()).arc()).arc();
+                let step_ty = Term::Pi {
+                    id: n,
+                    plicity: Plicity::Explicit,
+                    domain: Term::Nat.arc(),
+                    body: Term::Pi {
+                        id: self.fresh(),
+                        plicity: Plicity::Explicit,
+                        domain: ih_ty,
+                        body: result_ty,
+                    }
+                    .arc(),
+                }
+                .arc();
+                let step = self.check(ctx, step, &step_ty)?;
+                let scrutinee = self.check(ctx, scrutinee, &Term::Nat.arc())?;
+                let ty = Term::App(motive.clone(), scrutinee.clone()).arc();
+                Ok((
+                    Term::NatElim {
+                        level: *level,
+                        motive,
+                        zero,
+                        step,
+                        scrutinee,
+                    }
+                    .arc(),
+                    ty,
+                ))
+            }
             Expr::Pi {
                 name,
                 plicity,
@@ -427,17 +556,47 @@ impl State {
                 let b2 = self.replace(b2, *id2, x)?;
                 self.unify(&body, &b2)
             }
+            (Term::Succ(x), Term::Succ(y)) => self.unify(x, y),
+            (
+                Term::NatElim {
+                    level: l,
+                    motive: p,
+                    zero: z,
+                    step: s,
+                    scrutinee: n,
+                },
+                Term::NatElim {
+                    level: l2,
+                    motive: p2,
+                    zero: z2,
+                    step: s2,
+                    scrutinee: n2,
+                },
+            ) => {
+                if l != l2 {
+                    return Err(Error::CannotUnify);
+                }
+                self.unify(p, p2)?;
+                self.unify(z, z2)?;
+                self.unify(s, s2)?;
+                self.unify(n, n2)
+            }
             (Term::App(f, x), Term::App(g, y)) => {
                 self.unify(f, g)?;
                 self.unify(x, y)
             }
             // Eta only for lambda versus a neutral term. No general search.
-            (Term::Lam { id, body, .. }, Term::Local(_) | Term::App(_, _)) => {
+            (
+                Term::Lam { id, body, .. },
+                Term::Local(_) | Term::App(_, _) | Term::NatElim { .. },
+            ) => {
                 let x = Term::Local(self.fresh()).arc();
                 let body = self.replace(body, *id, x.clone())?;
                 self.unify(&body, &Term::App(b.clone(), x).arc())
             }
-            (Term::Local(_) | Term::App(_, _), Term::Lam { .. }) => self.unify(&b, &a),
+            (Term::Local(_) | Term::App(_, _) | Term::NatElim { .. }, Term::Lam { .. }) => {
+                self.unify(&b, &a)
+            }
             _ => Err(Error::CannotUnify),
         }
     }
@@ -474,7 +633,20 @@ impl State {
         self.tick()?;
         match term.as_ref() {
             Term::Local(id) if !allowed.contains(id) => Err(Error::ScopeEscape),
-            Term::Local(_) | Term::Universe(_) => Ok(()),
+            Term::Local(_) | Term::Universe(_) | Term::Nat | Term::Zero => Ok(()),
+            Term::Succ(n) => self.validate_solution(solving, n, allowed),
+            Term::NatElim {
+                motive,
+                zero,
+                step,
+                scrutinee,
+                ..
+            } => {
+                for child in [motive, zero, step, scrutinee] {
+                    self.validate_solution(solving, child, allowed)?;
+                }
+                Ok(())
+            }
             Term::Meta(id, _) if *id == solving => Err(Error::OccursCheck),
             Term::Meta(_, args) => {
                 for arg in args {
@@ -514,6 +686,22 @@ impl State {
                     .ok_or(Error::ScopeEscape)?,
             ),
             Term::Universe(level) => Core::Universe(*level),
+            Term::Nat => Core::Nat,
+            Term::Zero => Core::Zero,
+            Term::Succ(n) => Core::Succ(self.core(n, scope)?),
+            Term::NatElim {
+                level,
+                motive,
+                zero,
+                step,
+                scrutinee,
+            } => Core::NatElim {
+                level: *level,
+                motive: self.core(motive, scope)?,
+                zero: self.core(zero, scope)?,
+                step: self.core(step, scope)?,
+                scrutinee: self.core(scrutinee, scope)?,
+            },
             Term::Meta(id, _) => return Err(Error::UnsolvedMeta { id: *id }),
             Term::App(f, x) => Core::App {
                 function: self.core(f, scope)?,

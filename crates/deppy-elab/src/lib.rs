@@ -2,6 +2,7 @@
 //!
 //! This is not a Python parser. Each operation owns its metavariables; success
 //! returns only fully explicit terms independently rechecked by deppy-core.
+pub mod prelude;
 mod solve;
 mod syntax;
 

@@ -21,6 +21,16 @@ impl Plicity {
 pub enum Expr {
     Name(String),
     Universe(u32),
+    Nat,
+    Zero,
+    Succ(Box<Expr>),
+    NatElim {
+        level: u32,
+        motive: Box<Expr>,
+        zero: Box<Expr>,
+        step: Box<Expr>,
+        scrutinee: Box<Expr>,
+    },
     Pi {
         name: String,
         plicity: Plicity,
@@ -45,6 +55,19 @@ pub enum Expr {
     Hole,
 }
 impl Expr {
+    pub fn succ(self) -> Self {
+        Self::Succ(Box::new(self))
+    }
+    pub fn nat_elim(level: u32, motive: Self, zero: Self, step: Self, scrutinee: Self) -> Self {
+        Self::NatElim {
+            level,
+            motive: Box::new(motive),
+            zero: Box::new(zero),
+            step: Box::new(step),
+            scrutinee: Box::new(scrutinee),
+        }
+    }
+
     pub fn name(name: impl Into<String>) -> Self {
         Self::Name(name.into())
     }
@@ -101,6 +124,16 @@ pub(crate) type T = Arc<Term>;
 pub(crate) enum Term {
     Local(Id),
     Universe(u32),
+    Nat,
+    Zero,
+    Succ(T),
+    NatElim {
+        level: u32,
+        motive: T,
+        zero: T,
+        step: T,
+        scrutinee: T,
+    },
     Pi {
         id: Id,
         plicity: Plicity,

@@ -23,7 +23,7 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - [x] metaの解と最終コアをkernelで再検査。
 - [x] 推論の受理・拒否テスト、実行例。
 
-対応範囲は、名前付きAST、具体的universe、Π・λ・適用・注釈・期待型付きholeです。暗黙引数の明示指定は位置指定です。単一化は、metaに付随するtelescopeの引数が相異なるローカル変数である範囲に限定しています。
+対応範囲は、名前付きAST、具体的universe、Π・λ・適用・注釈・期待型付きhole、Nat・Z・S・明示的なNat eliminatorです。暗黙引数の明示指定は位置指定です。単一化は、metaに付随するtelescopeの引数が相異なるローカル変数である範囲に限定しています。
 
 残る拡張：
 
@@ -37,7 +37,7 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 
 - [x] Nat、Z、Sのコア項・型検査・NbE。
 - [x] Natの依存eliminatorとι簡約。
-- [ ] 第1引数について再帰する加算、elaboratorへの接続。
+- [x] 第1引数について再帰する加算、elaboratorへの接続。
 - [ ] Eq、refl、J、cong、限定したtransport。
 - [ ] Vec、Fin、fin0_elim。
 - [ ] constructor patternと限定した入れ子の依存パターン。
@@ -73,10 +73,12 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 
 ## 検証記録（2026-09-18）
 
-- `cargo test --workspace --offline`：52件成功（kernel 19件、meta内部11件、elaboration統合22件）。
+- `cargo test --workspace --offline`：84件成功（kernel 35件、meta内部11件、elaboration統合38件）。
 - `cargo clippy --workspace --all-targets --offline -- -D warnings`：成功。
 - `cargo fmt --all -- --check`：成功。
 - `cargo run -p deppy-elab --example implicit_identity --offline`：暗黙型引数を補ったコアの生成とkernel再検査が成功。
+- `cargo run -p deppy-elab --example nat_add --offline`：加算をelaborateしてkernelで検査し、`2 + 3 = 5`を正規化で確認。
+- `0 + n ≡ n`と`S(n) + m ≡ S(n + m)`を確認。`n + 0 ≡ n`の型変換は拒否。
 - Pythonの構文検査・実行、コード生成の検証は未実施。
 
-次は固定preludeのNatと依存eliminatorを実装し、elaborationへ接続します。
+次はEq・refl・Jを実装し、congとNatの帰納法によるzero_right証明へ進みます。Pythonのmatchや再帰関数からeliminatorへの変換はまだ実装していません。
