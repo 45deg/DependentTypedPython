@@ -12,6 +12,8 @@ pub(crate) struct Closure {
 
 pub(crate) enum Value {
     Universe(u32),
+    Eq(Val, Val, Val),
+    Refl(Val, Val),
     Nat,
     Zero,
     Succ(Val),
@@ -24,6 +26,15 @@ pub(crate) enum Neutral {
     // Semantic variables use levels (counted from the outermost binder).
     Var(usize),
     App(Val, Val),
+    J {
+        level: u32,
+        ty: Val,
+        left: Val,
+        motive: Val,
+        base: Val,
+        right: Val,
+        proof: Val,
+    },
     NatElim {
         level: u32,
         motive: Val,
@@ -88,6 +99,41 @@ pub(crate) fn eval(term: &Tm, env: &Env, budget: &mut Budget) -> Result<Val, Err
             let scrutinee = eval(scrutinee, env, budget)?;
             return nat_elim(*level, &motive, &zero, &step, &scrutinee, budget);
         }
+        Term::Eq { ty, left, right } => Value::Eq(
+            eval(ty, env, budget)?,
+            eval(left, env, budget)?,
+            eval(right, env, budget)?,
+        ),
+        Term::Refl { ty, value } => Value::Refl(eval(ty, env, budget)?, eval(value, env, budget)?),
+        Term::J {
+            level,
+            ty,
+            left,
+            motive,
+            base,
+            right,
+            proof,
+        } => {
+            let ty = eval(ty, env, budget)?;
+            let left = eval(left, env, budget)?;
+            let motive = eval(motive, env, budget)?;
+            let base = eval(base, env, budget)?;
+            let right = eval(right, env, budget)?;
+            let proof = eval(proof, env, budget)?;
+            match proof.as_ref() {
+                Value::Refl(_, _) => return Ok(base),
+                Value::Neutral(_) => Value::Neutral(Neutral::J {
+                    level: *level,
+                    ty,
+                    left,
+                    motive,
+                    base,
+                    right,
+                    proof,
+                }),
+                _ => return Err(Error::ExpectedEquality),
+            }
+        }
         Term::Nat => Value::Nat,
         Term::Zero => Value::Zero,
         Term::Succ(n) => Value::Succ(eval(n, env, budget)?),
@@ -134,6 +180,38 @@ pub(crate) fn eval(term: &Tm, env: &Env, budget: &mut Budget) -> Result<Val, Err
 pub(crate) fn equal(a: &Val, b: &Val, depth: usize, budget: &mut Budget) -> Result<bool, Error> {
     budget.tick()?;
     match (a.as_ref(), b.as_ref()) {
+        (Value::Eq(a, x, y), Value::Eq(b, u, v)) => Ok(equal(a, b, depth, budget)?
+            && equal(x, u, depth, budget)?
+            && equal(y, v, depth, budget)?),
+        (Value::Refl(a, x), Value::Refl(b, y)) => {
+            Ok(equal(a, b, depth, budget)? && equal(x, y, depth, budget)?)
+        }
+        (
+            Value::Neutral(Neutral::J {
+                level: l,
+                ty: a,
+                left: x,
+                motive: c,
+                base: d,
+                right: y,
+                proof: p,
+            }),
+            Value::Neutral(Neutral::J {
+                level: l2,
+                ty: a2,
+                left: x2,
+                motive: c2,
+                base: d2,
+                right: y2,
+                proof: p2,
+            }),
+        ) => Ok(l == l2
+            && equal(a, a2, depth, budget)?
+            && equal(x, x2, depth, budget)?
+            && equal(c, c2, depth, budget)?
+            && equal(d, d2, depth, budget)?
+            && equal(y, y2, depth, budget)?
+            && equal(p, p2, depth, budget)?),
         (Value::Universe(x), Value::Universe(y)) => Ok(x == y),
         (Value::Nat, Value::Nat) | (Value::Zero, Value::Zero) => Ok(true),
         (Value::Succ(x), Value::Succ(y)) => equal(x, y, depth, budget),
@@ -227,6 +305,32 @@ pub(crate) fn quote(value: &Val, depth: usize, budget: &mut Budget) -> Result<Tm
     budget.tick()?;
     Ok(match value.as_ref() {
         Value::Universe(level) => Term::Universe(*level),
+        Value::Eq(ty, left, right) => Term::Eq {
+            ty: quote(ty, depth, budget)?,
+            left: quote(left, depth, budget)?,
+            right: quote(right, depth, budget)?,
+        },
+        Value::Refl(ty, value) => Term::Refl {
+            ty: quote(ty, depth, budget)?,
+            value: quote(value, depth, budget)?,
+        },
+        Value::Neutral(Neutral::J {
+            level,
+            ty,
+            left,
+            motive,
+            base,
+            right,
+            proof,
+        }) => Term::J {
+            level: *level,
+            ty: quote(ty, depth, budget)?,
+            left: quote(left, depth, budget)?,
+            motive: quote(motive, depth, budget)?,
+            base: quote(base, depth, budget)?,
+            right: quote(right, depth, budget)?,
+            proof: quote(proof, depth, budget)?,
+        },
         Value::Nat => Term::Nat,
         Value::Zero => Term::Zero,
         Value::Succ(n) => Term::Succ(quote(n, depth, budget)?),

@@ -20,6 +20,26 @@ pub enum Relevance {
 pub enum Term {
     Var(usize),
     Universe(u32),
+    Eq {
+        ty: Tm,
+        left: Tm,
+        right: Tm,
+    },
+    Refl {
+        ty: Tm,
+        value: Tm,
+    },
+    /// Based path induction: C : (y : A) -> Eq A x y -> Type[level].
+    /// J A x C d y p : C y p, with J A x C d x (refl x) = d.
+    J {
+        level: u32,
+        ty: Tm,
+        left: Tm,
+        motive: Tm,
+        base: Tm,
+        right: Tm,
+        proof: Tm,
+    },
     Nat,
     Zero,
     Succ(Tm),

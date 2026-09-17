@@ -8,6 +8,7 @@ pub enum Error {
     ExpectedUniverse,
     ExpectedFunction,
     ExpectedNat,
+    ExpectedEquality,
     TypeMismatch { expected: Tm, actual: Tm },
     UniverseOverflow,
     EscapingVariable,
@@ -18,6 +19,7 @@ impl fmt::Display for Error {
         match self {
             Self::UnboundVariable(i) => write!(f, "unbound core variable {i}"),
             Self::ExpectedUniverse => write!(f, "expected a type (a term inhabiting a universe)"),
+            Self::ExpectedEquality => write!(f, "expected an equality proof"),
             Self::ExpectedNat => write!(f, "expected a natural number"),
             Self::ExpectedFunction => write!(f, "expected a dependent function"),
             Self::TypeMismatch { expected, actual } => {
@@ -179,6 +181,71 @@ fn synth(ctx: &Context, term: &Tm, budget: &mut Budget) -> Result<Val, Error> {
             check(ctx, scrutinee, &Arc::new(Value::Nat), budget)?;
             let n = value::eval(scrutinee, &ctx.env, budget)?;
             value::apply(&motive, n, budget)
+        }
+        Term::Eq { ty, left, right } => {
+            let level = universe(ctx, ty, budget)?;
+            let ty = value::eval(ty, &ctx.env, budget)?;
+            check(ctx, left, &ty, budget)?;
+            check(ctx, right, &ty, budget)?;
+            Ok(Arc::new(Value::Universe(level)))
+        }
+        Term::Refl { ty, value: x } => {
+            universe(ctx, ty, budget)?;
+            let ty = value::eval(ty, &ctx.env, budget)?;
+            check(ctx, x, &ty, budget)?;
+            let x = value::eval(x, &ctx.env, budget)?;
+            Ok(Arc::new(Value::Eq(ty, x.clone(), x)))
+        }
+        Term::J {
+            level,
+            ty,
+            left,
+            motive,
+            base,
+            right,
+            proof,
+        } => {
+            level.checked_add(1).ok_or(Error::UniverseOverflow)?;
+            universe(ctx, ty, budget)?;
+            let ty = value::eval(ty, &ctx.env, budget)?;
+            check(ctx, left, &ty, budget)?;
+            check(ctx, right, &ty, budget)?;
+            let left = value::eval(left, &ctx.env, budget)?;
+            let right = value::eval(right, &ctx.env, budget)?;
+            // A and x are semantic parameters, independent of surrounding binders.
+            let env = vec![ty.clone(), left.clone()];
+            let motive_ty = Term::Pi {
+                relevance: crate::Relevance::Runtime,
+                domain: Term::Var(1).arc(),
+                codomain: Term::Pi {
+                    relevance: crate::Relevance::Runtime,
+                    domain: Term::Eq {
+                        ty: Term::Var(2).arc(),
+                        left: Term::Var(1).arc(),
+                        right: Term::Var(0).arc(),
+                    }
+                    .arc(),
+                    codomain: Term::Universe(*level).arc(),
+                }
+                .arc(),
+            }
+            .arc();
+            let motive_ty = value::eval(&motive_ty, &env, budget)?;
+            check(ctx, motive, &motive_ty, budget)?;
+            let motive = value::eval(motive, &ctx.env, budget)?;
+            let refl = Arc::new(Value::Refl(ty.clone(), left.clone()));
+            let at_left = value::apply(&motive, left.clone(), budget)?;
+            let base_ty = value::apply(&at_left, refl, budget)?;
+            check(ctx, base, &base_ty, budget)?;
+            check(
+                ctx,
+                proof,
+                &Arc::new(Value::Eq(ty, left, right.clone())),
+                budget,
+            )?;
+            let proof = value::eval(proof, &ctx.env, budget)?;
+            let at_right = value::apply(&motive, right, budget)?;
+            value::apply(&at_right, proof, budget)
         }
         Term::Nat => Ok(Arc::new(Value::Universe(0))),
         Term::Zero => Ok(Arc::new(Value::Nat)),
