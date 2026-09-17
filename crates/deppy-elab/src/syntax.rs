@@ -19,6 +19,10 @@ impl Plicity {
 /// Implicit binders are erased; explicit erased proof binders are not yet exposed.
 #[derive(Clone, Debug)]
 pub enum Expr {
+    /// A self-call in function HIR; all declared arguments, including implicit ones, are required.
+    /// Only `compile_function`/`lower_function` may eliminate this node.
+    Recur(Vec<Expr>),
+
     /// Embed a closed explicit term, independently checked in this elaborator's kernel.
     Core(deppy_core::Tm),
 

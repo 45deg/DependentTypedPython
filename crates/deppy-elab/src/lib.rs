@@ -2,6 +2,7 @@
 //!
 //! This is not a Python parser. Each operation owns its metavariables; success
 //! returns only fully explicit terms independently rechecked by deppy-core.
+pub mod lower;
 pub mod prelude;
 mod record;
 mod solve;
@@ -15,6 +16,9 @@ pub use syntax::{Expr, Plicity};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
+    InvalidRecursion(String),
+    InvalidPattern(String),
+    UnsupportedMatch(String),
     UnknownName(String),
     InvalidDeclarationName(String),
     AnnotationRequired,
@@ -34,6 +38,9 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidRecursion(reason) => write!(f, "invalid structural recursion: {reason}"),
+            Self::InvalidPattern(reason) => write!(f, "invalid pattern: {reason}"),
+            Self::UnsupportedMatch(reason) => write!(f, "unsupported match: {reason}"),
             Self::InvalidDeclarationName(name) => {
                 write!(f, "empty or duplicate declaration name: {name}")
             }

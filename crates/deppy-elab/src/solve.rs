@@ -892,6 +892,9 @@ impl State {
     pub fn synth(&mut self, ctx: &Context, expr: &Expr) -> Result<(T, T), Error> {
         self.tick()?;
         match expr {
+            Expr::Recur(_) => Err(Error::InvalidRecursion(
+                "self-call outside function lowering".into(),
+            )),
             Expr::Core(term) => {
                 let ty = self.kernel.infer(term)?;
                 let term = self.import_core(term, &mut vec![])?;
