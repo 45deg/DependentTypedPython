@@ -14,6 +14,7 @@ cargo run -p deppy-core --example identity --offline
 cargo run -p deppy-elab --example implicit_identity --offline
 cargo run -p deppy-elab --example nat_add --offline
 cargo run -p deppy-elab --example zero_right --offline
+cargo run -p deppy-elab --example vectors --offline
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --offline -- -D warnings
 ```
@@ -28,7 +29,8 @@ cargo clippy --workspace --all-targets --offline -- -D warnings
 - 型注釈付きλ、適用、型注釈付きlet、de Bruijn indexによる束縛。
 - Nat、Z、S、universe levelとmotiveを明示した依存eliminator。
 - Eq、refl、一般の等式消去J（証明にも依存するmotive）。
-- 環境を保持するclosureによるNbE、β・ζ・Nat eliminatorとJのι簡約、関数のη変換。
+- Vec・Fin、サイズのwitnessを持つコンストラクタ、依存eliminator、fin0_elim。
+- 環境を保持するclosureによるNbE、β・ζ・Nat・Vec・Fin eliminatorとJのι簡約、関数のη変換。
 - `Kernel::infer`、`check`、`normalize`、型を指定する`equivalent`。
 - 不正なコア入力の拒否と、処理ステップの予算超過時のエラー。
 
@@ -87,10 +89,51 @@ J(level, A, x, C, d, y, p) : C y p
 
 `prelude::zero_right()`は`(n : Nat) → Eq Nat (add n Z) n`をNat eliminatorで証明します。Zの分岐は`refl Z`、Sの分岐は`cong S ih`です。実行例は一般形をkernelで検査し、`zero_right(2)`が`refl(2)`に正規化されることも確認します。Pythonの再帰関数やmatchからの変換はまだ扱いません。
 
+## Vec・Finと安全な要素取得
+
+`Vec A n : Type[u]`（`A : Type[u]`）、`Fin n : Type[0]`を固定の帰納型として扱います。名前付きASTには`Expr::vec`、`vnil`、`vcons`、`fin`、`fz`、`fs`があります。コンストラクタは次の明示的な引数を持ちます。
+
+```text
+VNil(A)              : Vec A Z
+VCons(A, k, h, tail)  : Vec A (S k)    h : A, tail : Vec A k
+FZ(k)                : Fin (S k)
+FS(k, j)             : Fin (S k)      j : Fin k
+```
+
+`VCons`の長さはtailの長さ、`FZ`・`FS`のboundは結果の上限の前段です。kernelはこれらのwitnessとフィールドの型を照合します。`Fin Z`を構築するコンストラクタはありません。`Expr::fin0_elim(A, i)`は`i : Fin Z`からAの項を得る消去で、通常のFZやFSを渡すと拒否します。変数などのneutralなiは、そのまま消去項に保持します。
+
+依存eliminatorには、結果のuniverse level、motive、両分岐、添字、分解対象を明示します。Vecではcarrierも指定します。
+
+```text
+VecElim(level, A, P, nil, cons, n, xs) : P n xs
+  P    : (k : Nat) → Vec A k → Type[level]
+  nil  : P Z (VNil A)
+  cons : (k : Nat) → (h : A) → (t : Vec A k) →
+         P k t → P (S k) (VCons A k h t)
+
+FinElim(level, P, zero, step, n, i) : P n i
+  P    : (k : Nat) → Fin k → Type[level]
+  zero : (k : Nat) → P (S k) (FZ k)
+  step : (k : Nat) → (j : Fin k) → P k j → P (S k) (FS k j)
+```
+
+再帰はtailまたはFSの前段だけに進み、neutralな対象では消去項を保持します。elaboratorはmotiveと分岐の期待型から、λの型注釈を補えます。通常の暗黙引数推論では、Vecからcarrier・長さ、Finから上限を推論できます。直接のコンストラクタASTではcarrierを明示します。
+
+`prelude::vec_append(level)`と`prelude::vec_get(level)`は、追加の公理や専用primitiveを使わずeliminatorから定義したASTです。
+
+```text
+append : {A : Type[level]} → (n m : Nat) → Vec A n → Vec A m → Vec A (add n m)
+get    : {A : Type[level]} → (n : Nat) → Vec A n → Fin n → A
+```
+
+getのVec motiveは`P k xs = Fin k → A`です。空の分岐にはfin0_elimを使い、VConsの分岐ではFinElimから導いたcase splitで先頭と再帰呼び出しを選びます。型レベルのNat eliminatorで分岐関数の型を作るため、添字の強制変換は不要です。実行例は`[1] ++ [0] = [1, 0]`と、その2番目の値が0であることをkernelの正規化で確認します。
+
+これらは固定された型と明示的なeliminatorの実装です。ユーザー定義帰納型の宣言検査・positivity checking、Pythonのconstructor patternや再帰関数の変換、実行時のベクタ表現・境界検証は未実装です。
+
 ## 次の実装段階
 
-1. Vec、Fin、fin0_elimと明示的な依存eliminator。
-2. 限定した依存パターンと構造的再帰、Σ、projection、非再帰のdependent record。
+1. Σ、Pair、projection。
+2. 非再帰のdependent record、限定した依存パターンと構造的再帰。
 3. elaboratorの対応範囲を拡張（let・グローバル定義・保留制約・意味値による評価）。
 4. CPython 3.12〜3.14のparse/compile検証、AST schema、静的名前解決を接続。
 5. 使用検査、消去、境界の検証・再構築、Pythonコード生成と差分実行テスト。

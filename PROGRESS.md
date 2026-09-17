@@ -23,7 +23,7 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - [x] metaの解と最終コアをkernelで再検査。
 - [x] 推論の受理・拒否テスト、実行例。
 
-対応範囲は、名前付きAST、具体的universe、Π・λ・適用・注釈・期待型付きhole、Nat・Z・S・明示的なNat eliminator、Eq・refl・Jです。暗黙引数の明示指定は位置指定です。単一化は、metaに付随するtelescopeの引数が相異なるローカル変数である範囲に限定しています。
+対応範囲は、名前付きAST、具体的universe、Π・λ・適用・注釈・期待型付きhole、Nat・Z・S・明示的なNat eliminator、Eq・refl・J、Vec・Finとそれらの依存eliminator、fin0_elimです。暗黙引数の明示指定は位置指定です。単一化は、metaに付随するtelescopeの引数が相異なるローカル変数である範囲に限定しています。
 
 残る拡張：
 
@@ -43,7 +43,11 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - [x] Natの帰納法によるzero_right証明（名前付きAST、一般形の検査と数値での正規化）。
 - [x] proof irrelevance・equality reflection・K形motiveの拒否テスト。
 - [ ] transportのruntime representation検査と安全な消去。
-- [ ] Vec、Fin、fin0_elim。
+- [x] Vec、VNil、VCons、Fin、FZ、FSのコア項・型検査・NbE。
+- [x] Vec・Finの依存eliminator、ι簡約、fin0_elim。
+- [x] elaboratorへの接続、carrier・長さ・上限の暗黙引数推論。
+- [x] appendとgetの名前付きAST、一般形の型検査と実行例。
+- [ ] ユーザー定義帰納型の宣言検査・positivity checking。
 - [ ] constructor patternと限定した入れ子の依存パターン。
 - [ ] 指定引数に対する構造的再帰とrecursorへの変換。
 - [ ] Σ、Pair、projection。
@@ -69,7 +73,8 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - [x] `Type : Type`の拒否（kernel）。
 - [ ] 発散する証明・添字への再代入の拒否（Python frontend）。
 - [x] metaのscope escapeの拒否（内部項と名前付き入力AST）。
-- [ ] `Fin[0]`の偽造・不正な消去・暗黙のKの拒否。
+- [x] `Fin[0]`の偽造・不正なfin0_elimの拒否（kernelとelaborator）。
+- [ ] 不正なruntime消去とPythonのパターンからの暗黙のKの拒否。
 
 ## 現在の制約
 
@@ -77,7 +82,7 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 
 ## 検証記録（2026-09-18）
 
-- `cargo test --workspace --offline`：115件成功（kernel 45件、meta内部13件、elaboration統合57件）。
+- `cargo test --workspace --offline`：160件成功（kernel 64件、meta内部15件、elaboration統合81件）。
 - `cargo clippy --workspace --all-targets --offline -- -D warnings`：成功。
 - `cargo fmt --all -- --check`：成功。
 - `cargo run -p deppy-elab --example implicit_identity --offline`：暗黙型引数を補ったコアの生成とkernel再検査が成功。
@@ -85,6 +90,9 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - `0 + n ≡ n`と`S(n) + m ≡ S(n + m)`を確認。`n + 0 ≡ n`の型変換は拒否。
 - `cargo run -p deppy-elab --example zero_right --offline`：一般の`n + 0 = n`の証明をkernelで検査し、`zero_right(2)`の正規形が`refl(2)`になることを確認。
 - 証明に依存するJ、neutralなJの保持、異なるuniverseでのcong・transport、依存する型族のtransportを検査。
+- `cargo run -p deppy-elab --example vectors --offline`：appendとFinによるgetをkernelで検査・正規化して期待値を確認。
+- 添字・分解対象の両方に依存するVec/Fin motive、neutralな消去、分岐の帰納法仮定、長さ・上限の偽造拒否を検査。
+- 小さなベクタのappend・全位置のget、型を要素にするベクタ、変数の長さに対するgetのFZ/FS計算規則を検査。
 - Pythonの構文検査・実行、コード生成の検証は未実施。
 
-次はVec・Fin・fin0_elimと、それらの明示的な依存eliminatorへ進みます。Pythonのmatchや再帰関数からeliminatorへの変換はまだ実装していません。
+次はΣ・Pair・projectionへ進みます。Pythonのmatchや再帰関数からeliminatorへの変換はまだ実装していません。

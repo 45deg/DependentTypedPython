@@ -1,5 +1,8 @@
 //! Fixed definitions expressed in the input language, not trusted axioms.
 //! Call `Elaborator::infer` to elaborate and kernel-check each definition.
+mod indexed;
+pub use indexed::{vec_append, vec_get};
+
 use crate::{Expr as E, Plicity::Explicit};
 
 /// add : Nat -> Nat -> Nat, recursing on the first argument.
