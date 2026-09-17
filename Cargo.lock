@@ -5,3 +5,10 @@ version = 4
 [[package]]
 name = "deppy-core"
 version = "0.1.0"
+
+[[package]]
+name = "deppy-elab"
+version = "0.1.0"
+dependencies = [
+ "deppy-core",
+]

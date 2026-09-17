@@ -1,0 +1,731 @@
+use crate::syntax::{Id, Term, T};
+use crate::{Elaborated, Error, Expr, Plicity};
+use deppy_core::{Kernel, Term as Core, Tm};
+use std::collections::{HashMap, HashSet};
+
+#[derive(Clone)]
+pub(crate) struct Local {
+    id: Id,
+    name: String,
+    ty: T,
+}
+pub(crate) type Context = Vec<Local>;
+
+#[derive(Clone)]
+struct Meta {
+    telescope: Context,
+    expected: T,
+    solution: Option<T>,
+}
+
+pub(crate) struct State {
+    next_id: Id,
+    remaining: usize,
+    metas: Vec<Meta>,
+}
+impl State {
+    pub fn new(remaining: usize) -> Self {
+        Self {
+            next_id: 0,
+            remaining,
+            metas: vec![],
+        }
+    }
+    fn tick(&mut self) -> Result<(), Error> {
+        self.remaining = self.remaining.checked_sub(1).ok_or(Error::BudgetExceeded)?;
+        Ok(())
+    }
+    fn fresh(&mut self) -> Id {
+        let id = self.next_id;
+        self.next_id += 1;
+        id
+    }
+    fn meta(&mut self, ctx: &Context, expected: T) -> T {
+        let id = self.metas.len();
+        self.metas.push(Meta {
+            telescope: ctx.clone(),
+            expected,
+            solution: None,
+        });
+        Term::Meta(id, ctx.iter().map(|x| Term::Local(x.id).arc()).collect()).arc()
+    }
+    fn bind(&mut self, ctx: &Context, name: &str, ty: T) -> (Context, Id) {
+        let id = self.fresh();
+        let mut ctx = ctx.clone();
+        ctx.push(Local {
+            id,
+            name: name.to_owned(),
+            ty,
+        });
+        (ctx, id)
+    }
+
+    /// Capture-avoiding simultaneous substitution, freshening every binder.
+    fn subst(&mut self, term: &T, map: &HashMap<Id, T>) -> Result<T, Error> {
+        self.tick()?;
+        Ok(match term.as_ref() {
+            Term::Local(id) => return Ok(map.get(id).cloned().unwrap_or_else(|| term.clone())),
+            Term::Universe(_) => return Ok(term.clone()),
+            Term::App(f, x) => Term::App(self.subst(f, map)?, self.subst(x, map)?),
+            Term::Meta(id, args) => Term::Meta(
+                *id,
+                args.iter()
+                    .map(|x| self.subst(x, map))
+                    .collect::<Result<_, _>>()?,
+            ),
+            Term::Pi {
+                id,
+                plicity,
+                domain,
+                body,
+            }
+            | Term::Lam {
+                id,
+                plicity,
+                domain,
+                body,
+            } => {
+                let domain = self.subst(domain, map)?;
+                let new_id = self.fresh();
+                let mut map = map.clone();
+                map.insert(*id, Term::Local(new_id).arc());
+                let body = self.subst(body, &map)?;
+                if matches!(term.as_ref(), Term::Pi { .. }) {
+                    Term::Pi {
+                        id: new_id,
+                        plicity: *plicity,
+                        domain,
+                        body,
+                    }
+                } else {
+                    Term::Lam {
+                        id: new_id,
+                        plicity: *plicity,
+                        domain,
+                        body,
+                    }
+                }
+            }
+        }
+        .arc())
+    }
+    fn replace(&mut self, term: &T, id: Id, arg: T) -> Result<T, Error> {
+        self.subst(term, &HashMap::from([(id, arg)]))
+    }
+
+    fn whnf(&mut self, term: &T) -> Result<T, Error> {
+        self.tick()?;
+        match term.as_ref() {
+            Term::Meta(id, args) => {
+                let meta = self.metas[*id].clone();
+                if let Some(solution) = meta.solution {
+                    let map = meta
+                        .telescope
+                        .iter()
+                        .zip(args)
+                        .map(|(x, arg)| (x.id, arg.clone()))
+                        .collect();
+                    let instantiated = self.subst(&solution, &map)?;
+                    self.whnf(&instantiated)
+                } else {
+                    Ok(term.clone())
+                }
+            }
+            Term::App(f, x) => {
+                let f = self.whnf(f)?;
+                if let Term::Lam { id, body, .. } = f.as_ref() {
+                    let body = self.replace(body, *id, x.clone())?;
+                    self.whnf(&body)
+                } else {
+                    Ok(Term::App(f, x.clone()).arc())
+                }
+            }
+            _ => Ok(term.clone()),
+        }
+    }
+
+    fn zonk(&mut self, term: &T) -> Result<T, Error> {
+        let term = self.whnf(term)?;
+        Ok(match term.as_ref() {
+            Term::Local(_) | Term::Universe(_) => return Ok(term),
+            Term::App(f, x) => Term::App(self.zonk(f)?, self.zonk(x)?),
+            Term::Meta(id, args) => Term::Meta(
+                *id,
+                args.iter()
+                    .map(|x| self.zonk(x))
+                    .collect::<Result<_, _>>()?,
+            ),
+            Term::Pi {
+                id,
+                plicity,
+                domain,
+                body,
+            } => Term::Pi {
+                id: *id,
+                plicity: *plicity,
+                domain: self.zonk(domain)?,
+                body: self.zonk(body)?,
+            },
+            Term::Lam {
+                id,
+                plicity,
+                domain,
+                body,
+            } => Term::Lam {
+                id: *id,
+                plicity: *plicity,
+                domain: self.zonk(domain)?,
+                body: self.zonk(body)?,
+            },
+        }
+        .arc())
+    }
+
+    // Resolve metas without reducing applications. The independent kernel must
+    // see even ill-typed subterms that beta reduction could otherwise discard.
+    fn expand(&mut self, term: &T) -> Result<T, Error> {
+        self.tick()?;
+        Ok(match term.as_ref() {
+            Term::Local(_) | Term::Universe(_) => return Ok(term.clone()),
+            Term::Meta(id, args) => {
+                let meta = self.metas[*id].clone();
+                let solution = meta.solution.ok_or(Error::UnsolvedMeta { id: *id })?;
+                let map = meta
+                    .telescope
+                    .iter()
+                    .zip(args)
+                    .map(|(x, arg)| (x.id, arg.clone()))
+                    .collect();
+                let solution = self.subst(&solution, &map)?;
+                return self.expand(&solution);
+            }
+            Term::App(f, x) => Term::App(self.expand(f)?, self.expand(x)?),
+            Term::Pi {
+                id,
+                plicity,
+                domain,
+                body,
+            } => Term::Pi {
+                id: *id,
+                plicity: *plicity,
+                domain: self.expand(domain)?,
+                body: self.expand(body)?,
+            },
+            Term::Lam {
+                id,
+                plicity,
+                domain,
+                body,
+            } => Term::Lam {
+                id: *id,
+                plicity: *plicity,
+                domain: self.expand(domain)?,
+                body: self.expand(body)?,
+            },
+        }
+        .arc())
+    }
+
+    pub fn type_expr(&mut self, ctx: &Context, expr: &Expr) -> Result<(T, u32), Error> {
+        let (term, ty) = self.synth(ctx, expr)?;
+        match self.whnf(&ty)?.as_ref() {
+            Term::Universe(level) => Ok((term, *level)),
+            _ => Err(Error::ExpectedUniverse),
+        }
+    }
+
+    pub fn synth(&mut self, ctx: &Context, expr: &Expr) -> Result<(T, T), Error> {
+        self.tick()?;
+        match expr {
+            Expr::Name(name) => {
+                let local = ctx
+                    .iter()
+                    .rev()
+                    .find(|x| x.name == *name)
+                    .ok_or_else(|| Error::UnknownName(name.clone()))?;
+                Ok((Term::Local(local.id).arc(), local.ty.clone()))
+            }
+            Expr::Universe(level) => Ok((
+                Term::Universe(*level).arc(),
+                Term::Universe(level.checked_add(1).ok_or(Error::UniverseOverflow)?).arc(),
+            )),
+            Expr::Pi {
+                name,
+                plicity,
+                domain,
+                codomain,
+            } => {
+                let (domain, a) = self.type_expr(ctx, domain)?;
+                let (ctx, id) = self.bind(ctx, name, domain.clone());
+                let (body, b) = self.type_expr(&ctx, codomain)?;
+                Ok((
+                    Term::Pi {
+                        id,
+                        plicity: *plicity,
+                        domain,
+                        body,
+                    }
+                    .arc(),
+                    Term::Universe(a.max(b)).arc(),
+                ))
+            }
+            Expr::Lam {
+                name,
+                plicity,
+                domain,
+                body,
+            } => {
+                let domain = domain.as_ref().ok_or(Error::AnnotationRequired)?;
+                let (domain, _) = self.type_expr(ctx, domain)?;
+                let (ctx, id) = self.bind(ctx, name, domain.clone());
+                let (body, ty) = self.synth(&ctx, body)?;
+                Ok((
+                    Term::Lam {
+                        id,
+                        plicity: *plicity,
+                        domain: domain.clone(),
+                        body,
+                    }
+                    .arc(),
+                    Term::Pi {
+                        id,
+                        plicity: *plicity,
+                        domain,
+                        body: ty,
+                    }
+                    .arc(),
+                ))
+            }
+            Expr::App {
+                function,
+                argument,
+                plicity,
+            } => {
+                let (mut fun, mut ty) = self.synth(ctx, function)?;
+                loop {
+                    let head = self.whnf(&ty)?;
+                    let Term::Pi {
+                        id,
+                        plicity: mode,
+                        domain,
+                        body,
+                    } = head.as_ref()
+                    else {
+                        return Err(Error::ExpectedFunction);
+                    };
+                    if *plicity == Plicity::Explicit && *mode == Plicity::Implicit {
+                        let arg = self.meta(ctx, domain.clone());
+                        fun = Term::App(fun, arg.clone()).arc();
+                        ty = self.replace(body, *id, arg)?;
+                        continue;
+                    }
+                    if plicity != mode {
+                        return Err(Error::PlicityMismatch);
+                    }
+                    let arg = self.check(ctx, argument, domain)?;
+                    let ty = self.replace(body, *id, arg.clone())?;
+                    return Ok((Term::App(fun, arg).arc(), ty));
+                }
+            }
+            Expr::Ann { term, ty } => {
+                let (ty, _) = self.type_expr(ctx, ty)?;
+                Ok((self.check(ctx, term, &ty)?, ty))
+            }
+            Expr::Hole => Err(Error::AnnotationRequired),
+        }
+    }
+
+    pub fn check(&mut self, ctx: &Context, expr: &Expr, expected: &T) -> Result<T, Error> {
+        self.tick()?;
+        if matches!(expr, Expr::Hole) {
+            return Ok(self.meta(ctx, expected.clone()));
+        }
+        if let Expr::Lam {
+            name,
+            plicity,
+            domain,
+            body,
+        } = expr
+        {
+            let ty = self.whnf(expected)?;
+            let Term::Pi {
+                id: old_id,
+                plicity: mode,
+                domain: dom,
+                body: cod,
+            } = ty.as_ref()
+            else {
+                return Err(Error::ExpectedFunction);
+            };
+            if plicity != mode {
+                return Err(Error::PlicityMismatch);
+            }
+            if let Some(annotation) = domain {
+                let (annotation, _) = self.type_expr(ctx, annotation)?;
+                self.unify(&annotation, dom)?;
+            }
+            let (ctx, id) = self.bind(ctx, name, dom.clone());
+            let cod = self.replace(cod, *old_id, Term::Local(id).arc())?;
+            let body = self.check(&ctx, body, &cod)?;
+            return Ok(Term::Lam {
+                id,
+                plicity: *plicity,
+                domain: dom.clone(),
+                body,
+            }
+            .arc());
+        }
+        let (term, ty) = self.synth(ctx, expr)?;
+        self.unify(&ty, expected)?;
+        Ok(term)
+    }
+
+    fn unify(&mut self, a: &T, b: &T) -> Result<(), Error> {
+        self.tick()?;
+        let a = self.whnf(a)?;
+        let b = self.whnf(b)?;
+        if a == b {
+            return Ok(());
+        }
+        match (a.as_ref(), b.as_ref()) {
+            (Term::Meta(id, args), _) => self.solve(*id, args, &b),
+            (_, Term::Meta(id, args)) => self.solve(*id, args, &a),
+            (
+                Term::Pi {
+                    id,
+                    plicity,
+                    domain,
+                    body,
+                },
+                Term::Pi {
+                    id: id2,
+                    plicity: p2,
+                    domain: d2,
+                    body: b2,
+                },
+            )
+            | (
+                Term::Lam {
+                    id,
+                    plicity,
+                    domain,
+                    body,
+                },
+                Term::Lam {
+                    id: id2,
+                    plicity: p2,
+                    domain: d2,
+                    body: b2,
+                },
+            ) => {
+                if plicity != p2 {
+                    return Err(Error::PlicityMismatch);
+                }
+                self.unify(domain, d2)?;
+                let x = Term::Local(self.fresh()).arc();
+                let body = self.replace(body, *id, x.clone())?;
+                let b2 = self.replace(b2, *id2, x)?;
+                self.unify(&body, &b2)
+            }
+            (Term::App(f, x), Term::App(g, y)) => {
+                self.unify(f, g)?;
+                self.unify(x, y)
+            }
+            // Eta only for lambda versus a neutral term. No general search.
+            (Term::Lam { id, body, .. }, Term::Local(_) | Term::App(_, _)) => {
+                let x = Term::Local(self.fresh()).arc();
+                let body = self.replace(body, *id, x.clone())?;
+                self.unify(&body, &Term::App(b.clone(), x).arc())
+            }
+            (Term::Local(_) | Term::App(_, _), Term::Lam { .. }) => self.unify(&b, &a),
+            _ => Err(Error::CannotUnify),
+        }
+    }
+
+    fn solve(&mut self, id: Id, args: &[T], rhs: &T) -> Result<(), Error> {
+        // Only contextual pattern spines, with distinct variables, are solved.
+        let telescope = self.metas[id].telescope.clone();
+        let mut rename = HashMap::new();
+        for (arg, local) in args.iter().zip(&telescope) {
+            let arg = self.whnf(arg)?;
+            let Term::Local(arg_id) = arg.as_ref() else {
+                return Err(Error::NonPattern);
+            };
+            if rename
+                .insert(*arg_id, Term::Local(local.id).arc())
+                .is_some()
+            {
+                return Err(Error::NonPattern);
+            }
+        }
+        let rhs = self.zonk(rhs)?;
+        self.validate_solution(id, &rhs, &mut rename.keys().copied().collect())?;
+        let solution = self.subst(&rhs, &rename)?;
+        self.metas[id].solution = Some(solution);
+        Ok(())
+    }
+
+    fn validate_solution(
+        &mut self,
+        solving: Id,
+        term: &T,
+        allowed: &mut HashSet<Id>,
+    ) -> Result<(), Error> {
+        self.tick()?;
+        match term.as_ref() {
+            Term::Local(id) if !allowed.contains(id) => Err(Error::ScopeEscape),
+            Term::Local(_) | Term::Universe(_) => Ok(()),
+            Term::Meta(id, _) if *id == solving => Err(Error::OccursCheck),
+            Term::Meta(_, args) => {
+                for arg in args {
+                    self.validate_solution(solving, arg, allowed)?;
+                }
+                Ok(())
+            }
+            Term::App(f, x) => {
+                self.validate_solution(solving, f, allowed)?;
+                self.validate_solution(solving, x, allowed)
+            }
+            Term::Pi {
+                id, domain, body, ..
+            }
+            | Term::Lam {
+                id, domain, body, ..
+            } => {
+                self.validate_solution(solving, domain, allowed)?;
+                let inserted = allowed.insert(*id);
+                let result = self.validate_solution(solving, body, allowed);
+                if inserted {
+                    allowed.remove(id);
+                }
+                result
+            }
+        }
+    }
+
+    fn core(&mut self, term: &T, scope: &mut Vec<Id>) -> Result<Tm, Error> {
+        self.tick()?;
+        Ok(match term.as_ref() {
+            Term::Local(id) => Core::Var(
+                scope
+                    .iter()
+                    .rev()
+                    .position(|x| x == id)
+                    .ok_or(Error::ScopeEscape)?,
+            ),
+            Term::Universe(level) => Core::Universe(*level),
+            Term::Meta(id, _) => return Err(Error::UnsolvedMeta { id: *id }),
+            Term::App(f, x) => Core::App {
+                function: self.core(f, scope)?,
+                argument: self.core(x, scope)?,
+            },
+            Term::Pi {
+                id,
+                plicity,
+                domain,
+                body,
+            }
+            | Term::Lam {
+                id,
+                plicity,
+                domain,
+                body,
+            } => {
+                let domain = self.core(domain, scope)?;
+                scope.push(*id);
+                let body = self.core(body, scope)?;
+                scope.pop();
+                if matches!(term.as_ref(), Term::Pi { .. }) {
+                    Core::Pi {
+                        relevance: plicity.relevance(),
+                        domain,
+                        codomain: body,
+                    }
+                } else {
+                    Core::Lam {
+                        relevance: plicity.relevance(),
+                        domain,
+                        body,
+                    }
+                }
+            }
+        }
+        .arc())
+    }
+
+    pub fn finish(&mut self, term: T, ty: T, kernel: &Kernel) -> Result<Elaborated, Error> {
+        // Validate every meta, including ones removed by beta reduction.
+        for id in 0..self.metas.len() {
+            let meta = self.metas[id].clone();
+            let mut solution = meta.solution.ok_or(Error::UnsolvedMeta { id })?;
+            let mut expected = meta.expected;
+            for local in meta.telescope.iter().rev() {
+                solution = Term::Lam {
+                    id: local.id,
+                    plicity: Plicity::Explicit,
+                    domain: local.ty.clone(),
+                    body: solution,
+                }
+                .arc();
+                expected = Term::Pi {
+                    id: local.id,
+                    plicity: Plicity::Explicit,
+                    domain: local.ty.clone(),
+                    body: expected,
+                }
+                .arc();
+            }
+            let solution = self.expand(&solution)?;
+            let expected = self.expand(&expected)?;
+            let solution = self.core(&solution, &mut vec![])?;
+            let expected = self.core(&expected, &mut vec![])?;
+            kernel.check(&solution, &expected)?;
+        }
+        let term = self.expand(&term)?;
+        let ty = self.expand(&ty)?;
+        let term = self.core(&term, &mut vec![])?;
+        let ty = self.core(&ty, &mut vec![])?;
+        kernel.check(&term, &ty)?;
+        Ok(Elaborated { term, ty })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn u(n: u32) -> T {
+        Term::Universe(n).arc()
+    }
+    fn local(id: Id) -> T {
+        Term::Local(id).arc()
+    }
+
+    #[test]
+    fn rejects_direct_occurs_cycle() {
+        let mut s = State::new(10_000);
+        let m = s.meta(&vec![], u(1));
+        let rhs = Term::App(m.clone(), u(0)).arc();
+        assert_eq!(s.unify(&m, &rhs), Err(Error::OccursCheck));
+    }
+    #[test]
+    fn rejects_indirect_occurs_cycle() {
+        let mut s = State::new(10_000);
+        let a = s.meta(&vec![], u(1));
+        let b = s.meta(&vec![], u(1));
+        s.unify(&a, &b).unwrap();
+        assert_eq!(
+            s.unify(&b, &Term::App(a, u(0)).arc()),
+            Err(Error::OccursCheck)
+        );
+    }
+    #[test]
+    fn rejects_later_variable_escaping() {
+        let mut s = State::new(10_000);
+        let m = s.meta(&vec![], u(1));
+        let later = local(s.fresh());
+        assert_eq!(s.unify(&m, &later), Err(Error::ScopeEscape));
+    }
+    #[test]
+    fn scope_check_looks_inside_other_meta_spines() {
+        let mut s = State::new(10_000);
+        let outer = s.meta(&vec![], u(1));
+        let (ctx, _) = s.bind(&vec![], "later", u(1));
+        let inner = s.meta(&ctx, u(1));
+        assert_eq!(s.unify(&outer, &inner), Err(Error::ScopeEscape));
+    }
+    #[test]
+    fn contextual_solution_is_renamed_at_each_occurrence() {
+        let mut s = State::new(10_000);
+        let (ctx, original) = s.bind(&vec![], "A", u(1));
+        let m = s.meta(&ctx, u(1));
+        let new = s.fresh();
+        let occurrence = s.replace(&m, original, local(new)).unwrap();
+        s.unify(&occurrence, &local(new)).unwrap();
+        assert_eq!(s.whnf(&m).unwrap(), local(original));
+        assert_eq!(s.whnf(&occurrence).unwrap(), local(new));
+    }
+    #[test]
+    fn rejects_non_variable_and_repeated_spines() {
+        let mut s = State::new(10_000);
+        let (ctx, a) = s.bind(&vec![], "A", u(1));
+        let (ctx, b) = s.bind(&ctx, "B", u(1));
+        let m = s.meta(&ctx, u(1));
+        let repeated = s.replace(&m, b, local(a)).unwrap();
+        assert_eq!(s.unify(&repeated, &local(a)), Err(Error::NonPattern));
+        let concrete = s.replace(&m, a, u(0)).unwrap();
+        assert_eq!(s.unify(&concrete, &u(0)), Err(Error::NonPattern));
+    }
+    #[test]
+    fn accepts_bound_variables_inside_solutions() {
+        let mut s = State::new(10_000);
+        let m = s.meta(&vec![], u(1));
+        let id = s.fresh();
+        let rhs = Term::Pi {
+            id,
+            plicity: Plicity::Explicit,
+            domain: u(0),
+            body: local(id),
+        }
+        .arc();
+        s.unify(&m, &rhs).unwrap();
+        s.finish(m, u(1), &Kernel::default()).unwrap();
+    }
+    #[test]
+    fn expected_meta_type_is_rechecked_even_if_meta_is_unused() {
+        let mut s = State::new(10_000);
+        let m = s.meta(&vec![], u(0));
+        s.unify(&m, &u(0)).unwrap(); // This candidate has the wrong universe.
+        assert!(matches!(
+            s.finish(u(0), u(1), &Kernel::default()),
+            Err(Error::Kernel(_))
+        ));
+    }
+    #[test]
+    fn kernel_sees_invalid_subterms_before_beta_reduction() {
+        let mut s = State::new(10_000);
+        let id = s.fresh();
+        let invalid = Term::App(
+            Term::Lam {
+                id,
+                plicity: Plicity::Explicit,
+                domain: u(0),
+                body: u(0),
+            }
+            .arc(),
+            u(0),
+        )
+        .arc();
+        // Beta reduction would hide the ill-typed argument Type0 : Type0.
+        assert!(matches!(
+            s.finish(invalid, u(1), &Kernel::default()),
+            Err(Error::Kernel(_))
+        ));
+    }
+    #[test]
+    fn kernel_rechecks_final_claimed_type() {
+        let mut s = State::new(10_000);
+        assert!(matches!(
+            s.finish(u(0), u(0), &Kernel::default()),
+            Err(Error::Kernel(_))
+        ));
+    }
+    #[test]
+    fn substitution_avoids_capture() {
+        let mut s = State::new(10_000);
+        let a = s.fresh();
+        let b = s.fresh();
+        let term = Term::Lam {
+            id: b,
+            plicity: Plicity::Explicit,
+            domain: u(0),
+            body: local(a),
+        }
+        .arc();
+        let result = s.replace(&term, a, local(b)).unwrap();
+        let Term::Lam { id, body, .. } = result.as_ref() else {
+            panic!()
+        };
+        assert_ne!(*id, b);
+        assert_eq!(body, &local(b));
+    }
+}

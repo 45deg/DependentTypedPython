@@ -1,0 +1,8 @@
+[package]
+name = "deppy-elab"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+deppy-core = { path = "../deppy-core" }
