@@ -13,6 +13,7 @@ cargo test --workspace --offline
 cargo run -p deppy-core --example identity --offline
 cargo run -p deppy-elab --example implicit_identity --offline
 cargo run -p deppy-elab --example nat_add --offline
+cargo run -p deppy-elab --example zero_right --offline
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --offline -- -D warnings
 ```
@@ -26,7 +27,8 @@ cargo clippy --workspace --all-targets --offline -- -D warnings
 - 非累積的な具体的universe階層（`Type₀ : Type₁`）とΠ型。
 - 型注釈付きλ、適用、型注釈付きlet、de Bruijn indexによる束縛。
 - Nat、Z、S、universe levelとmotiveを明示した依存eliminator。
-- 環境を保持するclosureによるNbE、β・ζ・Nat eliminatorのι簡約、関数のη変換。
+- Eq、refl、一般の等式消去J（証明にも依存するmotive）。
+- 環境を保持するclosureによるNbE、β・ζ・Nat eliminatorとJのι簡約、関数のη変換。
 - `Kernel::infer`、`check`、`normalize`、型を指定する`equivalent`。
 - 不正なコア入力の拒否と、処理ステップの予算超過時のエラー。
 
@@ -63,15 +65,34 @@ Zではzeroへ、S(k)では`step k (NatElim ... k)`へ簡約します。変数�
 
 名前付きASTでも`Expr::Nat`、`Zero`、`succ()`、`nat_elim(...)`を使用できます。`prelude::nat_add()`は第1引数について再帰する加算のASTを返します。専用の加算primitiveや公理は使わず、通常のelaborationとkernel検査を通します。
 
-`add Z m ≡ m`と`add (S k) m ≡ S (add k m)`は定義的等式です。変数nについて`add n Z ≡ n`とは判定しません。この等式の証明には、今後実装するEqと帰納法が必要です。Pythonの整数や`+`、`match`の読み取りはまだ実装していません。
+`add Z m ≡ m`と`add (S k) m ≡ S (add k m)`は定義的等式です。変数nについて`add n Z ≡ n`とは判定しません。この等式は、EqとNatの帰納法で証明します。Pythonの整数や`+`、`match`の読み取りはまだ実装していません。
+
+## 等式と帰納法による証明
+
+`Expr::eq(A, x, y)`で等式型、`x.refl()`で反射律を表します。`refl`のcarrierは引数から推論し、期待型がEqの場合はそのcarrierで引数を検査して両辺との定義的等しさを確認します。コアの`Term::Refl`はcarrierも明示します。
+
+`Expr::j(level, A, x, C, d, y, p)`とコアの`Term::J`は次を検査します。
+
+```text
+A : Type[u]    x, y : A    p : Eq A x y
+C : (z : A) → Eq A x z → Type[level]
+d : C x (refl x)
+────────────────────────────────────────
+J(level, A, x, C, d, y, p) : C y p
+```
+
+証明が`refl`ならdへ簡約し、neutralな証明ではJを保持します。motiveやbaseも簡約前に検査します。等式の証明から定義的等しさを導く規則、proof irrelevance、UIP・Kなどの公理は追加していません。
+
+`prelude::cong(u, v)`と`prelude::transport(u, v)`はJから定義したASTを返します。universeは呼び出し時に具体的なlevelを指定します。transportは型検査と論理的な計算規則に対応し、runtime representationの検査・消去は未実装です。
+
+`prelude::zero_right()`は`(n : Nat) → Eq Nat (add n Z) n`をNat eliminatorで証明します。Zの分岐は`refl Z`、Sの分岐は`cong S ih`です。実行例は一般形をkernelで検査し、`zero_right(2)`が`refl(2)`に正規化されることも確認します。Pythonの再帰関数やmatchからの変換はまだ扱いません。
 
 ## 次の実装段階
 
-1. elaboratorの対応範囲を拡張（let・グローバル定義・保留制約・意味値による評価）。
-2. Eq、refl、Jを追加し、congとNatの帰納法による証明を検査。
-3. Vec、Fin、限定した依存パターンと構造的再帰。
-4. Σ、projection、非再帰のdependent record。
-5. CPython 3.12〜3.14のparse/compile検証、AST schema、静的名前解決を接続。
-6. 使用検査、消去、境界の検証・再構築、Pythonコード生成と差分実行テスト。
+1. Vec、Fin、fin0_elimと明示的な依存eliminator。
+2. 限定した依存パターンと構造的再帰、Σ、projection、非再帰のdependent record。
+3. elaboratorの対応範囲を拡張（let・グローバル定義・保留制約・意味値による評価）。
+4. CPython 3.12〜3.14のparse/compile検証、AST schema、静的名前解決を接続。
+5. 使用検査、消去、境界の検証・再構築、Pythonコード生成と差分実行テスト。
 
 第17節の5例を検査・実行できることがMVPの到達条件です。未実装の構文や穴を公理・`Any`として受理する機能は設けません。
