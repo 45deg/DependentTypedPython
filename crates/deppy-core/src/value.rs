@@ -11,6 +11,16 @@ pub(crate) struct Closure {
 }
 
 pub(crate) enum Value {
+    Inductive {
+        id: crate::InductiveId,
+        parameters: Vec<Val>,
+    },
+    Constructor {
+        id: crate::InductiveId,
+        parameters: Vec<Val>,
+        fields: Vec<Val>,
+    },
+
     Sigma(Val, Closure),
     Pair(Val, Val, Val),
     Universe(u32),
@@ -48,6 +58,15 @@ pub(crate) enum Value {
 }
 
 pub(crate) enum Neutral {
+    Elim {
+        id: crate::InductiveId,
+        parameters: Vec<Val>,
+        level: u32,
+        motive: Val,
+        branch: Val,
+        scrutinee: Val,
+    },
+
     // Semantic variables use levels (counted from the outermost binder).
     Fst(Val),
     Snd(Val),
@@ -125,6 +144,59 @@ pub(crate) fn apply(fun: &Val, arg: Val, budget: &mut Budget) -> Result<Val, Err
 pub(crate) fn eval(term: &Tm, env: &Env, budget: &mut Budget) -> Result<Val, Error> {
     budget.tick()?;
     Ok(Arc::new(match term.as_ref() {
+        Term::Inductive { id, parameters } => Value::Inductive {
+            id: *id,
+            parameters: parameters
+                .iter()
+                .map(|x| eval(x, env, budget))
+                .collect::<Result<_, _>>()?,
+        },
+        Term::Constructor {
+            id,
+            parameters,
+            fields,
+        } => Value::Constructor {
+            id: *id,
+            parameters: parameters
+                .iter()
+                .map(|x| eval(x, env, budget))
+                .collect::<Result<_, _>>()?,
+            fields: fields
+                .iter()
+                .map(|x| eval(x, env, budget))
+                .collect::<Result<_, _>>()?,
+        },
+        Term::Elim {
+            id,
+            parameters,
+            level,
+            motive,
+            branch,
+            scrutinee,
+        } => {
+            let parameters = parameters
+                .iter()
+                .map(|x| eval(x, env, budget))
+                .collect::<Result<_, _>>()?;
+            let motive = eval(motive, env, budget)?;
+            let branch = eval(branch, env, budget)?;
+            let scrutinee = eval(scrutinee, env, budget)?;
+            if let Value::Constructor { fields, .. } = scrutinee.as_ref() {
+                let mut result = branch;
+                for field in fields {
+                    result = apply(&result, field.clone(), budget)?;
+                }
+                return Ok(result);
+            }
+            Value::Neutral(Neutral::Elim {
+                id: *id,
+                parameters,
+                level: *level,
+                motive,
+                branch,
+                scrutinee,
+            })
+        }
         Term::Var(index) => {
             return env
                 .len()
@@ -325,6 +397,50 @@ pub(crate) fn eval(term: &Tm, env: &Env, budget: &mut Budget) -> Result<Val, Err
 pub(crate) fn equal(a: &Val, b: &Val, depth: usize, budget: &mut Budget) -> Result<bool, Error> {
     budget.tick()?;
     match (a.as_ref(), b.as_ref()) {
+        (
+            Value::Inductive { id, parameters },
+            Value::Inductive {
+                id: j,
+                parameters: q,
+            },
+        ) => Ok(id == j && equal_list(parameters, q, depth, budget)?),
+        (
+            Value::Constructor {
+                id,
+                parameters,
+                fields,
+            },
+            Value::Constructor {
+                id: j,
+                parameters: q,
+                fields: g,
+            },
+        ) => Ok(id == j
+            && equal_list(parameters, q, depth, budget)?
+            && equal_list(fields, g, depth, budget)?),
+        (
+            Value::Neutral(Neutral::Elim {
+                id,
+                parameters,
+                level,
+                motive,
+                branch,
+                scrutinee,
+            }),
+            Value::Neutral(Neutral::Elim {
+                id: j,
+                parameters: q,
+                level: l,
+                motive: m,
+                branch: b,
+                scrutinee: s,
+            }),
+        ) => Ok(id == j
+            && level == l
+            && equal_list(parameters, q, depth, budget)?
+            && equal(motive, m, depth, budget)?
+            && equal(branch, b, depth, budget)?
+            && equal(scrutinee, s, depth, budget)?),
         (Value::Sigma(a, b), Value::Sigma(c, d)) => {
             if !equal(a, c, depth, budget)? {
                 return Ok(false);
@@ -558,6 +674,46 @@ pub(crate) fn equal_at(
 pub(crate) fn quote(value: &Val, depth: usize, budget: &mut Budget) -> Result<Tm, Error> {
     budget.tick()?;
     Ok(match value.as_ref() {
+        Value::Inductive { id, parameters } => Term::Inductive {
+            id: *id,
+            parameters: parameters
+                .iter()
+                .map(|x| quote(x, depth, budget))
+                .collect::<Result<_, _>>()?,
+        },
+        Value::Constructor {
+            id,
+            parameters,
+            fields,
+        } => Term::Constructor {
+            id: *id,
+            parameters: parameters
+                .iter()
+                .map(|x| quote(x, depth, budget))
+                .collect::<Result<_, _>>()?,
+            fields: fields
+                .iter()
+                .map(|x| quote(x, depth, budget))
+                .collect::<Result<_, _>>()?,
+        },
+        Value::Neutral(Neutral::Elim {
+            id,
+            parameters,
+            level,
+            motive,
+            branch,
+            scrutinee,
+        }) => Term::Elim {
+            id: *id,
+            parameters: parameters
+                .iter()
+                .map(|x| quote(x, depth, budget))
+                .collect::<Result<_, _>>()?,
+            level: *level,
+            motive: quote(motive, depth, budget)?,
+            branch: quote(branch, depth, budget)?,
+            scrutinee: quote(scrutinee, depth, budget)?,
+        },
         Value::Sigma(domain, codomain) => Term::Sigma {
             domain: quote(domain, depth, budget)?,
             codomain: quote(&codomain.apply(fresh(depth), budget)?, depth + 1, budget)?,
@@ -803,4 +959,16 @@ pub(crate) fn project(pair: &Val, first: bool, budget: &mut Budget) -> Result<Va
         }))),
         _ => Err(Error::ExpectedSigma),
     }
+}
+
+fn equal_list(a: &[Val], b: &[Val], depth: usize, budget: &mut Budget) -> Result<bool, Error> {
+    if a.len() != b.len() {
+        return Ok(false);
+    }
+    for (a, b) in a.iter().zip(b) {
+        if !equal(a, b, depth, budget)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }

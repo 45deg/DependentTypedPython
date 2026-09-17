@@ -1,6 +1,8 @@
 //! Fully explicit dependent core. No Python execution, metavariables or axioms.
 //! Erasure usage checking is a separate, not yet implemented phase.
+mod inductive;
 mod kernel;
+pub use inductive::{InductiveDecl, InductiveId};
 mod value;
 
 pub use kernel::{Error, Kernel};
@@ -18,6 +20,24 @@ pub enum Relevance {
 /// Universe levels are concrete and non-cumulative.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Term {
+    Inductive {
+        id: InductiveId,
+        parameters: Vec<Tm>,
+    },
+    Constructor {
+        id: InductiveId,
+        parameters: Vec<Tm>,
+        fields: Vec<Tm>,
+    },
+    Elim {
+        id: InductiveId,
+        parameters: Vec<Tm>,
+        level: u32,
+        motive: Tm,
+        branch: Tm,
+        scrutinee: Tm,
+    },
+
     Sigma {
         domain: Tm,
         codomain: Tm,

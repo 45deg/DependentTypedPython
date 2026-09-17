@@ -4,6 +4,10 @@ use std::{fmt, sync::Arc};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
+    UnknownInductive(crate::InductiveId),
+    DuplicateInductive(crate::InductiveId),
+    ArityMismatch,
+    FieldUniverseTooLarge,
     UnboundVariable(usize),
     ExpectedUniverse,
     ExpectedFunction,
@@ -21,6 +25,12 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::UnknownInductive(id) => write!(f, "unknown inductive declaration {id}"),
+            Self::DuplicateInductive(id) => write!(f, "inductive declaration {id} already exists"),
+            Self::ArityMismatch => write!(f, "wrong number of parameters or fields"),
+            Self::FieldUniverseTooLarge => {
+                write!(f, "field universe exceeds the declared inductive universe")
+            }
             Self::UnboundVariable(i) => write!(f, "unbound core variable {i}"),
             Self::ExpectedUniverse => write!(f, "expected a type (a term inhabiting a universe)"),
             Self::ExpectedEquality => write!(f, "expected an equality proof"),
@@ -42,7 +52,8 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {}
 
 #[derive(Clone, Default)]
-struct Context {
+pub(crate) struct Context {
+    globals: Arc<std::collections::BTreeMap<crate::InductiveId, crate::InductiveDecl>>,
     types: Vec<Val>,
     env: Env,
 }
@@ -60,7 +71,9 @@ impl Context {
 
 /// Public operations accept closed terms and always validate before evaluation.
 /// A fresh shared operation budget is used for each call.
+#[derive(Clone)]
 pub struct Kernel {
+    globals: Arc<std::collections::BTreeMap<crate::InductiveId, crate::InductiveDecl>>,
     max_steps: usize,
 }
 impl Default for Kernel {
@@ -70,18 +83,58 @@ impl Default for Kernel {
 }
 impl Kernel {
     pub fn new(max_steps: usize) -> Self {
-        Self { max_steps }
+        Self {
+            max_steps,
+            globals: Arc::default(),
+        }
     }
 
+    fn context(&self) -> Context {
+        Context {
+            globals: self.globals.clone(),
+            ..Context::default()
+        }
+    }
+    pub fn declaration(&self, id: crate::InductiveId) -> Result<&crate::InductiveDecl, Error> {
+        self.globals.get(&id).ok_or(Error::UnknownInductive(id))
+    }
+    /// Register a nonrecursive, unindexed single-constructor inductive.
+    /// The new ID is unavailable while checking, forbidding self/forward references.
+    pub fn declare(
+        &mut self,
+        id: crate::InductiveId,
+        decl: crate::InductiveDecl,
+    ) -> Result<(), Error> {
+        if self.globals.contains_key(&id) {
+            return Err(Error::DuplicateInductive(id));
+        }
+        decl.level.checked_add(1).ok_or(Error::UniverseOverflow)?;
+        let mut budget = Budget(self.max_steps);
+        let mut ctx = self.context();
+        for ty in &decl.parameters {
+            universe(&ctx, ty, &mut budget)?;
+            let val = value::eval(ty, &ctx.env, &mut budget)?;
+            ctx = ctx.bind(val);
+        }
+        for ty in &decl.fields {
+            if universe(&ctx, ty, &mut budget)? > decl.level {
+                return Err(Error::FieldUniverseTooLarge);
+            }
+            let val = value::eval(ty, &ctx.env, &mut budget)?;
+            ctx = ctx.bind(val);
+        }
+        Arc::make_mut(&mut self.globals).insert(id, decl);
+        Ok(())
+    }
     pub fn infer(&self, term: &Tm) -> Result<Tm, Error> {
         let mut budget = Budget(self.max_steps);
-        let ty = synth(&Context::default(), term, &mut budget)?;
+        let ty = synth(&self.context(), term, &mut budget)?;
         value::quote(&ty, 0, &mut budget)
     }
 
     pub fn check(&self, term: &Tm, ty: &Tm) -> Result<(), Error> {
         let mut budget = Budget(self.max_steps);
-        let ctx = Context::default();
+        let ctx = self.context();
         universe(&ctx, ty, &mut budget)?;
         let expected = value::eval(ty, &ctx.env, &mut budget)?;
         check(&ctx, term, &expected, &mut budget)
@@ -89,7 +142,7 @@ impl Kernel {
 
     pub fn normalize(&self, term: &Tm) -> Result<Tm, Error> {
         let mut budget = Budget(self.max_steps);
-        let ctx = Context::default();
+        let ctx = self.context();
         synth(&ctx, term, &mut budget)?;
         let val = value::eval(term, &ctx.env, &mut budget)?;
         value::quote(&val, 0, &mut budget)
@@ -98,7 +151,7 @@ impl Kernel {
     /// Both operands must inhabit the supplied type before conversion is tried.
     pub fn equivalent(&self, left: &Tm, right: &Tm, ty: &Tm) -> Result<bool, Error> {
         let mut budget = Budget(self.max_steps);
-        let ctx = Context::default();
+        let ctx = self.context();
         universe(&ctx, ty, &mut budget)?;
         let ty = value::eval(ty, &ctx.env, &mut budget)?;
         check(&ctx, left, &ty, &mut budget)?;
@@ -131,6 +184,84 @@ fn check(ctx: &Context, term: &Tm, expected: &Val, budget: &mut Budget) -> Resul
 fn synth(ctx: &Context, term: &Tm, budget: &mut Budget) -> Result<Val, Error> {
     budget.tick()?;
     match term.as_ref() {
+        Term::Inductive { id, parameters } => {
+            let decl = ctx.globals.get(id).ok_or(Error::UnknownInductive(*id))?;
+            arguments(ctx, parameters, &decl.parameters, vec![], budget)?;
+            Ok(Arc::new(Value::Universe(decl.level)))
+        }
+        Term::Constructor {
+            id,
+            parameters,
+            fields,
+        } => {
+            let decl = ctx.globals.get(id).ok_or(Error::UnknownInductive(*id))?;
+            let params = arguments(ctx, parameters, &decl.parameters, vec![], budget)?;
+            arguments(ctx, fields, &decl.fields, params.clone(), budget)?;
+            Ok(Arc::new(Value::Inductive {
+                id: *id,
+                parameters: params,
+            }))
+        }
+        Term::Elim {
+            id,
+            parameters,
+            level,
+            motive,
+            branch,
+            scrutinee,
+        } => {
+            level.checked_add(1).ok_or(Error::UniverseOverflow)?;
+            let decl = ctx.globals.get(id).ok_or(Error::UnknownInductive(*id))?;
+            let params = arguments(ctx, parameters, &decl.parameters, vec![], budget)?;
+            let nominal = Arc::new(Value::Inductive {
+                id: *id,
+                parameters: params.clone(),
+            });
+            check(ctx, scrutinee, &nominal, budget)?;
+            let motive_ty = pi(
+                value::quote(&nominal, ctx.env.len(), budget)?,
+                Term::Universe(*level).arc(),
+            );
+            check(
+                ctx,
+                motive,
+                &value::eval(&motive_ty, &ctx.env, budget)?,
+                budget,
+            )?;
+            let motive_val = value::eval(motive, &ctx.env, budget)?;
+            let mut env = params.clone();
+            let mut fields = vec![];
+            let mut domains = vec![];
+            for ty in &decl.fields {
+                let domain = value::eval(ty, &env, budget)?;
+                let depth = ctx.env.len() + fields.len();
+                domains.push(value::quote(&domain, depth, budget)?);
+                let field = value::fresh(depth);
+                env.push(field.clone());
+                fields.push(field);
+            }
+            let constructor = Arc::new(Value::Constructor {
+                id: *id,
+                parameters: params,
+                fields,
+            });
+            let result = value::apply(&motive_val, constructor, budget)?;
+            let mut branch_ty = value::quote(&result, ctx.env.len() + domains.len(), budget)?;
+            for domain in domains.into_iter().rev() {
+                branch_ty = pi(domain, branch_ty);
+            }
+            check(
+                ctx,
+                branch,
+                &value::eval(&branch_ty, &ctx.env, budget)?,
+                budget,
+            )?;
+            value::apply(
+                &motive_val,
+                value::eval(scrutinee, &ctx.env, budget)?,
+                budget,
+            )
+        }
         Term::Sigma { domain, codomain } => {
             let a = universe(ctx, domain, budget)?;
             let domain = value::eval(domain, &ctx.env, budget)?;
@@ -579,4 +710,22 @@ fn app2(function: Tm, a: Tm, b: Tm) -> Tm {
 }
 fn apply2(function: &Val, a: Val, b: Val, budget: &mut Budget) -> Result<Val, Error> {
     value::apply(&value::apply(function, a, budget)?, b, budget)
+}
+
+fn arguments(
+    ctx: &Context,
+    args: &[Tm],
+    types: &[Tm],
+    mut env: Env,
+    budget: &mut Budget,
+) -> Result<Env, Error> {
+    if args.len() != types.len() {
+        return Err(Error::ArityMismatch);
+    }
+    for (arg, ty) in args.iter().zip(types) {
+        let ty = value::eval(ty, &env, budget)?;
+        check(ctx, arg, &ty, budget)?;
+        env.push(value::eval(arg, &ctx.env, budget)?);
+    }
+    Ok(env)
 }
