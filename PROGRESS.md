@@ -27,11 +27,12 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 
 残る拡張：
 
-- [ ] elaboratorのletとグローバル定義。
+- [x] elaboratorのlet、検査済みの透明なグローバル定義、型の中での定義展開。
 - [ ] キーワードによる暗黙引数指定。
 - [ ] 制約の保留・再試行、meta引数のpruning、より広い高階patternの解決。
 - [ ] elaboratorの意味値・closureによる評価（現在は束縛の捕獲を避けた置換と弱頭簡約）。
-- [ ] Pythonの名前とsource spanに基づく診断。
+- [x] Pythonの名前解決・構文エラーのsource range、宣言単位の型エラー位置。
+- [ ] elaborator内部の式単位のsource spanと詳細な型エラー診断。
 
 ## 3. 帰納型と証明
 
@@ -60,9 +61,15 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 
 ## 4. Pythonとの接続
 
-- [ ] CPython 3.12〜3.14によるparse/compile検証（ユーザーコードは実行しない）。
-- [ ] バージョン付きAST schema、source span、静的名前解決。
-- [ ] `@dependent`・`@record`の認識とHIRへの変換。
+- [x] Ruff parser・AST・text sizeを0.0.12に固定し、Rustから直接解析。
+- [x] Python 3.12・3.13・3.14のtarget指定、バージョンによる構文制限の拒否。
+- [x] Ruff ASTから名前付きExprへの変換、source range、ローカル名・検査済みグローバル名の解決。
+- [x] 裸の`@dependent`、型引数・型注釈・不変の代入・returnの検査。
+- [x] 固定deppy APIの静的importと別名。ユーザーコード・注釈は実行しない。
+- [x] fixtureをCPython 3.12.0・3.14.3でcompile検証。
+- [ ] CPython 3.13のcompile検証。
+- [ ] Pythonの`match`・構造的再帰を既存関数HIRへ接続。
+- [ ] Pythonの`@record`を既存record宣言へ接続。
 - [ ] 静的importと検査済みインターフェース。
 - [ ] 消去対象の使用検査、消去、runtime IR。
 - [ ] ランタイムと境界データの検証・再構築。
@@ -70,7 +77,8 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 
 ## 5. MVP受け入れ条件
 
-- [ ] 第17.1節：Pythonのidentity例。
+- [x] 第17.1節：Pythonのidentity宣言の静的検査と、生成コアの計算。
+- [ ] 第17.1節：Pythonランタイムでの実行と消去。
 - [ ] 第17.2節：Vec append例。
 - [ ] 第17.3節：Finによるget例。
 - [ ] 第17.4節：zero_right証明例。
@@ -83,11 +91,11 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 
 ## 現在の制約
 
-消去の安全性やPython実行の意味保存はまだ検証できません。計算ステップの予算はRustのスタック・メモリを完全に保護するものではありません。ソース位置付き診断、universe polymorphism、一般の高階単一化は未実装です。
+消去の安全性やPython実行の意味保存はまだ検証できません。計算ステップの予算はRustのスタック・メモリを完全に保護するものではありません。型エラーの位置は関数宣言単位です。universe polymorphism、一般の高階単一化は未実装です。
 
 ## 検証記録（2026-09-18）
 
-- `cargo test --workspace --offline`：214件成功（kernel 79件、meta内部19件、elaboration統合116件）。
+- `cargo test --workspace --offline`：249件成功（kernel 84件、meta内部19件、elaboration統合128件、Python frontend 18件）。
 - `cargo clippy --workspace --all-targets --offline -- -D warnings`：成功。
 - `cargo fmt --all -- --check`：成功。
 - `cargo run -p deppy-elab --example implicit_identity --offline`：暗黙型引数を補ったコアの生成とkernel再検査が成功。
@@ -104,6 +112,11 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - 名目的な型の区別、空record・型を保持するrecord・依存するパラメータ列、自己参照・前方参照・不正なuniverse・不正なeliminatorの拒否を検査。
 - `cargo run -p deppy-elab --example structural --offline`：関数HIRから生成したappend・get・zero_rightをkernelで検査し、具体値での計算を確認。
 - 直接の部分構造以外への再帰、変更された固定引数・不正な添字、非網羅・重複分岐、名前の捕獲、対応外の入れ子の分岐を拒否。
-- Pythonの構文検査・実行、コード生成の検証は未実施。
+- letの依存型・シャドーイング・metaのscope・未使用の不正な値の拒否を検査。
+- グローバル定義の登録失敗時の状態保持、自己／前方参照・重複登録の拒否、closure内での展開と予算消費を検査。
+- `cargo run -p deppy-python --example check --locked --offline`：Pythonの5宣言を型検査し、twice(Z)・reflexive(Z)を生成コアで計算。
+- Python CLIの実行成功。Unicodeの名前とbyte range、再代入・名前の捕獲・型不一致・target-version構文エラーの拒否を検査。
+- `scripts/check_python_syntax.py`：CPython 3.12.0・3.14.3でfixtureのコンパイル成功。ユーザーコードは実行していない。
+- Pythonランタイム実行、消去、コード生成の検証は未実施。
 
-次はelaboratorのlet・グローバル定義と、Python frontendへの接続を進めます。Pythonのmatchや再帰関数から関数HIRへの変換はまだ実装していません。
+次はPythonのmatch・再帰関数から既存の関数HIRへの変換と、@recordの接続を進めます。
