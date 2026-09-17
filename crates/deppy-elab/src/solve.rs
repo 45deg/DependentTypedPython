@@ -66,6 +66,32 @@ impl State {
         Ok(match term.as_ref() {
             Term::Local(id) => return Ok(map.get(id).cloned().unwrap_or_else(|| term.clone())),
             Term::Universe(_) | Term::Nat | Term::Zero => return Ok(term.clone()),
+            Term::Eq { ty, left, right } => Term::Eq {
+                ty: self.subst(ty, map)?,
+                left: self.subst(left, map)?,
+                right: self.subst(right, map)?,
+            },
+            Term::Refl { ty, value } => Term::Refl {
+                ty: self.subst(ty, map)?,
+                value: self.subst(value, map)?,
+            },
+            Term::J {
+                level,
+                ty,
+                left,
+                motive,
+                base,
+                right,
+                proof,
+            } => Term::J {
+                level: *level,
+                ty: self.subst(ty, map)?,
+                left: self.subst(left, map)?,
+                motive: self.subst(motive, map)?,
+                base: self.subst(base, map)?,
+                right: self.subst(right, map)?,
+                proof: self.subst(proof, map)?,
+            },
             Term::Succ(n) => Term::Succ(self.subst(n, map)?),
             Term::NatElim {
                 level,
@@ -154,6 +180,31 @@ impl State {
                     Ok(Term::App(f, x.clone()).arc())
                 }
             }
+            Term::J {
+                level,
+                ty,
+                left,
+                motive,
+                base,
+                right,
+                proof,
+            } => {
+                let proof = self.whnf(proof)?;
+                if matches!(proof.as_ref(), Term::Refl { .. }) {
+                    self.whnf(base)
+                } else {
+                    Ok(Term::J {
+                        level: *level,
+                        ty: ty.clone(),
+                        left: left.clone(),
+                        motive: motive.clone(),
+                        base: base.clone(),
+                        right: right.clone(),
+                        proof,
+                    }
+                    .arc())
+                }
+            }
             Term::NatElim {
                 level,
                 motive,
@@ -193,6 +244,32 @@ impl State {
         let term = self.whnf(term)?;
         Ok(match term.as_ref() {
             Term::Local(_) | Term::Universe(_) | Term::Nat | Term::Zero => return Ok(term),
+            Term::Eq { ty, left, right } => Term::Eq {
+                ty: self.zonk(ty)?,
+                left: self.zonk(left)?,
+                right: self.zonk(right)?,
+            },
+            Term::Refl { ty, value } => Term::Refl {
+                ty: self.zonk(ty)?,
+                value: self.zonk(value)?,
+            },
+            Term::J {
+                level,
+                ty,
+                left,
+                motive,
+                base,
+                right,
+                proof,
+            } => Term::J {
+                level: *level,
+                ty: self.zonk(ty)?,
+                left: self.zonk(left)?,
+                motive: self.zonk(motive)?,
+                base: self.zonk(base)?,
+                right: self.zonk(right)?,
+                proof: self.zonk(proof)?,
+            },
             Term::Succ(n) => Term::Succ(self.zonk(n)?),
             Term::NatElim {
                 level,
@@ -258,6 +335,32 @@ impl State {
                 let solution = self.subst(&solution, &map)?;
                 return self.expand(&solution);
             }
+            Term::Eq { ty, left, right } => Term::Eq {
+                ty: self.expand(ty)?,
+                left: self.expand(left)?,
+                right: self.expand(right)?,
+            },
+            Term::Refl { ty, value } => Term::Refl {
+                ty: self.expand(ty)?,
+                value: self.expand(value)?,
+            },
+            Term::J {
+                level,
+                ty,
+                left,
+                motive,
+                base,
+                right,
+                proof,
+            } => Term::J {
+                level: *level,
+                ty: self.expand(ty)?,
+                left: self.expand(left)?,
+                motive: self.expand(motive)?,
+                base: self.expand(base)?,
+                right: self.expand(right)?,
+                proof: self.expand(proof)?,
+            },
             Term::Succ(n) => Term::Succ(self.expand(n)?),
             Term::NatElim {
                 level,
@@ -322,6 +425,98 @@ impl State {
                 Term::Universe(*level).arc(),
                 Term::Universe(level.checked_add(1).ok_or(Error::UniverseOverflow)?).arc(),
             )),
+            Expr::Eq { ty, left, right } => {
+                let (ty, level) = self.type_expr(ctx, ty)?;
+                let left = self.check(ctx, left, &ty)?;
+                let right = self.check(ctx, right, &ty)?;
+                Ok((
+                    Term::Eq { ty, left, right }.arc(),
+                    Term::Universe(level).arc(),
+                ))
+            }
+            Expr::Refl(value) => {
+                let (value, ty) = self.synth(ctx, value)?;
+                Ok((
+                    Term::Refl {
+                        ty: ty.clone(),
+                        value: value.clone(),
+                    }
+                    .arc(),
+                    Term::Eq {
+                        ty,
+                        left: value.clone(),
+                        right: value,
+                    }
+                    .arc(),
+                ))
+            }
+            Expr::J {
+                level,
+                ty,
+                left,
+                motive,
+                base,
+                right,
+                proof,
+            } => {
+                level.checked_add(1).ok_or(Error::UniverseOverflow)?;
+                let (ty, _) = self.type_expr(ctx, ty)?;
+                let left = self.check(ctx, left, &ty)?;
+                let right = self.check(ctx, right, &ty)?;
+                let y = self.fresh();
+                let p = self.fresh();
+                let motive_ty = Term::Pi {
+                    id: y,
+                    plicity: Plicity::Explicit,
+                    domain: ty.clone(),
+                    body: Term::Pi {
+                        id: p,
+                        plicity: Plicity::Explicit,
+                        domain: Term::Eq {
+                            ty: ty.clone(),
+                            left: left.clone(),
+                            right: Term::Local(y).arc(),
+                        }
+                        .arc(),
+                        body: Term::Universe(*level).arc(),
+                    }
+                    .arc(),
+                }
+                .arc();
+                let motive = self.check(ctx, motive, &motive_ty)?;
+                let refl = Term::Refl {
+                    ty: ty.clone(),
+                    value: left.clone(),
+                }
+                .arc();
+                let base_ty = Term::App(Term::App(motive.clone(), left.clone()).arc(), refl).arc();
+                let base = self.check(ctx, base, &base_ty)?;
+                let proof_ty = Term::Eq {
+                    ty: ty.clone(),
+                    left: left.clone(),
+                    right: right.clone(),
+                }
+                .arc();
+                let proof = self.check(ctx, proof, &proof_ty)?;
+                let result = Term::App(
+                    Term::App(motive.clone(), right.clone()).arc(),
+                    proof.clone(),
+                )
+                .arc();
+                Ok((
+                    Term::J {
+                        level: *level,
+                        ty,
+                        left,
+                        motive,
+                        base,
+                        right,
+                        proof,
+                    }
+                    .arc(),
+                    result,
+                ))
+            }
             Expr::Nat => Ok((Term::Nat.arc(), Term::Universe(0).arc())),
             Expr::Zero => Ok((Term::Zero.arc(), Term::Nat.arc())),
             Expr::Succ(n) => {
@@ -469,6 +664,19 @@ impl State {
         if matches!(expr, Expr::Hole) {
             return Ok(self.meta(ctx, expected.clone()));
         }
+        if let Expr::Refl(value) = expr {
+            let expected = self.whnf(expected)?;
+            if let Term::Eq { ty, left, right } = expected.as_ref() {
+                let value = self.check(ctx, value, ty)?;
+                self.unify(&value, left)?;
+                self.unify(&value, right)?;
+                return Ok(Term::Refl {
+                    ty: ty.clone(),
+                    value,
+                }
+                .arc());
+            }
+        }
         if let Expr::Lam {
             name,
             plicity,
@@ -556,6 +764,61 @@ impl State {
                 let b2 = self.replace(b2, *id2, x)?;
                 self.unify(&body, &b2)
             }
+            (
+                Term::Eq { ty, left, right },
+                Term::Eq {
+                    ty: ty2,
+                    left: left2,
+                    right: right2,
+                },
+            ) => {
+                self.unify(ty, ty2)?;
+                self.unify(left, left2)?;
+                self.unify(right, right2)?;
+                Ok(())
+            }
+            (
+                Term::Refl { ty, value },
+                Term::Refl {
+                    ty: ty2,
+                    value: value2,
+                },
+            ) => {
+                self.unify(ty, ty2)?;
+                self.unify(value, value2)?;
+                Ok(())
+            }
+            (
+                Term::J {
+                    level,
+                    ty,
+                    left,
+                    motive,
+                    base,
+                    right,
+                    proof,
+                },
+                Term::J {
+                    level: level2,
+                    ty: ty2,
+                    left: left2,
+                    motive: motive2,
+                    base: base2,
+                    right: right2,
+                    proof: proof2,
+                },
+            ) => {
+                if level != level2 {
+                    return Err(Error::CannotUnify);
+                }
+                self.unify(ty, ty2)?;
+                self.unify(left, left2)?;
+                self.unify(motive, motive2)?;
+                self.unify(base, base2)?;
+                self.unify(right, right2)?;
+                self.unify(proof, proof2)?;
+                Ok(())
+            }
             (Term::Succ(x), Term::Succ(y)) => self.unify(x, y),
             (
                 Term::NatElim {
@@ -588,15 +851,16 @@ impl State {
             // Eta only for lambda versus a neutral term. No general search.
             (
                 Term::Lam { id, body, .. },
-                Term::Local(_) | Term::App(_, _) | Term::NatElim { .. },
+                Term::Local(_) | Term::App(_, _) | Term::NatElim { .. } | Term::J { .. },
             ) => {
                 let x = Term::Local(self.fresh()).arc();
                 let body = self.replace(body, *id, x.clone())?;
                 self.unify(&body, &Term::App(b.clone(), x).arc())
             }
-            (Term::Local(_) | Term::App(_, _) | Term::NatElim { .. }, Term::Lam { .. }) => {
-                self.unify(&b, &a)
-            }
+            (
+                Term::Local(_) | Term::App(_, _) | Term::NatElim { .. } | Term::J { .. },
+                Term::Lam { .. },
+            ) => self.unify(&b, &a),
             _ => Err(Error::CannotUnify),
         }
     }
@@ -634,6 +898,34 @@ impl State {
         match term.as_ref() {
             Term::Local(id) if !allowed.contains(id) => Err(Error::ScopeEscape),
             Term::Local(_) | Term::Universe(_) | Term::Nat | Term::Zero => Ok(()),
+            Term::Eq {
+                ty, left, right, ..
+            } => {
+                for child in [ty, left, right] {
+                    self.validate_solution(solving, child, allowed)?;
+                }
+                Ok(())
+            }
+            Term::Refl { ty, value, .. } => {
+                for child in [ty, value] {
+                    self.validate_solution(solving, child, allowed)?;
+                }
+                Ok(())
+            }
+            Term::J {
+                ty,
+                left,
+                motive,
+                base,
+                right,
+                proof,
+                ..
+            } => {
+                for child in [ty, left, motive, base, right, proof] {
+                    self.validate_solution(solving, child, allowed)?;
+                }
+                Ok(())
+            }
             Term::Succ(n) => self.validate_solution(solving, n, allowed),
             Term::NatElim {
                 motive,
@@ -688,6 +980,32 @@ impl State {
             Term::Universe(level) => Core::Universe(*level),
             Term::Nat => Core::Nat,
             Term::Zero => Core::Zero,
+            Term::Eq { ty, left, right } => Core::Eq {
+                ty: self.core(ty, scope)?,
+                left: self.core(left, scope)?,
+                right: self.core(right, scope)?,
+            },
+            Term::Refl { ty, value } => Core::Refl {
+                ty: self.core(ty, scope)?,
+                value: self.core(value, scope)?,
+            },
+            Term::J {
+                level,
+                ty,
+                left,
+                motive,
+                base,
+                right,
+                proof,
+            } => Core::J {
+                level: *level,
+                ty: self.core(ty, scope)?,
+                left: self.core(left, scope)?,
+                motive: self.core(motive, scope)?,
+                base: self.core(base, scope)?,
+                right: self.core(right, scope)?,
+                proof: self.core(proof, scope)?,
+            },
             Term::Succ(n) => Core::Succ(self.core(n, scope)?),
             Term::NatElim {
                 level,
@@ -786,6 +1104,96 @@ mod tests {
     }
     fn local(id: Id) -> T {
         Term::Local(id).arc()
+    }
+
+    fn equality_children(child: T) -> Vec<T> {
+        let mut terms = vec![
+            Term::Eq {
+                ty: child.clone(),
+                left: local(0),
+                right: local(0),
+            }
+            .arc(),
+            Term::Eq {
+                ty: u(0),
+                left: child.clone(),
+                right: local(0),
+            }
+            .arc(),
+            Term::Eq {
+                ty: u(0),
+                left: local(0),
+                right: child.clone(),
+            }
+            .arc(),
+            Term::Refl {
+                ty: child.clone(),
+                value: local(0),
+            }
+            .arc(),
+            Term::Refl {
+                ty: u(0),
+                value: child.clone(),
+            }
+            .arc(),
+        ];
+        for index in 0..6 {
+            let mut fields = [u(0), local(0), local(0), local(0), local(0), local(0)];
+            fields[index] = child.clone();
+            let [ty, left, motive, base, right, proof] = fields;
+            terms.push(
+                Term::J {
+                    level: 0,
+                    ty,
+                    left,
+                    motive,
+                    base,
+                    right,
+                    proof,
+                }
+                .arc(),
+            );
+        }
+        terms
+    }
+    #[test]
+    fn equality_children_enforce_occurs_and_scope_checks() {
+        let mut s = State::new(100_000);
+        let m = s.meta(&vec![], u(0));
+        for term in equality_children(m) {
+            assert_eq!(
+                s.validate_solution(0, &term, &mut HashSet::from([0])),
+                Err(Error::OccursCheck)
+            );
+        }
+        for term in equality_children(local(100)) {
+            assert_eq!(
+                s.validate_solution(0, &term, &mut HashSet::from([0])),
+                Err(Error::ScopeEscape)
+            );
+        }
+    }
+    #[test]
+    fn kernel_sees_invalid_j_before_iota_reduction() {
+        let mut s = State::new(10_000);
+        let invalid = Term::J {
+            level: 0,
+            ty: Term::Nat.arc(),
+            left: Term::Zero.arc(),
+            motive: Term::Nat.arc(),
+            base: Term::Zero.arc(),
+            right: Term::Zero.arc(),
+            proof: Term::Refl {
+                ty: Term::Nat.arc(),
+                value: Term::Zero.arc(),
+            }
+            .arc(),
+        }
+        .arc();
+        assert!(matches!(
+            s.finish(invalid, Term::Nat.arc(), &Kernel::default()),
+            Err(Error::Kernel(_))
+        ));
     }
 
     #[test]

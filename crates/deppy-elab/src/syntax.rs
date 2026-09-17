@@ -21,6 +21,21 @@ impl Plicity {
 pub enum Expr {
     Name(String),
     Universe(u32),
+    Eq {
+        ty: Box<Expr>,
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
+    Refl(Box<Expr>),
+    J {
+        level: u32,
+        ty: Box<Expr>,
+        left: Box<Expr>,
+        motive: Box<Expr>,
+        base: Box<Expr>,
+        right: Box<Expr>,
+        proof: Box<Expr>,
+    },
     Nat,
     Zero,
     Succ(Box<Expr>),
@@ -55,6 +70,37 @@ pub enum Expr {
     Hole,
 }
 impl Expr {
+    pub fn eq(ty: Self, left: Self, right: Self) -> Self {
+        Self::Eq {
+            ty: Box::new(ty),
+            left: Box::new(left),
+            right: Box::new(right),
+        }
+    }
+    pub fn refl(self) -> Self {
+        Self::Refl(Box::new(self))
+    }
+    /// All J parameters are explicit; level is the motive's result universe.
+    pub fn j(
+        level: u32,
+        ty: Self,
+        left: Self,
+        motive: Self,
+        base: Self,
+        right: Self,
+        proof: Self,
+    ) -> Self {
+        Self::J {
+            level,
+            ty: Box::new(ty),
+            left: Box::new(left),
+            motive: Box::new(motive),
+            base: Box::new(base),
+            right: Box::new(right),
+            proof: Box::new(proof),
+        }
+    }
+
     pub fn succ(self) -> Self {
         Self::Succ(Box::new(self))
     }
@@ -124,6 +170,24 @@ pub(crate) type T = Arc<Term>;
 pub(crate) enum Term {
     Local(Id),
     Universe(u32),
+    Eq {
+        ty: T,
+        left: T,
+        right: T,
+    },
+    Refl {
+        ty: T,
+        value: T,
+    },
+    J {
+        level: u32,
+        ty: T,
+        left: T,
+        motive: T,
+        base: T,
+        right: T,
+        proof: T,
+    },
     Nat,
     Zero,
     Succ(T),
