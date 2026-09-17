@@ -17,6 +17,7 @@ cargo run -p deppy-elab --example zero_right --offline
 cargo run -p deppy-elab --example vectors --offline
 cargo run -p deppy-elab --example sigma --offline
 cargo run -p deppy-elab --example records --offline
+cargo run -p deppy-elab --example structural --offline
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --offline -- -D warnings
 ```
@@ -169,11 +170,25 @@ RecordDecl {
 
 `Expr::Core`は閉じたコア項の埋め込みです。入力をkernelで検査してからelaboratorに取り込み、最終結果も再検査します。`records`実行例では、第17.5節の`pack`・`as_record`・`as_pair`を名前付きASTで検査し、値を正規化して確認します。Pythonの`@record`認識、runtime class・不変性の実装、一般の帰納型や再帰・positivity checkingは未実装です。
 
+## 分岐と構造的再帰の変換
+
+`lower::Function`は、パラメータ列・戻り値型・`decreases`・具体的な`motive_level`・本体を持つ関数HIRです。`Body::Match`の各`Arm`に`Pattern`と本体を記述し、`Expr::Recur(arguments)`で自己呼び出しを表します。自己呼び出しの引数列には、暗黙パラメータを含む全引数を宣言順に渡します。
+
+`Elaborator::compile_function`はmotiveと帰納法の仮定を生成し、関数全体を元の型に照らしてelaborateした後、kernelで再検査します。`lower_function`は変換した注釈付きASTだけを返すため、それだけでは型検査済みではありません。例として`prelude::structural::{add, append, get, zero_right, fin_rank}`を用意しています。
+
+- 外側の分岐は`decreases`で指定した`Nat`・`Vec`・`Fin`引数を分解し、両コンストラクタを一度ずつ網羅します。
+- 再帰先は直前に分解したコンストラクタの直接の部分構造に限定します。Vec・Finの再帰では添字もそのwitnessに一致させます。
+- 分解対象より前の引数は、添字以外を固定します。後続の引数はmotiveに一般化し、再帰時に変更できます。`get`では`Fin n → A`というmotiveを生成します。
+- 入れ子の分岐は、唯一の後続引数が`Fin (S k)`で、戻り値型がそのindex値に依存しないケースに対応します。`get`の`FZ`・`FS`分岐はこの範囲です。空の分岐では明示的な`fin0_elim`を使います。
+
+対応範囲外の型の別名や添字式、固定した前方引数の添字依存、pattern名による関数引数の隠蔽、さらに深い分岐は拒否します。`motive_level`は後続引数を含むmotiveの結果universeで、間違った値はkernel検査を通りません。全域性の検査を無効化する設定、一般再帰・相互再帰・Eqのpattern matchingはありません。
+
+これはプログラムから構築するHIRの実装です。Pythonの`match`・`return`・自己呼び出しを解析してHIRに変換するfrontendは未実装です。
+
 ## 次の実装段階
 
-1. 限定した依存パターンと構造的再帰のeliminatorへの変換。
-2. elaboratorの対応範囲を拡張（let・グローバル定義・保留制約・意味値による評価）。
-3. CPython 3.12〜3.14のparse/compile検証、AST schema、静的名前解決を接続。
-4. 使用検査、消去、境界の検証・再構築、Pythonコード生成と差分実行テスト。
+1. elaboratorの対応範囲を拡張（let・グローバル定義・保留制約・意味値による評価）。
+2. CPython 3.12〜3.14のparse/compile検証、AST schema、静的名前解決を接続。
+3. 使用検査、消去、境界の検証・再構築、Pythonコード生成と差分実行テスト。
 
 第17節の5例を検査・実行できることがMVPの到達条件です。未実装の構文や穴を公理・`Any`として受理する機能は設けません。

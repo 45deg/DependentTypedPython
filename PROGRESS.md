@@ -48,8 +48,10 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - [x] elaboratorへの接続、carrier・長さ・上限の暗黙引数推論。
 - [x] appendとgetの名前付きAST、一般形の型検査と実行例。
 - [ ] ユーザー定義帰納型の宣言検査・positivity checking。
-- [ ] constructor patternと限定した入れ子の依存パターン。
-- [ ] 指定引数に対する構造的再帰とrecursorへの変換。
+- [x] 関数HIRのNat・Vec・Fin constructor pattern、網羅性検査、限定した入れ子のFin分岐。
+- [x] 関数HIRの指定引数に対する直接の構造的再帰、後続引数の一般化、recursorへの変換。
+- [x] append・get・zero_rightを、明示的なmotiveを持たない分岐と自己呼び出しから生成。
+- [ ] Pythonのmatch・return・自己呼び出しから関数HIRへの変換。
 - [x] Σ、期待型によるPairの検査、依存するfst・snd射影。
 - [x] 名前付きASTによるpackの一般形と射影の実行例。
 - [x] 非再帰dependent recordの名前付き宣言、名目的な単一コンストラクタ型と依存射影への変換。
@@ -85,7 +87,7 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 
 ## 検証記録（2026-09-18）
 
-- `cargo test --workspace --offline`：197件成功（kernel 79件、meta内部19件、elaboration統合99件）。
+- `cargo test --workspace --offline`：214件成功（kernel 79件、meta内部19件、elaboration統合116件）。
 - `cargo clippy --workspace --all-targets --offline -- -D warnings`：成功。
 - `cargo fmt --all -- --check`：成功。
 - `cargo run -p deppy-elab --example implicit_identity --offline`：暗黙型引数を補ったコアの生成とkernel再検査が成功。
@@ -100,6 +102,8 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - Σのuniverse・束縛・暗黙引数推論、成分のhole解決、不正な成分・Σのη・scope escapeの拒否を検査。
 - `cargo run -p deppy-elab --example records --offline`：SomeVecの宣言、pack・as_record・as_pairの一般形、両射影の計算を確認。
 - 名目的な型の区別、空record・型を保持するrecord・依存するパラメータ列、自己参照・前方参照・不正なuniverse・不正なeliminatorの拒否を検査。
+- `cargo run -p deppy-elab --example structural --offline`：関数HIRから生成したappend・get・zero_rightをkernelで検査し、具体値での計算を確認。
+- 直接の部分構造以外への再帰、変更された固定引数・不正な添字、非網羅・重複分岐、名前の捕獲、対応外の入れ子の分岐を拒否。
 - Pythonの構文検査・実行、コード生成の検証は未実施。
 
-次は限定した依存パターンと構造的再帰のeliminatorへの変換へ進みます。Pythonのmatchや再帰関数からの変換はまだ実装していません。
+次はelaboratorのlet・グローバル定義と、Python frontendへの接続を進めます。Pythonのmatchや再帰関数から関数HIRへの変換はまだ実装していません。
