@@ -112,7 +112,10 @@ pub(crate) enum Neutral {
 }
 
 /// Shared across checking, evaluation and conversion. Exhaustion is an error.
-pub(crate) struct Budget(pub usize);
+pub(crate) struct Budget(
+    pub usize,
+    pub Arc<std::collections::BTreeMap<crate::DefId, crate::Definition>>,
+);
 impl Budget {
     pub fn tick(&mut self) -> Result<(), Error> {
         self.0 = self.0.checked_sub(1).ok_or(Error::BudgetExceeded)?;
@@ -144,6 +147,15 @@ pub(crate) fn apply(fun: &Val, arg: Val, budget: &mut Budget) -> Result<Val, Err
 pub(crate) fn eval(term: &Tm, env: &Env, budget: &mut Budget) -> Result<Val, Error> {
     budget.tick()?;
     Ok(Arc::new(match term.as_ref() {
+        Term::Global(id) => {
+            let body = budget
+                .1
+                .get(id)
+                .ok_or(Error::UnknownDefinition(*id))?
+                .body
+                .clone();
+            return eval(&body, &vec![], budget);
+        }
         Term::Inductive { id, parameters } => Value::Inductive {
             id: *id,
             parameters: parameters

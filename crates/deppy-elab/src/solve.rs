@@ -21,6 +21,7 @@ struct Meta {
 
 pub(crate) struct State {
     kernel: Kernel,
+    pub(crate) globals: HashMap<String, deppy_core::DefId>,
     next_id: Id,
     remaining: usize,
     metas: Vec<Meta>,
@@ -29,6 +30,7 @@ impl State {
     pub fn new(remaining: usize) -> Self {
         Self {
             kernel: Kernel::new(remaining),
+            globals: HashMap::new(),
             next_id: 0,
             remaining,
             metas: vec![],
@@ -139,6 +141,7 @@ impl State {
                     body: self.subst(body, &map)?,
                 }
             }
+            Term::Global(_) => return Ok(term.clone()),
             Term::Local(id) => return Ok(map.get(id).cloned().unwrap_or_else(|| term.clone())),
             Term::Universe(_) | Term::Nat | Term::Zero => return Ok(term.clone()),
             Term::Eq { ty, left, right } => Term::Eq {
@@ -295,6 +298,11 @@ impl State {
     fn whnf(&mut self, term: &T) -> Result<T, Error> {
         self.tick()?;
         match term.as_ref() {
+            Term::Global(id) => {
+                let body = self.kernel.definition(*id)?.body.clone();
+                let body = self.import_core(&body, &mut vec![])?;
+                self.whnf(&body)
+            }
             Term::Elim {
                 id,
                 parameters,
@@ -553,7 +561,9 @@ impl State {
                 domain: self.zonk(domain)?,
                 body: self.zonk(body)?,
             },
-            Term::Local(_) | Term::Universe(_) | Term::Nat | Term::Zero => return Ok(term),
+            Term::Global(_) | Term::Local(_) | Term::Universe(_) | Term::Nat | Term::Zero => {
+                return Ok(term)
+            }
             Term::Eq { ty, left, right } => Term::Eq {
                 ty: self.zonk(ty)?,
                 left: self.zonk(left)?,
@@ -746,7 +756,9 @@ impl State {
                 domain: self.expand(domain)?,
                 body: self.expand(body)?,
             },
-            Term::Local(_) | Term::Universe(_) | Term::Nat | Term::Zero => return Ok(term.clone()),
+            Term::Global(_) | Term::Local(_) | Term::Universe(_) | Term::Nat | Term::Zero => {
+                return Ok(term.clone())
+            }
             Term::Meta(id, args) => {
                 let meta = self.metas[*id].clone();
                 let solution = meta.solution.ok_or(Error::UnsolvedMeta { id: *id })?;
@@ -984,18 +996,21 @@ impl State {
                 }
             }
             Expr::Name(name) => {
-                let local = ctx
-                    .iter()
-                    .rev()
-                    .find(|x| x.name == *name)
+                if let Some(local) = ctx.iter().rev().find(|x| x.name == *name) {
+                    return Ok((
+                        local
+                            .value
+                            .clone()
+                            .unwrap_or_else(|| Term::Local(local.id).arc()),
+                        local.ty.clone(),
+                    ));
+                }
+                let id = *self
+                    .globals
+                    .get(name)
                     .ok_or_else(|| Error::UnknownName(name.clone()))?;
-                Ok((
-                    local
-                        .value
-                        .clone()
-                        .unwrap_or_else(|| Term::Local(local.id).arc()),
-                    local.ty.clone(),
-                ))
+                let ty = self.kernel.definition(id)?.ty.clone();
+                Ok((Term::Global(id).arc(), self.import_core(&ty, &mut vec![])?))
             }
             Expr::Universe(level) => Ok((
                 Term::Universe(*level).arc(),
@@ -2027,7 +2042,7 @@ impl State {
                 Ok(())
             }
             Term::Local(id) if !allowed.contains(id) => Err(Error::ScopeEscape),
-            Term::Local(_) | Term::Universe(_) | Term::Nat | Term::Zero => Ok(()),
+            Term::Global(_) | Term::Local(_) | Term::Universe(_) | Term::Nat | Term::Zero => Ok(()),
             Term::Eq {
                 ty, left, right, ..
             } => {
@@ -2170,6 +2185,7 @@ impl State {
     fn core(&mut self, term: &T, scope: &mut Vec<Id>) -> Result<Tm, Error> {
         self.tick()?;
         Ok(match term.as_ref() {
+            Term::Global(id) => Core::Global(*id),
             Term::Inductive { id, parameters } => Core::Inductive {
                 id: *id,
                 parameters: parameters
@@ -2380,6 +2396,10 @@ impl State {
     fn import_core(&mut self, term: &Tm, scope: &mut Vec<Id>) -> Result<T, Error> {
         self.tick()?;
         Ok(match term.as_ref() {
+            Core::Global(id) => {
+                self.kernel.definition(*id)?;
+                Term::Global(*id)
+            }
             Core::Var(i) => {
                 let index = scope
                     .len()

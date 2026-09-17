@@ -342,6 +342,7 @@ pub(crate) type T = Arc<Term>;
 /// explicitly instantiate the telescope captured when the meta was created.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Term {
+    Global(deppy_core::DefId),
     Inductive {
         id: deppy_core::InductiveId,
         parameters: Vec<T>,

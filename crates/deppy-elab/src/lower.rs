@@ -56,6 +56,7 @@ struct Recursion {
 struct Lowerer {
     remaining: usize,
     next: usize,
+    globals: Env,
 }
 #[derive(Clone)]
 enum Kind {
@@ -80,6 +81,11 @@ impl Elaborator {
         Lowerer {
             remaining: self.max_steps,
             next: 0,
+            globals: self
+                .globals
+                .iter()
+                .map(|(name, id)| (name.clone(), E::Core(deppy_core::Term::Global(*id).arc())))
+                .collect(),
         }
         .function(function)
     }
@@ -114,10 +120,11 @@ impl Lowerer {
             .iter()
             .position(|p| p.name == f.decreases)
             .ok_or_else(|| Error::InvalidRecursion("unknown decreases parameter".into()))?;
-        let mut env = Env::new();
+        let mut env = self.globals.clone();
+        let mut seen = HashSet::new();
         let mut parameters = vec![];
         for p in &f.parameters {
-            if env.contains_key(&p.name) {
+            if !seen.insert(p.name.clone()) {
                 return Err(Error::InvalidDeclarationName(p.name.clone()));
             }
             let ty = self.rewrite(&p.ty, &env, None)?;

@@ -88,6 +88,8 @@ pub struct Elaborated {
 pub struct Elaborator {
     kernel: Kernel,
     max_steps: usize,
+    globals: std::collections::HashMap<String, deppy_core::DefId>,
+    next_definition: deppy_core::DefId,
 }
 impl Default for Elaborator {
     fn default() -> Self {
@@ -99,8 +101,44 @@ impl Elaborator {
     pub fn new(max_steps: usize) -> Self {
         Self {
             max_steps,
+            globals: Default::default(),
+            next_definition: 0,
             kernel: Kernel::new(max_steps),
         }
+    }
+
+    /// Register a checked transparent definition. Registration is atomic and names
+    /// are immutable; local binders take precedence during name resolution.
+    pub fn define(
+        &mut self,
+        name: impl Into<String>,
+        ty: Option<&Expr>,
+        body: &Expr,
+    ) -> Result<deppy_core::DefId, Error> {
+        let name = name.into();
+        if name.is_empty() || name.contains('\0') || self.globals.contains_key(&name) {
+            return Err(Error::InvalidDeclarationName(name));
+        }
+        let next = self
+            .next_definition
+            .checked_add(1)
+            .ok_or(Error::BudgetExceeded)?;
+        let out = if let Some(ty) = ty {
+            self.check(body, ty)?
+        } else {
+            self.infer(body)?
+        };
+        let id = self.next_definition;
+        self.kernel.define(
+            id,
+            deppy_core::Definition {
+                ty: out.ty,
+                body: out.term,
+            },
+        )?;
+        self.globals.insert(name, id);
+        self.next_definition = next;
+        Ok(id)
     }
 
     pub fn kernel(&self) -> &Kernel {
@@ -108,12 +146,14 @@ impl Elaborator {
     }
     pub fn infer(&self, expr: &Expr) -> Result<Elaborated, Error> {
         let mut state = State::with_kernel(self.max_steps, self.kernel.clone());
+        state.globals = self.globals.clone();
         let (term, ty) = state.synth(&Context::new(), expr)?;
         state.finish(term, ty, &self.kernel)
     }
 
     pub fn check(&self, expr: &Expr, expected: &Expr) -> Result<Elaborated, Error> {
         let mut state = State::with_kernel(self.max_steps, self.kernel.clone());
+        state.globals = self.globals.clone();
         let ctx = Context::new();
         let (ty, _) = state.type_expr(&ctx, expected)?;
         let term = state.check(&ctx, expr, &ty)?;

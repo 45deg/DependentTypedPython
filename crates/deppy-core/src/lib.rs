@@ -9,6 +9,13 @@ pub use kernel::{Error, Kernel};
 use std::sync::Arc;
 
 pub type Tm = Arc<Term>;
+pub type DefId = u64;
+/// A closed, transparent definition with concrete universe levels.
+#[derive(Clone, Debug)]
+pub struct Definition {
+    pub ty: Tm,
+    pub body: Tm,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Relevance {
@@ -20,6 +27,7 @@ pub enum Relevance {
 /// Universe levels are concrete and non-cumulative.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Term {
+    Global(DefId),
     Inductive {
         id: InductiveId,
         parameters: Vec<Tm>,

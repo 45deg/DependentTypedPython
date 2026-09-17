@@ -4,6 +4,8 @@ use std::{fmt, sync::Arc};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
+    UnknownDefinition(crate::DefId),
+    DuplicateDefinition(crate::DefId),
     UnknownInductive(crate::InductiveId),
     DuplicateInductive(crate::InductiveId),
     ArityMismatch,
@@ -25,6 +27,8 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::UnknownDefinition(id) => write!(f, "unknown definition {id}"),
+            Self::DuplicateDefinition(id) => write!(f, "definition {id} already exists"),
             Self::UnknownInductive(id) => write!(f, "unknown inductive declaration {id}"),
             Self::DuplicateInductive(id) => write!(f, "inductive declaration {id} already exists"),
             Self::ArityMismatch => write!(f, "wrong number of parameters or fields"),
@@ -73,6 +77,7 @@ impl Context {
 /// A fresh shared operation budget is used for each call.
 #[derive(Clone)]
 pub struct Kernel {
+    definitions: Arc<std::collections::BTreeMap<crate::DefId, crate::Definition>>,
     globals: Arc<std::collections::BTreeMap<crate::InductiveId, crate::InductiveDecl>>,
     max_steps: usize,
 }
@@ -86,7 +91,24 @@ impl Kernel {
         Self {
             max_steps,
             globals: Arc::default(),
+            definitions: Arc::default(),
         }
+    }
+
+    pub fn definition(&self, id: crate::DefId) -> Result<&crate::Definition, Error> {
+        self.definitions
+            .get(&id)
+            .ok_or(Error::UnknownDefinition(id))
+    }
+    /// Check against the existing environment before insertion. No axioms,
+    /// replacement, forward references or recursive definitions are accepted.
+    pub fn define(&mut self, id: crate::DefId, definition: crate::Definition) -> Result<(), Error> {
+        if self.definitions.contains_key(&id) {
+            return Err(Error::DuplicateDefinition(id));
+        }
+        self.check(&definition.body, &definition.ty)?;
+        Arc::make_mut(&mut self.definitions).insert(id, definition);
+        Ok(())
     }
 
     fn context(&self) -> Context {
@@ -109,7 +131,7 @@ impl Kernel {
             return Err(Error::DuplicateInductive(id));
         }
         decl.level.checked_add(1).ok_or(Error::UniverseOverflow)?;
-        let mut budget = Budget(self.max_steps);
+        let mut budget = Budget(self.max_steps, self.definitions.clone());
         let mut ctx = self.context();
         for ty in &decl.parameters {
             universe(&ctx, ty, &mut budget)?;
@@ -127,13 +149,13 @@ impl Kernel {
         Ok(())
     }
     pub fn infer(&self, term: &Tm) -> Result<Tm, Error> {
-        let mut budget = Budget(self.max_steps);
+        let mut budget = Budget(self.max_steps, self.definitions.clone());
         let ty = synth(&self.context(), term, &mut budget)?;
         value::quote(&ty, 0, &mut budget)
     }
 
     pub fn check(&self, term: &Tm, ty: &Tm) -> Result<(), Error> {
-        let mut budget = Budget(self.max_steps);
+        let mut budget = Budget(self.max_steps, self.definitions.clone());
         let ctx = self.context();
         universe(&ctx, ty, &mut budget)?;
         let expected = value::eval(ty, &ctx.env, &mut budget)?;
@@ -141,7 +163,7 @@ impl Kernel {
     }
 
     pub fn normalize(&self, term: &Tm) -> Result<Tm, Error> {
-        let mut budget = Budget(self.max_steps);
+        let mut budget = Budget(self.max_steps, self.definitions.clone());
         let ctx = self.context();
         synth(&ctx, term, &mut budget)?;
         let val = value::eval(term, &ctx.env, &mut budget)?;
@@ -150,7 +172,7 @@ impl Kernel {
 
     /// Both operands must inhabit the supplied type before conversion is tried.
     pub fn equivalent(&self, left: &Tm, right: &Tm, ty: &Tm) -> Result<bool, Error> {
-        let mut budget = Budget(self.max_steps);
+        let mut budget = Budget(self.max_steps, self.definitions.clone());
         let ctx = self.context();
         universe(&ctx, ty, &mut budget)?;
         let ty = value::eval(ty, &ctx.env, &mut budget)?;
@@ -184,6 +206,15 @@ fn check(ctx: &Context, term: &Tm, expected: &Val, budget: &mut Budget) -> Resul
 fn synth(ctx: &Context, term: &Tm, budget: &mut Budget) -> Result<Val, Error> {
     budget.tick()?;
     match term.as_ref() {
+        Term::Global(id) => {
+            let ty = budget
+                .1
+                .get(id)
+                .ok_or(Error::UnknownDefinition(*id))?
+                .ty
+                .clone();
+            value::eval(&ty, &vec![], budget)
+        }
         Term::Inductive { id, parameters } => {
             let decl = ctx.globals.get(id).ok_or(Error::UnknownInductive(*id))?;
             arguments(ctx, parameters, &decl.parameters, vec![], budget)?;
