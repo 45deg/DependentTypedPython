@@ -62,3 +62,35 @@ pub fn fz(bound: Tm) -> Tm {
 pub fn fs(bound: Tm, pred: Tm) -> Tm {
     T::FS { bound, pred }.arc()
 }
+pub fn ve(level: u32, ty: Tm, motive: Tm, nil: Tm, cons: Tm, len: Tm, scrutinee: Tm) -> Tm {
+    T::VecElim {
+        level,
+        ty,
+        motive,
+        nil,
+        cons,
+        len,
+        scrutinee,
+    }
+    .arc()
+}
+pub fn fe(level: u32, motive: Tm, zero: Tm, step: Tm, bound: Tm, scrutinee: Tm) -> Tm {
+    T::FinElim {
+        level,
+        motive,
+        zero,
+        step,
+        bound,
+        scrutinee,
+    }
+    .arc()
+}
+pub fn eq(ty: Tm, left: Tm, right: Tm) -> Tm {
+    T::Eq { ty, left, right }.arc()
+}
+pub fn refl(ty: Tm, value: Tm) -> Tm {
+    T::Refl { ty, value }.arc()
+}
+pub fn absurd(ty: Tm, value: Tm) -> Tm {
+    T::Fin0Elim { ty, absurd: value }.arc()
+}

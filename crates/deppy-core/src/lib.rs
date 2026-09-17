@@ -63,6 +63,31 @@ pub enum Term {
         bound: Tm,
         pred: Tm,
     },
+    /// P : (n : Nat) -> Vec A n -> Type[level].
+    /// cons : (k : Nat) -> (h : A) -> (t : Vec A k) -> P k t -> P (S k) (VCons A k h t).
+    VecElim {
+        level: u32,
+        ty: Tm,
+        motive: Tm,
+        nil: Tm,
+        cons: Tm,
+        len: Tm,
+        scrutinee: Tm,
+    },
+    /// P : (n : Nat) -> Fin n -> Type[level], with FZ and FS branches.
+    FinElim {
+        level: u32,
+        motive: Tm,
+        zero: Tm,
+        step: Tm,
+        bound: Tm,
+        scrutinee: Tm,
+    },
+    /// Eliminate an impossible Fin Z into the explicitly supplied type.
+    Fin0Elim {
+        ty: Tm,
+        absurd: Tm,
+    },
     Nat,
     Zero,
     Succ(Tm),

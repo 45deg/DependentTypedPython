@@ -8,6 +8,9 @@ pub enum Error {
     ExpectedUniverse,
     ExpectedFunction,
     ExpectedNat,
+    ExpectedVec,
+    ExpectedFin,
+    ExpectedEmptyFin,
     ExpectedEquality,
     TypeMismatch { expected: Tm, actual: Tm },
     UniverseOverflow,
@@ -20,6 +23,9 @@ impl fmt::Display for Error {
             Self::UnboundVariable(i) => write!(f, "unbound core variable {i}"),
             Self::ExpectedUniverse => write!(f, "expected a type (a term inhabiting a universe)"),
             Self::ExpectedEquality => write!(f, "expected an equality proof"),
+            Self::ExpectedVec => write!(f, "expected a vector"),
+            Self::ExpectedFin => write!(f, "expected a finite index"),
+            Self::ExpectedEmptyFin => write!(f, "expected an impossible Fin Z value"),
             Self::ExpectedNat => write!(f, "expected a natural number"),
             Self::ExpectedFunction => write!(f, "expected a dependent function"),
             Self::TypeMismatch { expected, actual } => {
@@ -310,6 +316,160 @@ fn synth(ctx: &Context, term: &Tm, budget: &mut Budget) -> Result<Val, Error> {
                 bound: Arc::new(Value::Succ(bound)),
             }))
         }
+        Term::VecElim {
+            level,
+            ty,
+            motive,
+            nil,
+            cons,
+            len,
+            scrutinee,
+        } => {
+            level.checked_add(1).ok_or(Error::UniverseOverflow)?;
+            universe(ctx, ty, budget)?;
+            let ty = value::eval(ty, &ctx.env, budget)?;
+            check(ctx, len, &Arc::new(Value::Nat), budget)?;
+            let len = value::eval(len, &ctx.env, budget)?;
+            check(
+                ctx,
+                scrutinee,
+                &Arc::new(Value::Vec {
+                    ty: ty.clone(),
+                    len: len.clone(),
+                }),
+                budget,
+            )?;
+            let xs = value::eval(scrutinee, &ctx.env, budget)?;
+            // Template environment [A]; after n, A is #1 and n is #0.
+            let motive_ty = pi(
+                Term::Nat.arc(),
+                pi(
+                    Term::Vec {
+                        ty: var(1),
+                        len: var(0),
+                    }
+                    .arc(),
+                    Term::Universe(*level).arc(),
+                ),
+            );
+            let motive_ty = value::eval(&motive_ty, &vec![ty.clone()], budget)?;
+            check(ctx, motive, &motive_ty, budget)?;
+            let motive = value::eval(motive, &ctx.env, budget)?;
+            let nil_ty = apply2(
+                &motive,
+                Arc::new(Value::Zero),
+                Arc::new(Value::VNil { ty: ty.clone() }),
+                budget,
+            )?;
+            check(ctx, nil, &nil_ty, budget)?;
+            // Template environment [A,P], followed by k,h,t,ih.
+            let cons_ty = pi(
+                Term::Nat.arc(),
+                pi(
+                    var(2),
+                    pi(
+                        Term::Vec {
+                            ty: var(3),
+                            len: var(1),
+                        }
+                        .arc(),
+                        pi(
+                            app2(var(3), var(2), var(0)),
+                            app2(
+                                var(4),
+                                Term::Succ(var(3)).arc(),
+                                Term::VCons {
+                                    ty: var(5),
+                                    len: var(3),
+                                    head: var(2),
+                                    tail: var(1),
+                                }
+                                .arc(),
+                            ),
+                        ),
+                    ),
+                ),
+            );
+            let cons_ty = value::eval(&cons_ty, &vec![ty, motive.clone()], budget)?;
+            check(ctx, cons, &cons_ty, budget)?;
+            apply2(&motive, len, xs, budget)
+        }
+        Term::FinElim {
+            level,
+            motive,
+            zero,
+            step,
+            bound,
+            scrutinee,
+        } => {
+            level.checked_add(1).ok_or(Error::UniverseOverflow)?;
+            check(ctx, bound, &Arc::new(Value::Nat), budget)?;
+            let bound = value::eval(bound, &ctx.env, budget)?;
+            check(
+                ctx,
+                scrutinee,
+                &Arc::new(Value::Fin {
+                    bound: bound.clone(),
+                }),
+                budget,
+            )?;
+            let index = value::eval(scrutinee, &ctx.env, budget)?;
+            let motive_ty = pi(
+                Term::Nat.arc(),
+                pi(
+                    Term::Fin { bound: var(0) }.arc(),
+                    Term::Universe(*level).arc(),
+                ),
+            );
+            let motive_ty = value::eval(&motive_ty, &vec![], budget)?;
+            check(ctx, motive, &motive_ty, budget)?;
+            let motive = value::eval(motive, &ctx.env, budget)?;
+            // Template environment [P]. FZ carries the predecessor bound k.
+            let zero_ty = pi(
+                Term::Nat.arc(),
+                app2(
+                    var(1),
+                    Term::Succ(var(0)).arc(),
+                    Term::FZ { bound: var(0) }.arc(),
+                ),
+            );
+            let zero_ty = value::eval(&zero_ty, &vec![motive.clone()], budget)?;
+            check(ctx, zero, &zero_ty, budget)?;
+            // After k,i,ih: P is #3, k is #2, i is #1.
+            let step_ty = pi(
+                Term::Nat.arc(),
+                pi(
+                    Term::Fin { bound: var(0) }.arc(),
+                    pi(
+                        app2(var(2), var(1), var(0)),
+                        app2(
+                            var(3),
+                            Term::Succ(var(2)).arc(),
+                            Term::FS {
+                                bound: var(2),
+                                pred: var(1),
+                            }
+                            .arc(),
+                        ),
+                    ),
+                ),
+            );
+            let step_ty = value::eval(&step_ty, &vec![motive.clone()], budget)?;
+            check(ctx, step, &step_ty, budget)?;
+            apply2(&motive, bound, index, budget)
+        }
+        Term::Fin0Elim { ty, absurd } => {
+            universe(ctx, ty, budget)?;
+            check(
+                ctx,
+                absurd,
+                &Arc::new(Value::Fin {
+                    bound: Arc::new(Value::Zero),
+                }),
+                budget,
+            )?;
+            value::eval(ty, &ctx.env, budget)
+        }
         Term::Nat => Ok(Arc::new(Value::Universe(0))),
         Term::Zero => Ok(Arc::new(Value::Nat)),
         Term::Succ(n) => {
@@ -360,4 +520,32 @@ fn synth(ctx: &Context, term: &Tm, budget: &mut Budget) -> Result<Val, Error> {
             synth(&ctx.define(ty, val), body, budget)
         }
     }
+}
+
+// Small de Bruijn templates are evaluated with semantic parameters, avoiding
+// any shifting of caller syntax while building dependent eliminator signatures.
+fn var(index: usize) -> Tm {
+    Term::Var(index).arc()
+}
+fn pi(domain: Tm, codomain: Tm) -> Tm {
+    Term::Pi {
+        relevance: crate::Relevance::Runtime,
+        domain,
+        codomain,
+    }
+    .arc()
+}
+fn app2(function: Tm, a: Tm, b: Tm) -> Tm {
+    Term::App {
+        function: Term::App {
+            function,
+            argument: a,
+        }
+        .arc(),
+        argument: b,
+    }
+    .arc()
+}
+fn apply2(function: &Val, a: Val, b: Val, budget: &mut Budget) -> Result<Val, Error> {
+    value::apply(&value::apply(function, a, budget)?, b, budget)
 }
