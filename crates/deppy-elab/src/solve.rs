@@ -64,6 +64,24 @@ impl State {
     fn subst(&mut self, term: &T, map: &HashMap<Id, T>) -> Result<T, Error> {
         self.tick()?;
         Ok(match term.as_ref() {
+            Term::Fst(p) => Term::Fst(self.subst(p, map)?),
+            Term::Snd(p) => Term::Snd(self.subst(p, map)?),
+            Term::Pair { ty, fst, snd } => Term::Pair {
+                ty: self.subst(ty, map)?,
+                fst: self.subst(fst, map)?,
+                snd: self.subst(snd, map)?,
+            },
+            Term::Sigma { id, domain, body } => {
+                let domain = self.subst(domain, map)?;
+                let new_id = self.fresh();
+                let mut map = map.clone();
+                map.insert(*id, Term::Local(new_id).arc());
+                Term::Sigma {
+                    id: new_id,
+                    domain,
+                    body: self.subst(body, &map)?,
+                }
+            }
             Term::Local(id) => return Ok(map.get(id).cloned().unwrap_or_else(|| term.clone())),
             Term::Universe(_) | Term::Nat | Term::Zero => return Ok(term.clone()),
             Term::Eq { ty, left, right } => Term::Eq {
@@ -220,6 +238,23 @@ impl State {
     fn whnf(&mut self, term: &T) -> Result<T, Error> {
         self.tick()?;
         match term.as_ref() {
+            Term::Fst(p) | Term::Snd(p) => {
+                let p = self.whnf(p)?;
+                if let Term::Pair { fst, snd, .. } = p.as_ref() {
+                    self.whnf(if matches!(term.as_ref(), Term::Fst(_)) {
+                        fst
+                    } else {
+                        snd
+                    })
+                } else {
+                    Ok(if matches!(term.as_ref(), Term::Fst(_)) {
+                        Term::Fst(p)
+                    } else {
+                        Term::Snd(p)
+                    }
+                    .arc())
+                }
+            }
             Term::Meta(id, args) => {
                 let meta = self.metas[*id].clone();
                 if let Some(solution) = meta.solution {
@@ -383,6 +418,18 @@ impl State {
     fn zonk(&mut self, term: &T) -> Result<T, Error> {
         let term = self.whnf(term)?;
         Ok(match term.as_ref() {
+            Term::Fst(p) => Term::Fst(self.zonk(p)?),
+            Term::Snd(p) => Term::Snd(self.zonk(p)?),
+            Term::Pair { ty, fst, snd } => Term::Pair {
+                ty: self.zonk(ty)?,
+                fst: self.zonk(fst)?,
+                snd: self.zonk(snd)?,
+            },
+            Term::Sigma { id, domain, body } => Term::Sigma {
+                id: *id,
+                domain: self.zonk(domain)?,
+                body: self.zonk(body)?,
+            },
             Term::Local(_) | Term::Universe(_) | Term::Nat | Term::Zero => return Ok(term),
             Term::Eq { ty, left, right } => Term::Eq {
                 ty: self.zonk(ty)?,
@@ -524,6 +571,18 @@ impl State {
     fn expand(&mut self, term: &T) -> Result<T, Error> {
         self.tick()?;
         Ok(match term.as_ref() {
+            Term::Fst(p) => Term::Fst(self.expand(p)?),
+            Term::Snd(p) => Term::Snd(self.expand(p)?),
+            Term::Pair { ty, fst, snd } => Term::Pair {
+                ty: self.expand(ty)?,
+                fst: self.expand(fst)?,
+                snd: self.expand(snd)?,
+            },
+            Term::Sigma { id, domain, body } => Term::Sigma {
+                id: *id,
+                domain: self.expand(domain)?,
+                body: self.expand(body)?,
+            },
             Term::Local(_) | Term::Universe(_) | Term::Nat | Term::Zero => return Ok(term.clone()),
             Term::Meta(id, args) => {
                 let meta = self.metas[*id].clone();
@@ -679,6 +738,33 @@ impl State {
     pub fn synth(&mut self, ctx: &Context, expr: &Expr) -> Result<(T, T), Error> {
         self.tick()?;
         match expr {
+            Expr::Sigma {
+                name,
+                domain,
+                codomain,
+            } => {
+                let (domain, a) = self.type_expr(ctx, domain)?;
+                let (ctx, id) = self.bind(ctx, name, domain.clone());
+                let (body, b) = self.type_expr(&ctx, codomain)?;
+                Ok((
+                    Term::Sigma { id, domain, body }.arc(),
+                    Term::Universe(a.max(b)).arc(),
+                ))
+            }
+            Expr::Pair { .. } => Err(Error::AnnotationRequired),
+            Expr::Fst(p) | Expr::Snd(p) => {
+                let (p, ty) = self.synth(ctx, p)?;
+                let ty = self.whnf(&ty)?;
+                let Term::Sigma { id, domain, body } = ty.as_ref() else {
+                    return Err(Error::ExpectedSigma);
+                };
+                if matches!(expr, Expr::Fst(_)) {
+                    Ok((Term::Fst(p).arc(), domain.clone()))
+                } else {
+                    let ty = self.replace(body, *id, Term::Fst(p.clone()).arc())?;
+                    Ok((Term::Snd(p).arc(), ty))
+                }
+            }
             Expr::Name(name) => {
                 let local = ctx
                     .iter()
@@ -1180,6 +1266,21 @@ impl State {
         if matches!(expr, Expr::Hole) {
             return Ok(self.meta(ctx, expected.clone()));
         }
+        if let Expr::Pair { fst, snd } = expr {
+            let ty = self.whnf(expected)?;
+            let Term::Sigma { id, domain, body } = ty.as_ref() else {
+                return Err(Error::ExpectedSigma);
+            };
+            let fst = self.check(ctx, fst, domain)?;
+            let second_ty = self.replace(body, *id, fst.clone())?;
+            let snd = self.check(ctx, snd, &second_ty)?;
+            return Ok(Term::Pair {
+                ty: expected.clone(),
+                fst,
+                snd,
+            }
+            .arc());
+        }
         if let Expr::Refl(value) = expr {
             let expected = self.whnf(expected)?;
             if let Term::Eq { ty, left, right } = expected.as_ref() {
@@ -1241,6 +1342,33 @@ impl State {
             return Ok(());
         }
         match (a.as_ref(), b.as_ref()) {
+            (
+                Term::Sigma { id, domain, body },
+                Term::Sigma {
+                    id: id2,
+                    domain: d2,
+                    body: b2,
+                },
+            ) => {
+                self.unify(domain, d2)?;
+                let x = Term::Local(self.fresh()).arc();
+                let body = self.replace(body, *id, x.clone())?;
+                let b2 = self.replace(b2, *id2, x)?;
+                self.unify(&body, &b2)
+            }
+            (
+                Term::Pair { ty, fst, snd },
+                Term::Pair {
+                    ty: t2,
+                    fst: f2,
+                    snd: s2,
+                },
+            ) => {
+                self.unify(ty, t2)?;
+                self.unify(fst, f2)?;
+                self.unify(snd, s2)
+            }
+            (Term::Fst(a), Term::Fst(b)) | (Term::Snd(a), Term::Snd(b)) => self.unify(a, b),
             (Term::Meta(id, args), _) => self.solve(*id, args, &b),
             (_, Term::Meta(id, args)) => self.solve(*id, args, &a),
             (
@@ -1491,6 +1619,8 @@ impl State {
                 | Term::J { .. }
                 | Term::VecElim { .. }
                 | Term::FinElim { .. }
+                | Term::Fst(_)
+                | Term::Snd(_)
                 | Term::Fin0Elim { .. },
             ) => {
                 let x = Term::Local(self.fresh()).arc();
@@ -1504,6 +1634,8 @@ impl State {
                 | Term::J { .. }
                 | Term::VecElim { .. }
                 | Term::FinElim { .. }
+                | Term::Fst(_)
+                | Term::Snd(_)
                 | Term::Fin0Elim { .. },
                 Term::Lam { .. },
             ) => self.unify(&b, &a),
@@ -1542,6 +1674,13 @@ impl State {
     ) -> Result<(), Error> {
         self.tick()?;
         match term.as_ref() {
+            Term::Fst(p) | Term::Snd(p) => self.validate_solution(solving, p, allowed),
+            Term::Pair { ty, fst, snd } => {
+                for child in [ty, fst, snd] {
+                    self.validate_solution(solving, child, allowed)?;
+                }
+                Ok(())
+            }
             Term::Local(id) if !allowed.contains(id) => Err(Error::ScopeEscape),
             Term::Local(_) | Term::Universe(_) | Term::Nat | Term::Zero => Ok(()),
             Term::Eq {
@@ -1665,7 +1804,8 @@ impl State {
                 self.validate_solution(solving, f, allowed)?;
                 self.validate_solution(solving, x, allowed)
             }
-            Term::Pi {
+            Term::Sigma { id, domain, body }
+            | Term::Pi {
                 id, domain, body, ..
             }
             | Term::Lam {
@@ -1685,6 +1825,20 @@ impl State {
     fn core(&mut self, term: &T, scope: &mut Vec<Id>) -> Result<Tm, Error> {
         self.tick()?;
         Ok(match term.as_ref() {
+            Term::Sigma { id, domain, body } => {
+                let domain = self.core(domain, scope)?;
+                scope.push(*id);
+                let codomain = self.core(body, scope)?;
+                scope.pop();
+                Core::Sigma { domain, codomain }
+            }
+            Term::Pair { ty, fst, snd } => Core::Pair {
+                ty: self.core(ty, scope)?,
+                fst: self.core(fst, scope)?,
+                snd: self.core(snd, scope)?,
+            },
+            Term::Fst(p) => Core::Fst(self.core(p, scope)?),
+            Term::Snd(p) => Core::Snd(self.core(p, scope)?),
             Term::Local(id) => Core::Var(
                 scope
                     .iter()
@@ -1896,6 +2050,94 @@ mod tests {
     }
     fn local(id: Id) -> T {
         Term::Local(id).arc()
+    }
+
+    fn sigma_children(child: T) -> Vec<T> {
+        let n = Term::Nat.arc();
+        vec![
+            Term::Sigma {
+                id: 50,
+                domain: child.clone(),
+                body: n.clone(),
+            }
+            .arc(),
+            Term::Sigma {
+                id: 50,
+                domain: n.clone(),
+                body: child.clone(),
+            }
+            .arc(),
+            Term::Pair {
+                ty: child.clone(),
+                fst: n.clone(),
+                snd: n.clone(),
+            }
+            .arc(),
+            Term::Pair {
+                ty: n.clone(),
+                fst: child.clone(),
+                snd: n.clone(),
+            }
+            .arc(),
+            Term::Pair {
+                ty: n.clone(),
+                fst: n.clone(),
+                snd: child.clone(),
+            }
+            .arc(),
+            Term::Fst(child.clone()).arc(),
+            Term::Snd(child).arc(),
+        ]
+    }
+    #[test]
+    fn sigma_children_enforce_occurs_and_scope_checks() {
+        let mut s = State::new(100_000);
+        let m = s.meta(&vec![], u(0));
+        for term in sigma_children(m) {
+            assert_eq!(
+                s.validate_solution(0, &term, &mut HashSet::new()),
+                Err(Error::OccursCheck)
+            );
+        }
+        for term in sigma_children(local(100)) {
+            assert_eq!(
+                s.validate_solution(0, &term, &mut HashSet::new()),
+                Err(Error::ScopeEscape)
+            );
+        }
+        let bound = Term::Sigma {
+            id: 50,
+            domain: u(0),
+            body: local(50),
+        }
+        .arc();
+        s.validate_solution(0, &bound, &mut HashSet::new()).unwrap();
+        let substituted = s.subst(&bound, &HashMap::from([(50, local(100))])).unwrap();
+        s.validate_solution(0, &substituted, &mut HashSet::new())
+            .unwrap();
+    }
+    #[test]
+    fn kernel_rechecks_pairs_before_projection_discards_components() {
+        for first in [true, false] {
+            let mut s = State::new(100_000);
+            let ty = Term::Sigma {
+                id: 0,
+                domain: Term::Nat.arc(),
+                body: Term::Nat.arc(),
+            }
+            .arc();
+            let p = Term::Pair {
+                ty,
+                fst: if first { Term::Zero.arc() } else { u(0) },
+                snd: if first { u(0) } else { Term::Zero.arc() },
+            }
+            .arc();
+            let projection = if first { Term::Fst(p) } else { Term::Snd(p) }.arc();
+            assert!(matches!(
+                s.finish(projection, Term::Nat.arc(), &Kernel::default()),
+                Err(Error::Kernel(_))
+            ));
+        }
     }
 
     fn indexed_children(child: T) -> Vec<T> {

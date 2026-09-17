@@ -17,6 +17,7 @@ pub enum Error {
     AnnotationRequired,
     ExpectedUniverse,
     ExpectedFunction,
+    ExpectedSigma,
     PlicityMismatch,
     CannotUnify,
     OccursCheck,
@@ -35,6 +36,7 @@ impl fmt::Display for Error {
             Self::ExpectedUniverse => {
                 write!(f, "expected a concrete universe; add a type annotation")
             }
+            Self::ExpectedSigma => write!(f, "expected a known dependent pair type"),
             Self::ExpectedFunction => write!(f, "expected a known dependent function type"),
             Self::PlicityMismatch => write!(f, "explicit/implicit argument mismatch"),
             Self::CannotUnify => write!(f, "types do not unify in the supported fragment"),

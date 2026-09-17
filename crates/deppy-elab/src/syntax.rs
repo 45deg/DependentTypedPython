@@ -19,6 +19,17 @@ impl Plicity {
 /// Implicit binders are erased; explicit erased proof binders are not yet exposed.
 #[derive(Clone, Debug)]
 pub enum Expr {
+    Sigma {
+        name: String,
+        domain: Box<Expr>,
+        codomain: Box<Expr>,
+    },
+    Pair {
+        fst: Box<Expr>,
+        snd: Box<Expr>,
+    },
+    Fst(Box<Expr>),
+    Snd(Box<Expr>),
     Name(String),
     Universe(u32),
     Eq {
@@ -114,6 +125,26 @@ pub enum Expr {
     Hole,
 }
 impl Expr {
+    pub fn sigma(name: impl Into<String>, domain: Self, codomain: Self) -> Self {
+        Self::Sigma {
+            name: name.into(),
+            domain: Box::new(domain),
+            codomain: Box::new(codomain),
+        }
+    }
+    pub fn pair(fst: Self, snd: Self) -> Self {
+        Self::Pair {
+            fst: Box::new(fst),
+            snd: Box::new(snd),
+        }
+    }
+    pub fn fst(self) -> Self {
+        Self::Fst(Box::new(self))
+    }
+    pub fn snd(self) -> Self {
+        Self::Snd(Box::new(self))
+    }
+
     pub fn vec(ty: Self, len: Self) -> Self {
         Self::Vec {
             ty: Box::new(ty),
@@ -288,6 +319,18 @@ pub(crate) type T = Arc<Term>;
 /// explicitly instantiate the telescope captured when the meta was created.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Term {
+    Sigma {
+        id: Id,
+        domain: T,
+        body: T,
+    },
+    Pair {
+        ty: T,
+        fst: T,
+        snd: T,
+    },
+    Fst(T),
+    Snd(T),
     Local(Id),
     Universe(u32),
     Eq {
