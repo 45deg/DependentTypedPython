@@ -127,3 +127,44 @@ pub fn fin_rank() -> Function {
         ),
     }
 }
+
+/// Vec matching generalizes i : Fin n; the cons branch then splits i.
+pub fn get(level: u32) -> Function {
+    Function {
+        parameters: vec![
+            type_parameter(level),
+            p("n", E::Nat),
+            p("xs", E::vec(n("A"), n("n"))),
+            p("i", E::fin(n("n"))),
+        ],
+        result: n("A"),
+        decreases: "xs".into(),
+        motive_level: level,
+        body: matched(
+            "xs",
+            vec![
+                arm(Pattern::VNil, E::fin0_elim(n("A"), n("i"))),
+                Arm {
+                    pattern: Pattern::VCons {
+                        len: "k".into(),
+                        head: "h".into(),
+                        tail: "t".into(),
+                    },
+                    body: matched(
+                        "i",
+                        vec![
+                            arm(Pattern::FZ("bound0".into()), n("h")),
+                            arm(
+                                Pattern::FS {
+                                    bound: "bound1".into(),
+                                    pred: "j".into(),
+                                },
+                                E::Recur(vec![n("A"), n("k"), n("t"), n("j")]),
+                            ),
+                        ],
+                    ),
+                },
+            ],
+        ),
+    }
+}

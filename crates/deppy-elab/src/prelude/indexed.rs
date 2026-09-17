@@ -67,7 +67,7 @@ pub fn vec_get(level: u32) -> E {
 /// M Z i = A; M (S k) i = A -> (Fin k -> A) -> A.
 /// Thus both branches are typed at their own predecessor bound, even when
 /// the original bound is symbolic. The Fin induction hypothesis is unused.
-fn fin_case(level: u32) -> E {
+pub(crate) fn fin_case(level: u32) -> E {
     let choice = E::pi(
         "first",
         Explicit,

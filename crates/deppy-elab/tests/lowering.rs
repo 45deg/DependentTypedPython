@@ -270,3 +270,244 @@ fn decreasing_parameter_and_index_dependencies_are_restricted() {
         Error::BudgetExceeded
     );
 }
+
+fn index(bound: usize, position: usize) -> E {
+    if position == 0 {
+        E::fz(num(bound - 1))
+    } else {
+        E::fs(num(bound - 1), index(bound - 1, position - 1))
+    }
+}
+#[test]
+fn nested_fin_split_lowers_get_and_computes_every_position() {
+    let e = Elaborator::default();
+    let f = structural::get(0);
+    let checked = e.compile_function(&f).unwrap();
+    e.kernel()
+        .check(&checked.term, &e.infer(&prelude::vec_get(0)).unwrap().ty)
+        .unwrap();
+    let get = e.lower_function(&f).unwrap();
+    for len in 1..5 {
+        let items = (1..=len).collect::<Vec<_>>();
+        for i in 0..len {
+            let out = e
+                .infer(
+                    &get.clone()
+                        .app(num(len))
+                        .app(vector(&items))
+                        .app(index(len, i)),
+                )
+                .unwrap();
+            assert_eq!(
+                e.kernel().normalize(&out.term).unwrap(),
+                e.infer(&num(items[i])).unwrap().term
+            );
+        }
+    }
+    e.compile_function(&structural::get(1)).unwrap();
+    let get_types = e.lower_function(&structural::get(1)).unwrap();
+    let out = e
+        .infer(
+            &get_types
+                .app(num(1))
+                .app(E::vcons(
+                    E::Universe(0),
+                    E::Zero,
+                    E::Nat,
+                    E::vnil(E::Universe(0)),
+                ))
+                .app(E::fz(E::Zero)),
+        )
+        .unwrap();
+    assert_eq!(e.kernel().normalize(&out.term).unwrap(), Term::Nat.arc());
+}
+#[test]
+fn get_preserves_symbolic_tail_computation() {
+    let e = Elaborator::default();
+    let get = e.lower_function(&structural::get(0)).unwrap();
+    let mut left = get
+        .clone()
+        .app(n("k").succ())
+        .app(E::vcons(E::Nat, n("k"), n("h"), n("t")))
+        .app(E::fs(n("k"), n("j")));
+    let mut right = get.app(n("k")).app(n("t")).app(n("j"));
+    for (name, ty) in [
+        ("j", E::fin(n("k"))),
+        ("t", E::vec(E::Nat, n("k"))),
+        ("h", E::Nat),
+        ("k", E::Nat),
+    ] {
+        left = E::lam(name, Explicit, Some(ty.clone()), left);
+        right = E::lam(name, Explicit, Some(ty), right);
+    }
+    let a = e.infer(&left).unwrap();
+    let b = e.infer(&right).unwrap();
+    assert!(e.kernel().equivalent(&a.term, &b.term, &a.ty).unwrap());
+}
+#[test]
+fn nested_branches_reject_missing_coverage_wrong_arguments_and_shadowing() {
+    let e = Elaborator::default();
+    for mode in 0..5 {
+        let mut f = structural::get(0);
+        let Body::Match { arms, .. } = &mut step(&mut f).body else {
+            panic!()
+        };
+        match mode {
+            0 => {
+                arms.pop();
+            }
+            1 => arms[1].body = Body::Return(E::Recur(vec![n("A"), n("k"), n("t"), n("i")])),
+            2 => arms[1].body = Body::Return(E::Recur(vec![n("A"), n("k"), n("xs"), n("j")])),
+            3 => {
+                arms[1].pattern = Pattern::FS {
+                    bound: "k".into(),
+                    pred: "j".into(),
+                }
+            }
+            _ => arms[0].body = Body::Return(E::Zero),
+        }
+        assert!(e.compile_function(&f).is_err());
+    }
+}
+#[test]
+fn unsupported_nested_motives_are_rejected_without_index_coercion() {
+    let e = Elaborator::default();
+    let mut f = structural::get(0);
+    f.result = E::eq(E::fin(n("n")), n("i"), n("i"));
+    assert!(e.compile_function(&f).is_err());
+    f = structural::get(0);
+    let Body::Match { scrutinee, .. } = &mut step(&mut f).body else {
+        panic!()
+    };
+    *scrutinee = "t".into();
+    assert!(matches!(
+        e.compile_function(&f),
+        Err(Error::UnsupportedMatch(_))
+    ));
+    f = structural::get(0);
+    f.parameters.push(Parameter {
+        name: "extra".into(),
+        plicity: Explicit,
+        ty: E::Nat,
+    });
+    assert!(e.compile_function(&f).is_err());
+    // Fin Z is handled by fin0_elim, never by silently dropping branches.
+    f = structural::get(0);
+    let nested = step(&mut f).body.clone();
+    let Body::Match { arms, .. } = &mut f.body else {
+        panic!()
+    };
+    arms[0].body = nested;
+    assert!(e.compile_function(&f).is_err());
+}
+#[test]
+fn motives_can_depend_on_the_entire_matched_value() {
+    let e = Elaborator::default();
+    let f = Function {
+        parameters: vec![
+            Parameter {
+                name: "n".into(),
+                plicity: Explicit,
+                ty: E::Nat,
+            },
+            Parameter {
+                name: "xs".into(),
+                plicity: Explicit,
+                ty: E::vec(E::Nat, n("n")),
+            },
+        ],
+        result: E::eq(E::vec(E::Nat, n("n")), n("xs"), n("xs")),
+        decreases: "xs".into(),
+        motive_level: 0,
+        body: Body::Match {
+            scrutinee: "xs".into(),
+            arms: vec![
+                Arm {
+                    pattern: Pattern::VNil,
+                    body: Body::Return(n("xs").refl()),
+                },
+                Arm {
+                    pattern: Pattern::VCons {
+                        len: "k".into(),
+                        head: "h".into(),
+                        tail: "t".into(),
+                    },
+                    body: Body::Return(n("xs").refl()),
+                },
+            ],
+        },
+    };
+    e.compile_function(&f).unwrap();
+    let f = Function {
+        parameters: vec![
+            Parameter {
+                name: "n".into(),
+                plicity: Explicit,
+                ty: E::Nat,
+            },
+            Parameter {
+                name: "i".into(),
+                plicity: Explicit,
+                ty: E::fin(n("n")),
+            },
+        ],
+        result: E::eq(E::fin(n("n")), n("i"), n("i")),
+        decreases: "i".into(),
+        motive_level: 0,
+        body: Body::Match {
+            scrutinee: "i".into(),
+            arms: vec![
+                Arm {
+                    pattern: Pattern::FZ("k".into()),
+                    body: Body::Return(n("i").refl()),
+                },
+                Arm {
+                    pattern: Pattern::FS {
+                        bound: "k".into(),
+                        pred: "j".into(),
+                    },
+                    body: Body::Return(n("i").refl()),
+                },
+            ],
+        },
+    };
+    e.compile_function(&f).unwrap();
+}
+
+#[test]
+fn later_arguments_can_change_and_branch_order_is_irrelevant() {
+    let e = Elaborator::default();
+    let mut f = structural::add();
+    step(&mut f).body = Body::Return(E::Recur(vec![n("k"), n("m").succ()]));
+    let Body::Match { arms, .. } = &mut f.body else {
+        panic!()
+    };
+    arms.reverse();
+    let out = e
+        .infer(&e.lower_function(&f).unwrap().app(num(2)).app(num(3)))
+        .unwrap();
+    assert_eq!(
+        e.kernel().normalize(&out.term).unwrap(),
+        e.infer(&num(5)).unwrap().term
+    );
+}
+#[test]
+fn return_only_functions_and_parameter_shadowing() {
+    let e = Elaborator::default();
+    let mut f = structural::add();
+    f.body = Body::Return(n("n"));
+    e.compile_function(&f).unwrap();
+    f = structural::add();
+    step(&mut f).pattern = Pattern::Succ("m".into());
+    assert!(matches!(
+        e.compile_function(&f),
+        Err(Error::InvalidPattern(_))
+    ));
+    f = structural::get(0);
+    step(&mut f).pattern = Pattern::VCons {
+        len: "k".into(),
+        head: "i".into(),
+        tail: "t".into(),
+    };
+    assert!(e.compile_function(&f).is_err());
+}

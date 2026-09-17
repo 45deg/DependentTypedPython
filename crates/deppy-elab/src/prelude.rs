@@ -2,6 +2,7 @@
 //! Call `Elaborator::infer` to elaborate and kernel-check each definition.
 mod indexed;
 pub mod structural;
+pub(crate) use indexed::fin_case;
 pub use indexed::{vec_append, vec_get};
 
 use crate::{Expr as E, Plicity::Explicit};

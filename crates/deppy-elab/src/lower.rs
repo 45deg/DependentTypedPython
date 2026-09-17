@@ -1,4 +1,5 @@
 //! Conservative lowering of a programmatic function HIR. No Python parsing.
+mod nested;
 mod rewrite;
 use crate::{Elaborated, Elaborator, Error, Expr as E, Plicity};
 use std::collections::{HashMap, HashSet};
@@ -274,7 +275,7 @@ impl Lowerer {
             Ok(fresh)
         };
         let mut child = None;
-        let mut predecessor = None;
+        let mut refined_index = None;
         let constructor = match (&kind, &arm.pattern) {
             (Kind::Nat, Pattern::Zero) => E::Zero,
             (Kind::Nat, Pattern::Succ(name)) => {
@@ -283,7 +284,7 @@ impl Lowerer {
                 E::name(k).succ()
             }
             (Kind::Vec { carrier, .. }, Pattern::VNil) => {
-                predecessor = Some(E::Zero);
+                refined_index = Some(E::Zero);
                 E::vnil(carrier.clone())
             }
             (Kind::Vec { carrier, .. }, Pattern::VCons { len, head, tail }) => {
@@ -291,19 +292,19 @@ impl Lowerer {
                 let h = bind(self, head)?;
                 let t = bind(self, tail)?;
                 child = Some(t.clone());
-                predecessor = Some(E::name(&k).succ());
+                refined_index = Some(E::name(&k).succ());
                 E::vcons(carrier.clone(), E::name(k), E::name(h), E::name(t))
             }
             (Kind::Fin { .. }, Pattern::FZ(name)) => {
                 let k = bind(self, name)?;
-                predecessor = Some(E::name(&k).succ());
+                refined_index = Some(E::name(&k).succ());
                 E::fz(E::name(k))
             }
             (Kind::Fin { .. }, Pattern::FS { bound, pred }) => {
                 let k = bind(self, bound)?;
                 let j = bind(self, pred)?;
                 child = Some(j.clone());
-                predecessor = Some(E::name(&k).succ());
+                refined_index = Some(E::name(&k).succ());
                 E::fs(E::name(k), E::name(j))
             }
             _ => {
@@ -312,16 +313,11 @@ impl Lowerer {
                 ))
             }
         };
-        // Pattern names may shadow outer names. Refinement is installed first,
-        // then lexical pattern bindings win; the original identities stay private.
-        let pattern_env = env.clone();
-        env = outer.clone();
+        // Pattern bindings are fresh and cannot shadow function parameters.
+        // Refine both the scrutinee and its index before checking later binders.
         env.insert(f.decreases.clone(), constructor);
         if let Some(index) = kind.index() {
-            env.insert(f.parameters[index].name.clone(), predecessor.unwrap());
-        }
-        for name in &seen {
-            env.insert(name.clone(), pattern_env[name].clone());
+            env.insert(f.parameters[index].name.clone(), refined_index.unwrap());
         }
         let recursion = if let Some(child) = child {
             let ih = self.fresh();
@@ -346,13 +342,6 @@ impl Lowerer {
         };
         let mut suffix = vec![];
         for p in &f.parameters[d + 1..] {
-            // Parameter binders lexically precede the match: pattern shadowing
-            // of a suffix name is unsupported rather than silently captured.
-            if seen.contains(&p.name) {
-                return Err(Error::InvalidPattern(
-                    "pattern shadows a generalized parameter".into(),
-                ));
-            }
             let ty = self.rewrite(&p.ty, &env, None)?;
             let name = self.bind(&mut env, &p.name)?;
             suffix.push(Parameter {
@@ -361,18 +350,9 @@ impl Lowerer {
                 ty,
             });
         }
-        let body = self.body(&arm.body, &env, recursion.as_ref())?;
+        let body = self.branch_body(f, &arm.body, &env, recursion.as_ref(), &suffix)?;
         let body = lambdas(&suffix, body);
         Ok(bound.iter().rev().fold(body, |b, n| lambda(n, b)))
-    }
-    fn body(&mut self, body: &Body, env: &Env, recursion: Option<&Recursion>) -> Result<E, Error> {
-        self.tick()?;
-        match body {
-            Body::Return(e) => self.rewrite(e, env, recursion),
-            Body::Match { .. } => Err(Error::UnsupportedMatch(
-                "nested matching is not supported here".into(),
-            )),
-        }
     }
 }
 fn lambda(name: &str, body: E) -> E {
