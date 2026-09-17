@@ -11,6 +11,8 @@ pub(crate) struct Closure {
 }
 
 pub(crate) enum Value {
+    Sigma(Val, Closure),
+    Pair(Val, Val, Val),
     Universe(u32),
     Eq(Val, Val, Val),
     Refl(Val, Val),
@@ -47,6 +49,8 @@ pub(crate) enum Value {
 
 pub(crate) enum Neutral {
     // Semantic variables use levels (counted from the outermost binder).
+    Fst(Val),
+    Snd(Val),
     Var(usize),
     App(Val, Val),
     J {
@@ -128,6 +132,25 @@ pub(crate) fn eval(term: &Tm, env: &Env, budget: &mut Budget) -> Result<Val, Err
                 .and_then(|i| env.get(i))
                 .cloned()
                 .ok_or(Error::UnboundVariable(*index))
+        }
+        Term::Sigma { domain, codomain } => Value::Sigma(
+            eval(domain, env, budget)?,
+            Closure {
+                env: env.clone(),
+                body: codomain.clone(),
+            },
+        ),
+        Term::Pair { ty, fst, snd } => Value::Pair(
+            eval(ty, env, budget)?,
+            eval(fst, env, budget)?,
+            eval(snd, env, budget)?,
+        ),
+        Term::Fst(p) | Term::Snd(p) => {
+            return project(
+                &eval(p, env, budget)?,
+                matches!(term.as_ref(), Term::Fst(_)),
+                budget,
+            )
         }
         Term::Universe(level) => Value::Universe(*level),
         Term::NatElim {
@@ -302,6 +325,25 @@ pub(crate) fn eval(term: &Tm, env: &Env, budget: &mut Budget) -> Result<Val, Err
 pub(crate) fn equal(a: &Val, b: &Val, depth: usize, budget: &mut Budget) -> Result<bool, Error> {
     budget.tick()?;
     match (a.as_ref(), b.as_ref()) {
+        (Value::Sigma(a, b), Value::Sigma(c, d)) => {
+            if !equal(a, c, depth, budget)? {
+                return Ok(false);
+            }
+            let x = fresh(depth);
+            equal(
+                &b.apply(x.clone(), budget)?,
+                &d.apply(x, budget)?,
+                depth + 1,
+                budget,
+            )
+        }
+        (Value::Pair(t, a, b), Value::Pair(u, c, d)) => Ok(equal(t, u, depth, budget)?
+            && equal(a, c, depth, budget)?
+            && equal(b, d, depth, budget)?),
+        (Value::Neutral(Neutral::Fst(a)), Value::Neutral(Neutral::Fst(b)))
+        | (Value::Neutral(Neutral::Snd(a)), Value::Neutral(Neutral::Snd(b))) => {
+            equal(a, b, depth, budget)
+        }
         (Value::Eq(a, x, y), Value::Eq(b, u, v)) => Ok(equal(a, b, depth, budget)?
             && equal(x, u, depth, budget)?
             && equal(y, v, depth, budget)?),
@@ -516,6 +558,17 @@ pub(crate) fn equal_at(
 pub(crate) fn quote(value: &Val, depth: usize, budget: &mut Budget) -> Result<Tm, Error> {
     budget.tick()?;
     Ok(match value.as_ref() {
+        Value::Sigma(domain, codomain) => Term::Sigma {
+            domain: quote(domain, depth, budget)?,
+            codomain: quote(&codomain.apply(fresh(depth), budget)?, depth + 1, budget)?,
+        },
+        Value::Pair(ty, fst, snd) => Term::Pair {
+            ty: quote(ty, depth, budget)?,
+            fst: quote(fst, depth, budget)?,
+            snd: quote(snd, depth, budget)?,
+        },
+        Value::Neutral(Neutral::Fst(p)) => Term::Fst(quote(p, depth, budget)?),
+        Value::Neutral(Neutral::Snd(p)) => Term::Snd(quote(p, depth, budget)?),
         Value::Universe(level) => Term::Universe(*level),
         Value::Eq(ty, left, right) => Term::Eq {
             ty: quote(ty, depth, budget)?,
@@ -736,5 +789,18 @@ impl FinRec {
             }))),
             _ => Err(Error::ExpectedFin),
         }
+    }
+}
+
+pub(crate) fn project(pair: &Val, first: bool, budget: &mut Budget) -> Result<Val, Error> {
+    budget.tick()?;
+    match pair.as_ref() {
+        Value::Pair(_, fst, snd) => Ok(if first { fst.clone() } else { snd.clone() }),
+        Value::Neutral(_) => Ok(Arc::new(Value::Neutral(if first {
+            Neutral::Fst(pair.clone())
+        } else {
+            Neutral::Snd(pair.clone())
+        }))),
+        _ => Err(Error::ExpectedSigma),
     }
 }

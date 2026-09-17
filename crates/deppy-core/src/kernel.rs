@@ -7,6 +7,7 @@ pub enum Error {
     UnboundVariable(usize),
     ExpectedUniverse,
     ExpectedFunction,
+    ExpectedSigma,
     ExpectedNat,
     ExpectedVec,
     ExpectedFin,
@@ -27,6 +28,7 @@ impl fmt::Display for Error {
             Self::ExpectedFin => write!(f, "expected a finite index"),
             Self::ExpectedEmptyFin => write!(f, "expected an impossible Fin Z value"),
             Self::ExpectedNat => write!(f, "expected a natural number"),
+            Self::ExpectedSigma => write!(f, "expected a dependent pair"),
             Self::ExpectedFunction => write!(f, "expected a dependent function"),
             Self::TypeMismatch { expected, actual } => {
                 write!(f, "type mismatch: expected {expected:?}, got {actual:?}")
@@ -129,6 +131,35 @@ fn check(ctx: &Context, term: &Tm, expected: &Val, budget: &mut Budget) -> Resul
 fn synth(ctx: &Context, term: &Tm, budget: &mut Budget) -> Result<Val, Error> {
     budget.tick()?;
     match term.as_ref() {
+        Term::Sigma { domain, codomain } => {
+            let a = universe(ctx, domain, budget)?;
+            let domain = value::eval(domain, &ctx.env, budget)?;
+            let b = universe(&ctx.bind(domain), codomain, budget)?;
+            Ok(Arc::new(Value::Universe(a.max(b))))
+        }
+        Term::Pair { ty, fst, snd } => {
+            universe(ctx, ty, budget)?;
+            let ty = value::eval(ty, &ctx.env, budget)?;
+            let Value::Sigma(domain, codomain) = ty.as_ref() else {
+                return Err(Error::ExpectedSigma);
+            };
+            check(ctx, fst, domain, budget)?;
+            let second_ty = codomain.apply(value::eval(fst, &ctx.env, budget)?, budget)?;
+            check(ctx, snd, &second_ty, budget)?;
+            Ok(ty)
+        }
+        Term::Fst(pair) | Term::Snd(pair) => {
+            let ty = synth(ctx, pair, budget)?;
+            let Value::Sigma(domain, codomain) = ty.as_ref() else {
+                return Err(Error::ExpectedSigma);
+            };
+            if matches!(term.as_ref(), Term::Fst(_)) {
+                Ok(domain.clone())
+            } else {
+                let pair = value::eval(pair, &ctx.env, budget)?;
+                codomain.apply(value::project(&pair, true, budget)?, budget)
+            }
+        }
         Term::Var(i) => ctx
             .types
             .len()

@@ -18,6 +18,17 @@ pub enum Relevance {
 /// Universe levels are concrete and non-cumulative.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Term {
+    Sigma {
+        domain: Tm,
+        codomain: Tm,
+    },
+    Pair {
+        ty: Tm,
+        fst: Tm,
+        snd: Tm,
+    },
+    Fst(Tm),
+    Snd(Tm),
     Var(usize),
     Universe(u32),
     Eq {
