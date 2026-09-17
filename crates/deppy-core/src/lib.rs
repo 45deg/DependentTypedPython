@@ -20,6 +20,9 @@ pub enum Relevance {
 pub enum Term {
     Var(usize),
     Universe(u32),
+    Nat,
+    Zero,
+    Succ(Tm),
     Pi {
         relevance: Relevance,
         domain: Tm,

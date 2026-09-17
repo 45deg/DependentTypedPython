@@ -12,6 +12,9 @@ pub(crate) struct Closure {
 
 pub(crate) enum Value {
     Universe(u32),
+    Nat,
+    Zero,
+    Succ(Val),
     Pi(Relevance, Val, Closure),
     Lam(Relevance, Val, Closure),
     Neutral(Neutral),
@@ -65,6 +68,9 @@ pub(crate) fn eval(term: &Tm, env: &Env, budget: &mut Budget) -> Result<Val, Err
                 .ok_or(Error::UnboundVariable(*index))
         }
         Term::Universe(level) => Value::Universe(*level),
+        Term::Nat => Value::Nat,
+        Term::Zero => Value::Zero,
+        Term::Succ(n) => Value::Succ(eval(n, env, budget)?),
         Term::Pi {
             relevance,
             domain,
@@ -109,6 +115,8 @@ pub(crate) fn equal(a: &Val, b: &Val, depth: usize, budget: &mut Budget) -> Resu
     budget.tick()?;
     match (a.as_ref(), b.as_ref()) {
         (Value::Universe(x), Value::Universe(y)) => Ok(x == y),
+        (Value::Nat, Value::Nat) | (Value::Zero, Value::Zero) => Ok(true),
+        (Value::Succ(x), Value::Succ(y)) => equal(x, y, depth, budget),
         (Value::Pi(r, dom, cod), Value::Pi(s, dom2, cod2)) => {
             if r != s || !equal(dom, dom2, depth, budget)? {
                 return Ok(false);
@@ -179,6 +187,9 @@ pub(crate) fn quote(value: &Val, depth: usize, budget: &mut Budget) -> Result<Tm
     budget.tick()?;
     Ok(match value.as_ref() {
         Value::Universe(level) => Term::Universe(*level),
+        Value::Nat => Term::Nat,
+        Value::Zero => Term::Zero,
+        Value::Succ(n) => Term::Succ(quote(n, depth, budget)?),
         Value::Pi(relevance, domain, codomain) => Term::Pi {
             relevance: *relevance,
             domain: quote(domain, depth, budget)?,

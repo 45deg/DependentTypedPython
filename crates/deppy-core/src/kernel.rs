@@ -129,6 +129,13 @@ fn synth(ctx: &Context, term: &Tm, budget: &mut Budget) -> Result<Val, Error> {
         Term::Universe(level) => Ok(Arc::new(Value::Universe(
             level.checked_add(1).ok_or(Error::UniverseOverflow)?,
         ))),
+        Term::Nat => Ok(Arc::new(Value::Universe(0))),
+        Term::Zero => Ok(Arc::new(Value::Nat)),
+        Term::Succ(n) => {
+            let nat = Arc::new(Value::Nat);
+            check(ctx, n, &nat, budget)?;
+            Ok(nat)
+        }
         Term::Pi {
             domain, codomain, ..
         } => {
