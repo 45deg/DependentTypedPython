@@ -40,6 +40,29 @@ pub enum Term {
         right: Tm,
         proof: Tm,
     },
+    Vec {
+        ty: Tm,
+        len: Tm,
+    },
+    VNil {
+        ty: Tm,
+    },
+    VCons {
+        ty: Tm,
+        len: Tm,
+        head: Tm,
+        tail: Tm,
+    },
+    Fin {
+        bound: Tm,
+    },
+    FZ {
+        bound: Tm,
+    },
+    FS {
+        bound: Tm,
+        pred: Tm,
+    },
     Nat,
     Zero,
     Succ(Tm),

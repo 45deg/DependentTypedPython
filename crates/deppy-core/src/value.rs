@@ -14,6 +14,29 @@ pub(crate) enum Value {
     Universe(u32),
     Eq(Val, Val, Val),
     Refl(Val, Val),
+    Vec {
+        ty: Val,
+        len: Val,
+    },
+    VNil {
+        ty: Val,
+    },
+    VCons {
+        ty: Val,
+        len: Val,
+        head: Val,
+        tail: Val,
+    },
+    Fin {
+        bound: Val,
+    },
+    FZ {
+        bound: Val,
+    },
+    FS {
+        bound: Val,
+        pred: Val,
+    },
     Nat,
     Zero,
     Succ(Val),
@@ -134,6 +157,34 @@ pub(crate) fn eval(term: &Tm, env: &Env, budget: &mut Budget) -> Result<Val, Err
                 _ => return Err(Error::ExpectedEquality),
             }
         }
+        Term::Vec { ty, len } => Value::Vec {
+            ty: eval(ty, env, budget)?,
+            len: eval(len, env, budget)?,
+        },
+        Term::VNil { ty } => Value::VNil {
+            ty: eval(ty, env, budget)?,
+        },
+        Term::VCons {
+            ty,
+            len,
+            head,
+            tail,
+        } => Value::VCons {
+            ty: eval(ty, env, budget)?,
+            len: eval(len, env, budget)?,
+            head: eval(head, env, budget)?,
+            tail: eval(tail, env, budget)?,
+        },
+        Term::Fin { bound } => Value::Fin {
+            bound: eval(bound, env, budget)?,
+        },
+        Term::FZ { bound } => Value::FZ {
+            bound: eval(bound, env, budget)?,
+        },
+        Term::FS { bound, pred } => Value::FS {
+            bound: eval(bound, env, budget)?,
+            pred: eval(pred, env, budget)?,
+        },
         Term::Nat => Value::Nat,
         Term::Zero => Value::Zero,
         Term::Succ(n) => Value::Succ(eval(n, env, budget)?),
@@ -212,6 +263,40 @@ pub(crate) fn equal(a: &Val, b: &Val, depth: usize, budget: &mut Budget) -> Resu
             && equal(d, d2, depth, budget)?
             && equal(y, y2, depth, budget)?
             && equal(p, p2, depth, budget)?),
+        (Value::Vec { ty, len }, Value::Vec { ty: ty2, len: len2 }) => {
+            Ok(equal(ty, ty2, depth, budget)? && equal(len, len2, depth, budget)?)
+        }
+        (Value::VNil { ty }, Value::VNil { ty: ty2 }) => Ok(equal(ty, ty2, depth, budget)?),
+        (
+            Value::VCons {
+                ty,
+                len,
+                head,
+                tail,
+            },
+            Value::VCons {
+                ty: ty2,
+                len: len2,
+                head: head2,
+                tail: tail2,
+            },
+        ) => Ok(equal(ty, ty2, depth, budget)?
+            && equal(len, len2, depth, budget)?
+            && equal(head, head2, depth, budget)?
+            && equal(tail, tail2, depth, budget)?),
+        (Value::Fin { bound }, Value::Fin { bound: bound2 }) => {
+            Ok(equal(bound, bound2, depth, budget)?)
+        }
+        (Value::FZ { bound }, Value::FZ { bound: bound2 }) => {
+            Ok(equal(bound, bound2, depth, budget)?)
+        }
+        (
+            Value::FS { bound, pred },
+            Value::FS {
+                bound: bound2,
+                pred: pred2,
+            },
+        ) => Ok(equal(bound, bound2, depth, budget)? && equal(pred, pred2, depth, budget)?),
         (Value::Universe(x), Value::Universe(y)) => Ok(x == y),
         (Value::Nat, Value::Nat) | (Value::Zero, Value::Zero) => Ok(true),
         (Value::Succ(x), Value::Succ(y)) => equal(x, y, depth, budget),
@@ -330,6 +415,34 @@ pub(crate) fn quote(value: &Val, depth: usize, budget: &mut Budget) -> Result<Tm
             base: quote(base, depth, budget)?,
             right: quote(right, depth, budget)?,
             proof: quote(proof, depth, budget)?,
+        },
+        Value::Vec { ty, len } => Term::Vec {
+            ty: quote(ty, depth, budget)?,
+            len: quote(len, depth, budget)?,
+        },
+        Value::VNil { ty } => Term::VNil {
+            ty: quote(ty, depth, budget)?,
+        },
+        Value::VCons {
+            ty,
+            len,
+            head,
+            tail,
+        } => Term::VCons {
+            ty: quote(ty, depth, budget)?,
+            len: quote(len, depth, budget)?,
+            head: quote(head, depth, budget)?,
+            tail: quote(tail, depth, budget)?,
+        },
+        Value::Fin { bound } => Term::Fin {
+            bound: quote(bound, depth, budget)?,
+        },
+        Value::FZ { bound } => Term::FZ {
+            bound: quote(bound, depth, budget)?,
+        },
+        Value::FS { bound, pred } => Term::FS {
+            bound: quote(bound, depth, budget)?,
+            pred: quote(pred, depth, budget)?,
         },
         Value::Nat => Term::Nat,
         Value::Zero => Term::Zero,

@@ -247,6 +247,69 @@ fn synth(ctx: &Context, term: &Tm, budget: &mut Budget) -> Result<Val, Error> {
             let at_right = value::apply(&motive, right, budget)?;
             value::apply(&at_right, proof, budget)
         }
+        Term::Vec { ty, len } => {
+            let level = universe(ctx, ty, budget)?;
+            check(ctx, len, &Arc::new(Value::Nat), budget)?;
+            Ok(Arc::new(Value::Universe(level)))
+        }
+        Term::VNil { ty } => {
+            universe(ctx, ty, budget)?;
+            Ok(Arc::new(Value::Vec {
+                ty: value::eval(ty, &ctx.env, budget)?,
+                len: Arc::new(Value::Zero),
+            }))
+        }
+        Term::VCons {
+            ty,
+            len,
+            head,
+            tail,
+        } => {
+            universe(ctx, ty, budget)?;
+            let ty = value::eval(ty, &ctx.env, budget)?;
+            check(ctx, len, &Arc::new(Value::Nat), budget)?;
+            let len = value::eval(len, &ctx.env, budget)?;
+            check(ctx, head, &ty, budget)?;
+            check(
+                ctx,
+                tail,
+                &Arc::new(Value::Vec {
+                    ty: ty.clone(),
+                    len: len.clone(),
+                }),
+                budget,
+            )?;
+            Ok(Arc::new(Value::Vec {
+                ty,
+                len: Arc::new(Value::Succ(len)),
+            }))
+        }
+        Term::Fin { bound } => {
+            check(ctx, bound, &Arc::new(Value::Nat), budget)?;
+            Ok(Arc::new(Value::Universe(0)))
+        }
+        Term::FZ { bound } => {
+            check(ctx, bound, &Arc::new(Value::Nat), budget)?;
+            let bound = value::eval(bound, &ctx.env, budget)?;
+            Ok(Arc::new(Value::Fin {
+                bound: Arc::new(Value::Succ(bound)),
+            }))
+        }
+        Term::FS { bound, pred } => {
+            check(ctx, bound, &Arc::new(Value::Nat), budget)?;
+            let bound = value::eval(bound, &ctx.env, budget)?;
+            check(
+                ctx,
+                pred,
+                &Arc::new(Value::Fin {
+                    bound: bound.clone(),
+                }),
+                budget,
+            )?;
+            Ok(Arc::new(Value::Fin {
+                bound: Arc::new(Value::Succ(bound)),
+            }))
+        }
         Term::Nat => Ok(Arc::new(Value::Universe(0))),
         Term::Zero => Ok(Arc::new(Value::Nat)),
         Term::Succ(n) => {
