@@ -19,6 +19,9 @@ impl Plicity {
 /// Implicit binders are erased; explicit erased proof binders are not yet exposed.
 #[derive(Clone, Debug)]
 pub enum Expr {
+    /// Embed a closed explicit term, independently checked in this elaborator's kernel.
+    Core(deppy_core::Tm),
+
     Sigma {
         name: String,
         domain: Box<Expr>,
@@ -319,6 +322,24 @@ pub(crate) type T = Arc<Term>;
 /// explicitly instantiate the telescope captured when the meta was created.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Term {
+    Inductive {
+        id: deppy_core::InductiveId,
+        parameters: Vec<T>,
+    },
+    Constructor {
+        id: deppy_core::InductiveId,
+        parameters: Vec<T>,
+        fields: Vec<T>,
+    },
+    Elim {
+        id: deppy_core::InductiveId,
+        parameters: Vec<T>,
+        level: u32,
+        motive: T,
+        branch: T,
+        scrutinee: T,
+    },
+
     Sigma {
         id: Id,
         domain: T,

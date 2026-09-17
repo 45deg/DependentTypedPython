@@ -3,7 +3,9 @@
 //! This is not a Python parser. Each operation owns its metavariables; success
 //! returns only fully explicit terms independently rechecked by deppy-core.
 pub mod prelude;
+mod record;
 mod solve;
+pub use record::{Record, RecordDecl};
 mod syntax;
 
 use deppy_core::{Kernel, Tm};
@@ -14,6 +16,7 @@ pub use syntax::{Expr, Plicity};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
     UnknownName(String),
+    InvalidDeclarationName(String),
     AnnotationRequired,
     ExpectedUniverse,
     ExpectedFunction,
@@ -31,6 +34,9 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidDeclarationName(name) => {
+                write!(f, "empty or duplicate declaration name: {name}")
+            }
             Self::UnknownName(name) => write!(f, "unknown name: {name}"),
             Self::AnnotationRequired => write!(f, "a type annotation or expected type is required"),
             Self::ExpectedUniverse => {
@@ -73,6 +79,7 @@ pub struct Elaborated {
 
 /// No mutable inference state is retained between operations.
 pub struct Elaborator {
+    kernel: Kernel,
     max_steps: usize,
 }
 impl Default for Elaborator {
@@ -83,20 +90,26 @@ impl Default for Elaborator {
 impl Elaborator {
     /// Elaboration and each independent kernel recheck use this step limit.
     pub fn new(max_steps: usize) -> Self {
-        Self { max_steps }
+        Self {
+            max_steps,
+            kernel: Kernel::new(max_steps),
+        }
     }
 
+    pub fn kernel(&self) -> &Kernel {
+        &self.kernel
+    }
     pub fn infer(&self, expr: &Expr) -> Result<Elaborated, Error> {
-        let mut state = State::new(self.max_steps);
+        let mut state = State::with_kernel(self.max_steps, self.kernel.clone());
         let (term, ty) = state.synth(&Context::new(), expr)?;
-        state.finish(term, ty, &Kernel::new(self.max_steps))
+        state.finish(term, ty, &self.kernel)
     }
 
     pub fn check(&self, expr: &Expr, expected: &Expr) -> Result<Elaborated, Error> {
-        let mut state = State::new(self.max_steps);
+        let mut state = State::with_kernel(self.max_steps, self.kernel.clone());
         let ctx = Context::new();
         let (ty, _) = state.type_expr(&ctx, expected)?;
         let term = state.check(&ctx, expr, &ty)?;
-        state.finish(term, ty, &Kernel::new(self.max_steps))
+        state.finish(term, ty, &self.kernel)
     }
 }

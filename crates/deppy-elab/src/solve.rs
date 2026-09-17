@@ -19,6 +19,7 @@ struct Meta {
 }
 
 pub(crate) struct State {
+    kernel: Kernel,
     next_id: Id,
     remaining: usize,
     metas: Vec<Meta>,
@@ -26,9 +27,16 @@ pub(crate) struct State {
 impl State {
     pub fn new(remaining: usize) -> Self {
         Self {
+            kernel: Kernel::new(remaining),
             next_id: 0,
             remaining,
             metas: vec![],
+        }
+    }
+    pub fn with_kernel(remaining: usize, kernel: Kernel) -> Self {
+        Self {
+            kernel,
+            ..Self::new(remaining)
         }
     }
     fn tick(&mut self) -> Result<(), Error> {
@@ -64,6 +72,46 @@ impl State {
     fn subst(&mut self, term: &T, map: &HashMap<Id, T>) -> Result<T, Error> {
         self.tick()?;
         Ok(match term.as_ref() {
+            Term::Inductive { id, parameters } => Term::Inductive {
+                id: *id,
+                parameters: parameters
+                    .iter()
+                    .map(|x| self.subst(x, map))
+                    .collect::<Result<_, _>>()?,
+            },
+            Term::Constructor {
+                id,
+                parameters,
+                fields,
+            } => Term::Constructor {
+                id: *id,
+                parameters: parameters
+                    .iter()
+                    .map(|x| self.subst(x, map))
+                    .collect::<Result<_, _>>()?,
+                fields: fields
+                    .iter()
+                    .map(|x| self.subst(x, map))
+                    .collect::<Result<_, _>>()?,
+            },
+            Term::Elim {
+                id,
+                parameters,
+                level,
+                motive,
+                branch,
+                scrutinee,
+            } => Term::Elim {
+                id: *id,
+                parameters: parameters
+                    .iter()
+                    .map(|x| self.subst(x, map))
+                    .collect::<Result<_, _>>()?,
+                level: *level,
+                motive: self.subst(motive, map)?,
+                branch: self.subst(branch, map)?,
+                scrutinee: self.subst(scrutinee, map)?,
+            },
             Term::Fst(p) => Term::Fst(self.subst(p, map)?),
             Term::Snd(p) => Term::Snd(self.subst(p, map)?),
             Term::Pair { ty, fst, snd } => Term::Pair {
@@ -238,6 +286,32 @@ impl State {
     fn whnf(&mut self, term: &T) -> Result<T, Error> {
         self.tick()?;
         match term.as_ref() {
+            Term::Elim {
+                id,
+                parameters,
+                level,
+                motive,
+                branch,
+                scrutinee,
+            } => {
+                let scrutinee = self.whnf(scrutinee)?;
+                if let Term::Constructor { fields, .. } = scrutinee.as_ref() {
+                    let result = fields
+                        .iter()
+                        .fold(branch.clone(), |f, x| Term::App(f, x.clone()).arc());
+                    self.whnf(&result)
+                } else {
+                    Ok(Term::Elim {
+                        id: *id,
+                        parameters: parameters.clone(),
+                        level: *level,
+                        motive: motive.clone(),
+                        branch: branch.clone(),
+                        scrutinee,
+                    }
+                    .arc())
+                }
+            }
             Term::Fst(p) | Term::Snd(p) => {
                 let p = self.whnf(p)?;
                 if let Term::Pair { fst, snd, .. } = p.as_ref() {
@@ -418,6 +492,46 @@ impl State {
     fn zonk(&mut self, term: &T) -> Result<T, Error> {
         let term = self.whnf(term)?;
         Ok(match term.as_ref() {
+            Term::Inductive { id, parameters } => Term::Inductive {
+                id: *id,
+                parameters: parameters
+                    .iter()
+                    .map(|x| self.zonk(x))
+                    .collect::<Result<_, _>>()?,
+            },
+            Term::Constructor {
+                id,
+                parameters,
+                fields,
+            } => Term::Constructor {
+                id: *id,
+                parameters: parameters
+                    .iter()
+                    .map(|x| self.zonk(x))
+                    .collect::<Result<_, _>>()?,
+                fields: fields
+                    .iter()
+                    .map(|x| self.zonk(x))
+                    .collect::<Result<_, _>>()?,
+            },
+            Term::Elim {
+                id,
+                parameters,
+                level,
+                motive,
+                branch,
+                scrutinee,
+            } => Term::Elim {
+                id: *id,
+                parameters: parameters
+                    .iter()
+                    .map(|x| self.zonk(x))
+                    .collect::<Result<_, _>>()?,
+                level: *level,
+                motive: self.zonk(motive)?,
+                branch: self.zonk(branch)?,
+                scrutinee: self.zonk(scrutinee)?,
+            },
             Term::Fst(p) => Term::Fst(self.zonk(p)?),
             Term::Snd(p) => Term::Snd(self.zonk(p)?),
             Term::Pair { ty, fst, snd } => Term::Pair {
@@ -571,6 +685,46 @@ impl State {
     fn expand(&mut self, term: &T) -> Result<T, Error> {
         self.tick()?;
         Ok(match term.as_ref() {
+            Term::Inductive { id, parameters } => Term::Inductive {
+                id: *id,
+                parameters: parameters
+                    .iter()
+                    .map(|x| self.expand(x))
+                    .collect::<Result<_, _>>()?,
+            },
+            Term::Constructor {
+                id,
+                parameters,
+                fields,
+            } => Term::Constructor {
+                id: *id,
+                parameters: parameters
+                    .iter()
+                    .map(|x| self.expand(x))
+                    .collect::<Result<_, _>>()?,
+                fields: fields
+                    .iter()
+                    .map(|x| self.expand(x))
+                    .collect::<Result<_, _>>()?,
+            },
+            Term::Elim {
+                id,
+                parameters,
+                level,
+                motive,
+                branch,
+                scrutinee,
+            } => Term::Elim {
+                id: *id,
+                parameters: parameters
+                    .iter()
+                    .map(|x| self.expand(x))
+                    .collect::<Result<_, _>>()?,
+                level: *level,
+                motive: self.expand(motive)?,
+                branch: self.expand(branch)?,
+                scrutinee: self.expand(scrutinee)?,
+            },
             Term::Fst(p) => Term::Fst(self.expand(p)?),
             Term::Snd(p) => Term::Snd(self.expand(p)?),
             Term::Pair { ty, fst, snd } => Term::Pair {
@@ -738,6 +892,12 @@ impl State {
     pub fn synth(&mut self, ctx: &Context, expr: &Expr) -> Result<(T, T), Error> {
         self.tick()?;
         match expr {
+            Expr::Core(term) => {
+                let ty = self.kernel.infer(term)?;
+                let term = self.import_core(term, &mut vec![])?;
+                let ty = self.import_core(&ty, &mut vec![])?;
+                Ok((term, ty))
+            }
             Expr::Sigma {
                 name,
                 domain,
@@ -1369,6 +1529,88 @@ impl State {
                 self.unify(snd, s2)
             }
             (Term::Fst(a), Term::Fst(b)) | (Term::Snd(a), Term::Snd(b)) => self.unify(a, b),
+            (
+                Term::Inductive { id, parameters },
+                Term::Inductive {
+                    id: id2,
+                    parameters: parameters2,
+                },
+            ) => {
+                if id != id2 {
+                    return Err(Error::CannotUnify);
+                }
+                if parameters.len() != parameters2.len() {
+                    return Err(Error::CannotUnify);
+                }
+                for (a, b) in parameters.iter().zip(parameters2) {
+                    self.unify(a, b)?;
+                }
+                Ok(())
+            }
+            (
+                Term::Constructor {
+                    id,
+                    parameters,
+                    fields,
+                },
+                Term::Constructor {
+                    id: id2,
+                    parameters: parameters2,
+                    fields: fields2,
+                },
+            ) => {
+                if id != id2 {
+                    return Err(Error::CannotUnify);
+                }
+                if parameters.len() != parameters2.len() {
+                    return Err(Error::CannotUnify);
+                }
+                for (a, b) in parameters.iter().zip(parameters2) {
+                    self.unify(a, b)?;
+                }
+                if fields.len() != fields2.len() {
+                    return Err(Error::CannotUnify);
+                }
+                for (a, b) in fields.iter().zip(fields2) {
+                    self.unify(a, b)?;
+                }
+                Ok(())
+            }
+            (
+                Term::Elim {
+                    id,
+                    parameters,
+                    level,
+                    motive,
+                    branch,
+                    scrutinee,
+                },
+                Term::Elim {
+                    id: id2,
+                    parameters: parameters2,
+                    level: level2,
+                    motive: motive2,
+                    branch: branch2,
+                    scrutinee: scrutinee2,
+                },
+            ) => {
+                if id != id2 {
+                    return Err(Error::CannotUnify);
+                }
+                if parameters.len() != parameters2.len() {
+                    return Err(Error::CannotUnify);
+                }
+                for (a, b) in parameters.iter().zip(parameters2) {
+                    self.unify(a, b)?;
+                }
+                if level != level2 {
+                    return Err(Error::CannotUnify);
+                }
+                self.unify(motive, motive2)?;
+                self.unify(branch, branch2)?;
+                self.unify(scrutinee, scrutinee2)?;
+                Ok(())
+            }
             (Term::Meta(id, args), _) => self.solve(*id, args, &b),
             (_, Term::Meta(id, args)) => self.solve(*id, args, &a),
             (
@@ -1621,6 +1863,7 @@ impl State {
                 | Term::FinElim { .. }
                 | Term::Fst(_)
                 | Term::Snd(_)
+                | Term::Elim { .. }
                 | Term::Fin0Elim { .. },
             ) => {
                 let x = Term::Local(self.fresh()).arc();
@@ -1636,6 +1879,7 @@ impl State {
                 | Term::FinElim { .. }
                 | Term::Fst(_)
                 | Term::Snd(_)
+                | Term::Elim { .. }
                 | Term::Fin0Elim { .. },
                 Term::Lam { .. },
             ) => self.unify(&b, &a),
@@ -1674,6 +1918,32 @@ impl State {
     ) -> Result<(), Error> {
         self.tick()?;
         match term.as_ref() {
+            Term::Inductive { parameters, .. } => {
+                for child in parameters {
+                    self.validate_solution(solving, child, allowed)?;
+                }
+                Ok(())
+            }
+            Term::Constructor {
+                parameters, fields, ..
+            } => {
+                for child in parameters.iter().chain(fields) {
+                    self.validate_solution(solving, child, allowed)?;
+                }
+                Ok(())
+            }
+            Term::Elim {
+                parameters,
+                motive,
+                branch,
+                scrutinee,
+                ..
+            } => {
+                for child in parameters.iter().chain([motive, branch, scrutinee]) {
+                    self.validate_solution(solving, child, allowed)?;
+                }
+                Ok(())
+            }
             Term::Fst(p) | Term::Snd(p) => self.validate_solution(solving, p, allowed),
             Term::Pair { ty, fst, snd } => {
                 for child in [ty, fst, snd] {
@@ -1825,6 +2095,46 @@ impl State {
     fn core(&mut self, term: &T, scope: &mut Vec<Id>) -> Result<Tm, Error> {
         self.tick()?;
         Ok(match term.as_ref() {
+            Term::Inductive { id, parameters } => Core::Inductive {
+                id: *id,
+                parameters: parameters
+                    .iter()
+                    .map(|x| self.core(x, scope))
+                    .collect::<Result<_, _>>()?,
+            },
+            Term::Constructor {
+                id,
+                parameters,
+                fields,
+            } => Core::Constructor {
+                id: *id,
+                parameters: parameters
+                    .iter()
+                    .map(|x| self.core(x, scope))
+                    .collect::<Result<_, _>>()?,
+                fields: fields
+                    .iter()
+                    .map(|x| self.core(x, scope))
+                    .collect::<Result<_, _>>()?,
+            },
+            Term::Elim {
+                id,
+                parameters,
+                level,
+                motive,
+                branch,
+                scrutinee,
+            } => Core::Elim {
+                id: *id,
+                parameters: parameters
+                    .iter()
+                    .map(|x| self.core(x, scope))
+                    .collect::<Result<_, _>>()?,
+                level: *level,
+                motive: self.core(motive, scope)?,
+                branch: self.core(branch, scope)?,
+                scrutinee: self.core(scrutinee, scope)?,
+            },
             Term::Sigma { id, domain, body } => {
                 let domain = self.core(domain, scope)?;
                 scope.push(*id);
@@ -1992,6 +2302,238 @@ impl State {
         .arc())
     }
 
+    fn import_core(&mut self, term: &Tm, scope: &mut Vec<Id>) -> Result<T, Error> {
+        self.tick()?;
+        Ok(match term.as_ref() {
+            Core::Var(i) => {
+                let index = scope
+                    .len()
+                    .checked_sub(i.saturating_add(1))
+                    .ok_or(Error::ScopeEscape)?;
+                Term::Local(scope[index])
+            }
+            Core::Universe(l) => Term::Universe(*l),
+            Core::Nat => Term::Nat,
+            Core::Zero => Term::Zero,
+            Core::App { function, argument } => Term::App(
+                self.import_core(function, scope)?,
+                self.import_core(argument, scope)?,
+            ),
+            Core::Let { ty, value, body } => {
+                let domain = self.import_core(ty, scope)?;
+                let value = self.import_core(value, scope)?;
+                let id = self.fresh();
+                scope.push(id);
+                let body = self.import_core(body, scope)?;
+                scope.pop();
+                Term::App(
+                    Term::Lam {
+                        id,
+                        plicity: Plicity::Explicit,
+                        domain,
+                        body,
+                    }
+                    .arc(),
+                    value,
+                )
+            }
+            Core::Sigma { domain, codomain } => {
+                let domain = self.import_core(domain, scope)?;
+                let id = self.fresh();
+                scope.push(id);
+                let body = self.import_core(codomain, scope)?;
+                scope.pop();
+                Term::Sigma { id, domain, body }
+            }
+            Core::Pi {
+                relevance,
+                domain,
+                codomain: body,
+            }
+            | Core::Lam {
+                relevance,
+                domain,
+                body,
+            } => {
+                let domain = self.import_core(domain, scope)?;
+                let id = self.fresh();
+                scope.push(id);
+                let body = self.import_core(body, scope)?;
+                scope.pop();
+                let plicity = match relevance {
+                    deppy_core::Relevance::Erased => Plicity::Implicit,
+                    deppy_core::Relevance::Runtime => Plicity::Explicit,
+                };
+                if matches!(term.as_ref(), Core::Pi { .. }) {
+                    Term::Pi {
+                        id,
+                        plicity,
+                        domain,
+                        body,
+                    }
+                } else {
+                    Term::Lam {
+                        id,
+                        plicity,
+                        domain,
+                        body,
+                    }
+                }
+            }
+            Core::Succ(x) => Term::Succ(self.import_core(x, scope)?),
+            Core::Fst(x) => Term::Fst(self.import_core(x, scope)?),
+            Core::Snd(x) => Term::Snd(self.import_core(x, scope)?),
+            Core::Inductive { id, parameters } => Term::Inductive {
+                id: *id,
+                parameters: parameters
+                    .iter()
+                    .map(|x| self.import_core(x, scope))
+                    .collect::<Result<_, _>>()?,
+            },
+            Core::Constructor {
+                id,
+                parameters,
+                fields,
+            } => Term::Constructor {
+                id: *id,
+                parameters: parameters
+                    .iter()
+                    .map(|x| self.import_core(x, scope))
+                    .collect::<Result<_, _>>()?,
+                fields: fields
+                    .iter()
+                    .map(|x| self.import_core(x, scope))
+                    .collect::<Result<_, _>>()?,
+            },
+            Core::Elim {
+                id,
+                parameters,
+                level,
+                motive,
+                branch,
+                scrutinee,
+            } => Term::Elim {
+                id: *id,
+                parameters: parameters
+                    .iter()
+                    .map(|x| self.import_core(x, scope))
+                    .collect::<Result<_, _>>()?,
+                level: *level,
+                motive: self.import_core(motive, scope)?,
+                branch: self.import_core(branch, scope)?,
+                scrutinee: self.import_core(scrutinee, scope)?,
+            },
+            Core::Eq { ty, left, right } => Term::Eq {
+                ty: self.import_core(ty, scope)?,
+                left: self.import_core(left, scope)?,
+                right: self.import_core(right, scope)?,
+            },
+            Core::Refl { ty, value } => Term::Refl {
+                ty: self.import_core(ty, scope)?,
+                value: self.import_core(value, scope)?,
+            },
+            Core::J {
+                level,
+                ty,
+                left,
+                motive,
+                base,
+                right,
+                proof,
+            } => Term::J {
+                level: *level,
+                ty: self.import_core(ty, scope)?,
+                left: self.import_core(left, scope)?,
+                motive: self.import_core(motive, scope)?,
+                base: self.import_core(base, scope)?,
+                right: self.import_core(right, scope)?,
+                proof: self.import_core(proof, scope)?,
+            },
+            Core::Vec { ty, len } => Term::Vec {
+                ty: self.import_core(ty, scope)?,
+                len: self.import_core(len, scope)?,
+            },
+            Core::VNil { ty } => Term::VNil {
+                ty: self.import_core(ty, scope)?,
+            },
+            Core::VCons {
+                ty,
+                len,
+                head,
+                tail,
+            } => Term::VCons {
+                ty: self.import_core(ty, scope)?,
+                len: self.import_core(len, scope)?,
+                head: self.import_core(head, scope)?,
+                tail: self.import_core(tail, scope)?,
+            },
+            Core::Fin { bound } => Term::Fin {
+                bound: self.import_core(bound, scope)?,
+            },
+            Core::FZ { bound } => Term::FZ {
+                bound: self.import_core(bound, scope)?,
+            },
+            Core::FS { bound, pred } => Term::FS {
+                bound: self.import_core(bound, scope)?,
+                pred: self.import_core(pred, scope)?,
+            },
+            Core::VecElim {
+                level,
+                ty,
+                motive,
+                nil,
+                cons,
+                len,
+                scrutinee,
+            } => Term::VecElim {
+                level: *level,
+                ty: self.import_core(ty, scope)?,
+                motive: self.import_core(motive, scope)?,
+                nil: self.import_core(nil, scope)?,
+                cons: self.import_core(cons, scope)?,
+                len: self.import_core(len, scope)?,
+                scrutinee: self.import_core(scrutinee, scope)?,
+            },
+            Core::FinElim {
+                level,
+                motive,
+                zero,
+                step,
+                bound,
+                scrutinee,
+            } => Term::FinElim {
+                level: *level,
+                motive: self.import_core(motive, scope)?,
+                zero: self.import_core(zero, scope)?,
+                step: self.import_core(step, scope)?,
+                bound: self.import_core(bound, scope)?,
+                scrutinee: self.import_core(scrutinee, scope)?,
+            },
+            Core::Fin0Elim { ty, absurd } => Term::Fin0Elim {
+                ty: self.import_core(ty, scope)?,
+                absurd: self.import_core(absurd, scope)?,
+            },
+            Core::NatElim {
+                level,
+                motive,
+                zero,
+                step,
+                scrutinee,
+            } => Term::NatElim {
+                level: *level,
+                motive: self.import_core(motive, scope)?,
+                zero: self.import_core(zero, scope)?,
+                step: self.import_core(step, scope)?,
+                scrutinee: self.import_core(scrutinee, scope)?,
+            },
+            Core::Pair { ty, fst, snd } => Term::Pair {
+                ty: self.import_core(ty, scope)?,
+                fst: self.import_core(fst, scope)?,
+                snd: self.import_core(snd, scope)?,
+            },
+        }
+        .arc())
+    }
     pub fn finish(&mut self, term: T, ty: T, kernel: &Kernel) -> Result<Elaborated, Error> {
         // Validate every meta, including ones removed by beta reduction.
         for id in 0..self.metas.len() {
@@ -2050,6 +2592,137 @@ mod tests {
     }
     fn local(id: Id) -> T {
         Term::Local(id).arc()
+    }
+
+    fn inductive_children(child: T) -> Vec<T> {
+        let n = Term::Nat.arc();
+        vec![
+            Term::Inductive {
+                id: 1,
+                parameters: vec![child.clone()],
+            }
+            .arc(),
+            Term::Constructor {
+                id: 1,
+                parameters: vec![child.clone()],
+                fields: vec![],
+            }
+            .arc(),
+            Term::Constructor {
+                id: 1,
+                parameters: vec![],
+                fields: vec![child.clone()],
+            }
+            .arc(),
+            Term::Elim {
+                id: 1,
+                parameters: vec![child.clone()],
+                level: 0,
+                motive: n.clone(),
+                branch: n.clone(),
+                scrutinee: n.clone(),
+            }
+            .arc(),
+            Term::Elim {
+                id: 1,
+                parameters: vec![],
+                level: 0,
+                motive: child.clone(),
+                branch: n.clone(),
+                scrutinee: n.clone(),
+            }
+            .arc(),
+            Term::Elim {
+                id: 1,
+                parameters: vec![],
+                level: 0,
+                motive: n.clone(),
+                branch: child.clone(),
+                scrutinee: n.clone(),
+            }
+            .arc(),
+            Term::Elim {
+                id: 1,
+                parameters: vec![],
+                level: 0,
+                motive: n.clone(),
+                branch: n.clone(),
+                scrutinee: child,
+            }
+            .arc(),
+        ]
+    }
+    #[test]
+    fn inductive_children_enforce_occurs_scope_and_substitution() {
+        let mut s = State::new(100_000);
+        let m = s.meta(&vec![], u(0));
+        for term in inductive_children(m) {
+            assert_eq!(
+                s.validate_solution(0, &term, &mut HashSet::new()),
+                Err(Error::OccursCheck)
+            );
+        }
+        for term in inductive_children(local(100)) {
+            assert_eq!(
+                s.validate_solution(0, &term, &mut HashSet::new()),
+                Err(Error::ScopeEscape)
+            );
+            let closed = s
+                .subst(&term, &HashMap::from([(100, Term::Nat.arc())]))
+                .unwrap();
+            s.validate_solution(0, &closed, &mut HashSet::new())
+                .unwrap();
+        }
+    }
+    #[test]
+    fn kernel_rechecks_embedded_constructor_before_elimination() {
+        let mut k = Kernel::default();
+        k.declare(
+            1,
+            deppy_core::InductiveDecl {
+                parameters: vec![],
+                fields: vec![Core::Nat.arc()],
+                level: 0,
+            },
+        )
+        .unwrap();
+        let mut s = State::with_kernel(100_000, k.clone());
+        let motive = Term::Lam {
+            id: 0,
+            plicity: Plicity::Explicit,
+            domain: Term::Inductive {
+                id: 1,
+                parameters: vec![],
+            }
+            .arc(),
+            body: Term::Nat.arc(),
+        }
+        .arc();
+        let branch = Term::Lam {
+            id: 1,
+            plicity: Plicity::Explicit,
+            domain: Term::Nat.arc(),
+            body: Term::Zero.arc(),
+        }
+        .arc();
+        let bad = Term::Elim {
+            id: 1,
+            parameters: vec![],
+            level: 0,
+            motive,
+            branch,
+            scrutinee: Term::Constructor {
+                id: 1,
+                parameters: vec![],
+                fields: vec![u(0)],
+            }
+            .arc(),
+        }
+        .arc();
+        assert!(matches!(
+            s.finish(bad, Term::Nat.arc(), &k),
+            Err(Error::Kernel(_))
+        ));
     }
 
     fn sigma_children(child: T) -> Vec<T> {
