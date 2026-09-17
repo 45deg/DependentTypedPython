@@ -1,0 +1,13 @@
+[package]
+name = "deppy-python"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+deppy-core = { path = "../deppy-core" }
+deppy-elab = { path = "../deppy-elab" }
+# Ruff component APIs are unstable; upgrade and test these together.
+ruff_python_parser = "=0.0.12"
+ruff_python_ast = "=0.0.12"
+ruff_text_size = "=0.0.12"
