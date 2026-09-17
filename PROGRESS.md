@@ -23,7 +23,7 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - [x] metaの解と最終コアをkernelで再検査。
 - [x] 推論の受理・拒否テスト、実行例。
 
-対応範囲は、名前付きAST、具体的universe、Π・λ・適用・注釈・期待型付きhole、Nat・Z・S・明示的なNat eliminator、Eq・refl・J、Vec・Finとそれらの依存eliminator、fin0_elim、Σ・Pair・fst・sndです。暗黙引数の明示指定は位置指定です。単一化は、metaに付随するtelescopeの引数が相異なるローカル変数である範囲に限定しています。
+対応範囲は、名前付きAST、具体的universe、Π・λ・適用・注釈・期待型付きhole、Nat・Z・S・明示的なNat eliminator、Eq・refl・J、Vec・Finとそれらの依存eliminator、fin0_elim、Σ・Pair・fst・snd、名前付きrecord宣言と検査済みコア項の埋め込みです。暗黙引数の明示指定は位置指定です。単一化は、metaに付随するtelescopeの引数が相異なるローカル変数である範囲に限定しています。
 
 残る拡張：
 
@@ -52,7 +52,9 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - [ ] 指定引数に対する構造的再帰とrecursorへの変換。
 - [x] Σ、期待型によるPairの検査、依存するfst・snd射影。
 - [x] 名前付きASTによるpackの一般形と射影の実行例。
-- [ ] 非再帰・不変なdependent record。
+- [x] 非再帰dependent recordの名前付き宣言、名目的な単一コンストラクタ型と依存射影への変換。
+- [x] 先行フィールドへの依存、宣言の原子的な登録、同じ形の型の区別とΣとの明示的な相互変換。
+- [ ] Python runtimeのrecord class生成・不変性の保証。
 
 ## 4. Pythonとの接続
 
@@ -83,7 +85,7 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 
 ## 検証記録（2026-09-18）
 
-- `cargo test --workspace --offline`：178件成功（kernel 71件、meta内部17件、elaboration統合90件）。
+- `cargo test --workspace --offline`：197件成功（kernel 79件、meta内部19件、elaboration統合99件）。
 - `cargo clippy --workspace --all-targets --offline -- -D warnings`：成功。
 - `cargo fmt --all -- --check`：成功。
 - `cargo run -p deppy-elab --example implicit_identity --offline`：暗黙型引数を補ったコアの生成とkernel再検査が成功。
@@ -96,6 +98,8 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - 小さなベクタのappend・全位置のget、型を要素にするベクタ、変数の長さに対するgetのFZ/FS計算規則を検査。
 - `cargo run -p deppy-elab --example sigma --offline`：packの一般形と、長さ・ベクタの射影および依存する結果型を確認。
 - Σのuniverse・束縛・暗黙引数推論、成分のhole解決、不正な成分・Σのη・scope escapeの拒否を検査。
+- `cargo run -p deppy-elab --example records --offline`：SomeVecの宣言、pack・as_record・as_pairの一般形、両射影の計算を確認。
+- 名目的な型の区別、空record・型を保持するrecord・依存するパラメータ列、自己参照・前方参照・不正なuniverse・不正なeliminatorの拒否を検査。
 - Pythonの構文検査・実行、コード生成の検証は未実施。
 
-次は非再帰・不変なdependent recordへ進みます。Pythonのmatchや再帰関数からeliminatorへの変換はまだ実装していません。
+次は限定した依存パターンと構造的再帰のeliminatorへの変換へ進みます。Pythonのmatchや再帰関数からの変換はまだ実装していません。

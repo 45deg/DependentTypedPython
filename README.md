@@ -16,6 +16,7 @@ cargo run -p deppy-elab --example nat_add --offline
 cargo run -p deppy-elab --example zero_right --offline
 cargo run -p deppy-elab --example vectors --offline
 cargo run -p deppy-elab --example sigma --offline
+cargo run -p deppy-elab --example records --offline
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --offline -- -D warnings
 ```
@@ -31,6 +32,7 @@ cargo clippy --workspace --all-targets --offline -- -D warnings
 - Nat、Z、S、universe levelとmotiveを明示した依存eliminator。
 - Eq、refl、一般の等式消去J（証明にも依存するmotive）。
 - Σ、型注釈付きPair、依存するfst・snd射影。
+- 非再帰・単一コンストラクタの名目的帰納型、依存eliminator、そこから生成する射影。
 - Vec・Fin、サイズのwitnessを持つコンストラクタ、依存eliminator、fin0_elim。
 - 環境を保持するclosureによるNbE、β・ζ・Nat・Vec・Fin eliminatorとJのι簡約、関数のη変換。
 - `Kernel::infer`、`check`、`normalize`、型を指定する`equivalent`。
@@ -144,11 +146,32 @@ p.snd : B p.fst
 (Pair a b).snd ≡ b
 ```
 
-コアの`Pair { ty, fst, snd }`はΣ型の注釈を保持し、射影で捨てられる成分もkernelで検査します。Σの一般的なη規則は採用しません。`sigma`実行例は一般の`pack`を検査し、`Pair(1, [1])`の両射影と第2成分の型を正規化で確認します。Python構文と名目的なrecordへの接続は未実装です。
+コアの`Pair { ty, fst, snd }`はΣ型の注釈を保持し、射影で捨てられる成分もkernelで検査します。Σの一般的なη規則は採用しません。`sigma`実行例は一般の`pack`を検査し、`Pair(1, [1])`の両射影と第2成分の型を正規化で確認します。Python構文への接続は未実装です。
+
+## Dependent record
+
+`Elaborator::declare_record(id, RecordDecl { parameters, fields, level })`で、名前付きのパラメータ列とフィールド列を登録できます。型は先行する名前を参照でき、フィールドは宣言順に検査されます。パラメータは暗黙引数、フィールドは明示的な引数です。次の宣言が`SomeVec`に相当します。
+
+```rust
+RecordDecl {
+    parameters: vec![("T".into(), Expr::Universe(0))],
+    fields: vec![
+        ("n".into(), Expr::Nat),
+        ("value".into(), Expr::vec(Expr::name("T"), Expr::name("n"))),
+    ],
+    level: 0,
+}
+```
+
+返された`Record`から`ty()`、`constructor()`、`projection("value")`などの関数式を取得します。型引数の明示指定には`.implicit(...)`を使います。コンストラクタ・射影の適用では、通常の暗黙引数推論を利用できます。型検査・正規化には、宣言を保持する同じ`elaborator.kernel()`を使います。
+
+コアは`InductiveDecl`を検査してから登録し、`Inductive`・`Constructor`・`Elim`で表します。宣言IDはkernelの環境内で一意で、登録後の置換・変更APIはありません。同じフィールド構成でも別IDの型は区別し、Σとの変換も明示します。各フィールドのuniverseは宣言したlevel以下に制限します。自己参照・前方参照、範囲外の変数、重複名、不正な型は拒否します。射影は依存eliminatorから生成し、record専用primitiveや一般的なη規則は追加しません。
+
+`Expr::Core`は閉じたコア項の埋め込みです。入力をkernelで検査してからelaboratorに取り込み、最終結果も再検査します。`records`実行例では、第17.5節の`pack`・`as_record`・`as_pair`を名前付きASTで検査し、値を正規化して確認します。Pythonの`@record`認識、runtime class・不変性の実装、一般の帰納型や再帰・positivity checkingは未実装です。
 
 ## 次の実装段階
 
-1. 非再帰のdependent record、限定した依存パターンと構造的再帰。
+1. 限定した依存パターンと構造的再帰のeliminatorへの変換。
 2. elaboratorの対応範囲を拡張（let・グローバル定義・保留制約・意味値による評価）。
 3. CPython 3.12〜3.14のparse/compile検証、AST schema、静的名前解決を接続。
 4. 使用検査、消去、境界の検証・再構築、Pythonコード生成と差分実行テスト。
