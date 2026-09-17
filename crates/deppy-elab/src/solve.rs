@@ -8,6 +8,7 @@ pub(crate) struct Local {
     id: Id,
     name: String,
     ty: T,
+    value: Option<T>,
 }
 pub(crate) type Context = Vec<Local>;
 
@@ -51,11 +52,18 @@ impl State {
     fn meta(&mut self, ctx: &Context, expected: T) -> T {
         let id = self.metas.len();
         self.metas.push(Meta {
-            telescope: ctx.clone(),
+            telescope: ctx.iter().filter(|x| x.value.is_none()).cloned().collect(),
             expected,
             solution: None,
         });
-        Term::Meta(id, ctx.iter().map(|x| Term::Local(x.id).arc()).collect()).arc()
+        Term::Meta(
+            id,
+            ctx.iter()
+                .filter(|x| x.value.is_none())
+                .map(|x| Term::Local(x.id).arc())
+                .collect(),
+        )
+        .arc()
     }
     fn bind(&mut self, ctx: &Context, name: &str, ty: T) -> (Context, Id) {
         let id = self.fresh();
@@ -64,6 +72,7 @@ impl State {
             id,
             name: name.to_owned(),
             ty,
+            value: None,
         });
         (ctx, id)
     }
@@ -889,9 +898,55 @@ impl State {
         }
     }
 
+    // Substitute the definition at name lookup. Retain its checked value in an
+    // explicit application so even unused definitions reach the kernel recheck.
+    fn let_expr(
+        &mut self,
+        ctx: &Context,
+        name: &str,
+        annotation: Option<&Expr>,
+        value: &Expr,
+        body: &Expr,
+        expected: Option<&T>,
+    ) -> Result<(T, T), Error> {
+        let (value, ty) = if let Some(annotation) = annotation {
+            let (ty, _) = self.type_expr(ctx, annotation)?;
+            (self.check(ctx, value, &ty)?, ty)
+        } else {
+            self.synth(ctx, value)?
+        };
+        let (mut inner, id) = self.bind(ctx, name, ty.clone());
+        inner.last_mut().unwrap().value = Some(value.clone());
+        let (body, result) = if let Some(expected) = expected {
+            (self.check(&inner, body, expected)?, expected.clone())
+        } else {
+            self.synth(&inner, body)?
+        };
+        Ok((
+            Term::App(
+                Term::Lam {
+                    id,
+                    plicity: Plicity::Explicit,
+                    domain: ty,
+                    body,
+                }
+                .arc(),
+                value,
+            )
+            .arc(),
+            result,
+        ))
+    }
+
     pub fn synth(&mut self, ctx: &Context, expr: &Expr) -> Result<(T, T), Error> {
         self.tick()?;
         match expr {
+            Expr::Let {
+                name,
+                ty,
+                value,
+                body,
+            } => self.let_expr(ctx, name, ty.as_deref(), value, body, None),
             Expr::Recur(_) => Err(Error::InvalidRecursion(
                 "self-call outside function lowering".into(),
             )),
@@ -934,7 +989,13 @@ impl State {
                     .rev()
                     .find(|x| x.name == *name)
                     .ok_or_else(|| Error::UnknownName(name.clone()))?;
-                Ok((Term::Local(local.id).arc(), local.ty.clone()))
+                Ok((
+                    local
+                        .value
+                        .clone()
+                        .unwrap_or_else(|| Term::Local(local.id).arc()),
+                    local.ty.clone(),
+                ))
             }
             Expr::Universe(level) => Ok((
                 Term::Universe(*level).arc(),
@@ -1426,6 +1487,17 @@ impl State {
 
     pub fn check(&mut self, ctx: &Context, expr: &Expr, expected: &T) -> Result<T, Error> {
         self.tick()?;
+        if let Expr::Let {
+            name,
+            ty,
+            value,
+            body,
+        } = expr
+        {
+            return Ok(self
+                .let_expr(ctx, name, ty.as_deref(), value, body, Some(expected))?
+                .0);
+        }
         if matches!(expr, Expr::Hole) {
             return Ok(self.meta(ctx, expected.clone()));
         }

@@ -8,6 +8,21 @@ impl Lowerer {
     ) -> Result<E, Error> {
         self.tick()?;
         Ok(match e {
+            E::Let {
+                name,
+                ty,
+                value,
+                body,
+            } => {
+                let ty = ty
+                    .as_deref()
+                    .map(|ty| self.rewrite(ty, env, recursion))
+                    .transpose()?;
+                let value = self.rewrite(value, env, recursion)?;
+                let mut inner = env.clone();
+                let name = self.bind(&mut inner, name)?;
+                E::let_in(name, ty, value, self.rewrite(body, &inner, recursion)?)
+            }
             E::Name(name) => {
                 Self::name(name)?;
                 env.get(name)

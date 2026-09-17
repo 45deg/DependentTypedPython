@@ -19,6 +19,13 @@ impl Plicity {
 /// Implicit binders are erased; explicit erased proof binders are not yet exposed.
 #[derive(Clone, Debug)]
 pub enum Expr {
+    /// Immutable local definition; the value is outside the new binding's scope.
+    Let {
+        name: String,
+        ty: Option<Box<Expr>>,
+        value: Box<Expr>,
+        body: Box<Expr>,
+    },
     /// A self-call in function HIR; all declared arguments, including implicit ones, are required.
     /// Only `compile_function`/`lower_function` may eliminate this node.
     Recur(Vec<Expr>),
@@ -132,6 +139,15 @@ pub enum Expr {
     Hole,
 }
 impl Expr {
+    pub fn let_in(name: impl Into<String>, ty: Option<Self>, value: Self, body: Self) -> Self {
+        Self::Let {
+            name: name.into(),
+            ty: ty.map(Box::new),
+            value: Box::new(value),
+            body: Box::new(body),
+        }
+    }
+
     pub fn sigma(name: impl Into<String>, domain: Self, codomain: Self) -> Self {
         Self::Sigma {
             name: name.into(),
