@@ -15,6 +15,7 @@ cargo run -p deppy-elab --example implicit_identity --offline
 cargo run -p deppy-elab --example nat_add --offline
 cargo run -p deppy-elab --example zero_right --offline
 cargo run -p deppy-elab --example vectors --offline
+cargo run -p deppy-elab --example sigma --offline
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --offline -- -D warnings
 ```
@@ -29,6 +30,7 @@ cargo clippy --workspace --all-targets --offline -- -D warnings
 - 型注釈付きλ、適用、型注釈付きlet、de Bruijn indexによる束縛。
 - Nat、Z、S、universe levelとmotiveを明示した依存eliminator。
 - Eq、refl、一般の等式消去J（証明にも依存するmotive）。
+- Σ、型注釈付きPair、依存するfst・snd射影。
 - Vec・Fin、サイズのwitnessを持つコンストラクタ、依存eliminator、fin0_elim。
 - 環境を保持するclosureによるNbE、β・ζ・Nat・Vec・Fin eliminatorとJのι簡約、関数のη変換。
 - `Kernel::infer`、`check`、`normalize`、型を指定する`equivalent`。
@@ -130,12 +132,25 @@ getのVec motiveは`P k xs = Fin k → A`です。空の分岐にはfin0_elimを
 
 これらは固定された型と明示的なeliminatorの実装です。ユーザー定義帰納型の宣言検査・positivity checking、Pythonのconstructor patternや再帰関数の変換、実行時のベクタ表現・境界検証は未実装です。
 
+## 依存対
+
+`Expr::sigma("n", Expr::Nat, Expr::vec(Expr::Nat, Expr::name("n")))`で、長さとベクタの依存対型を表せます。`Expr::pair(n, xs)`は期待されるΣ型を使って検査します。単独のPairから型族を推論することはせず、`Elaborator::check`または`.ann(...)`で型を与えます。
+
+```text
+Σ (x : A). B x : Type[max(u,v)]   (A : Type[u], B x : Type[v])
+p.fst : A
+p.snd : B p.fst
+(Pair a b).fst ≡ a
+(Pair a b).snd ≡ b
+```
+
+コアの`Pair { ty, fst, snd }`はΣ型の注釈を保持し、射影で捨てられる成分もkernelで検査します。Σの一般的なη規則は採用しません。`sigma`実行例は一般の`pack`を検査し、`Pair(1, [1])`の両射影と第2成分の型を正規化で確認します。Python構文と名目的なrecordへの接続は未実装です。
+
 ## 次の実装段階
 
-1. Σ、Pair、projection。
-2. 非再帰のdependent record、限定した依存パターンと構造的再帰。
-3. elaboratorの対応範囲を拡張（let・グローバル定義・保留制約・意味値による評価）。
-4. CPython 3.12〜3.14のparse/compile検証、AST schema、静的名前解決を接続。
-5. 使用検査、消去、境界の検証・再構築、Pythonコード生成と差分実行テスト。
+1. 非再帰のdependent record、限定した依存パターンと構造的再帰。
+2. elaboratorの対応範囲を拡張（let・グローバル定義・保留制約・意味値による評価）。
+3. CPython 3.12〜3.14のparse/compile検証、AST schema、静的名前解決を接続。
+4. 使用検査、消去、境界の検証・再構築、Pythonコード生成と差分実行テスト。
 
 第17節の5例を検査・実行できることがMVPの到達条件です。未実装の構文や穴を公理・`Any`として受理する機能は設けません。
