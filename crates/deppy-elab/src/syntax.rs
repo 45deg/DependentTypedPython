@@ -36,6 +36,50 @@ pub enum Expr {
         right: Box<Expr>,
         proof: Box<Expr>,
     },
+    Vec {
+        ty: Box<Expr>,
+        len: Box<Expr>,
+    },
+    VNil {
+        ty: Box<Expr>,
+    },
+    VCons {
+        ty: Box<Expr>,
+        len: Box<Expr>,
+        head: Box<Expr>,
+        tail: Box<Expr>,
+    },
+    Fin {
+        bound: Box<Expr>,
+    },
+    FZ {
+        bound: Box<Expr>,
+    },
+    FS {
+        bound: Box<Expr>,
+        pred: Box<Expr>,
+    },
+    VecElim {
+        level: u32,
+        ty: Box<Expr>,
+        motive: Box<Expr>,
+        nil: Box<Expr>,
+        cons: Box<Expr>,
+        len: Box<Expr>,
+        scrutinee: Box<Expr>,
+    },
+    FinElim {
+        level: u32,
+        motive: Box<Expr>,
+        zero: Box<Expr>,
+        step: Box<Expr>,
+        bound: Box<Expr>,
+        scrutinee: Box<Expr>,
+    },
+    Fin0Elim {
+        ty: Box<Expr>,
+        absurd: Box<Expr>,
+    },
     Nat,
     Zero,
     Succ(Box<Expr>),
@@ -70,6 +114,82 @@ pub enum Expr {
     Hole,
 }
 impl Expr {
+    pub fn vec(ty: Self, len: Self) -> Self {
+        Self::Vec {
+            ty: Box::new(ty),
+            len: Box::new(len),
+        }
+    }
+    pub fn vnil(ty: Self) -> Self {
+        Self::VNil { ty: Box::new(ty) }
+    }
+    pub fn vcons(ty: Self, len: Self, head: Self, tail: Self) -> Self {
+        Self::VCons {
+            ty: Box::new(ty),
+            len: Box::new(len),
+            head: Box::new(head),
+            tail: Box::new(tail),
+        }
+    }
+    pub fn fin(bound: Self) -> Self {
+        Self::Fin {
+            bound: Box::new(bound),
+        }
+    }
+    pub fn fz(bound: Self) -> Self {
+        Self::FZ {
+            bound: Box::new(bound),
+        }
+    }
+    pub fn fs(bound: Self, pred: Self) -> Self {
+        Self::FS {
+            bound: Box::new(bound),
+            pred: Box::new(pred),
+        }
+    }
+    pub fn vec_elim(
+        level: u32,
+        ty: Self,
+        motive: Self,
+        nil: Self,
+        cons: Self,
+        len: Self,
+        scrutinee: Self,
+    ) -> Self {
+        Self::VecElim {
+            level,
+            ty: Box::new(ty),
+            motive: Box::new(motive),
+            nil: Box::new(nil),
+            cons: Box::new(cons),
+            len: Box::new(len),
+            scrutinee: Box::new(scrutinee),
+        }
+    }
+    pub fn fin_elim(
+        level: u32,
+        motive: Self,
+        zero: Self,
+        step: Self,
+        bound: Self,
+        scrutinee: Self,
+    ) -> Self {
+        Self::FinElim {
+            level,
+            motive: Box::new(motive),
+            zero: Box::new(zero),
+            step: Box::new(step),
+            bound: Box::new(bound),
+            scrutinee: Box::new(scrutinee),
+        }
+    }
+    pub fn fin0_elim(ty: Self, absurd: Self) -> Self {
+        Self::Fin0Elim {
+            ty: Box::new(ty),
+            absurd: Box::new(absurd),
+        }
+    }
+
     pub fn eq(ty: Self, left: Self, right: Self) -> Self {
         Self::Eq {
             ty: Box::new(ty),
@@ -187,6 +307,50 @@ pub(crate) enum Term {
         base: T,
         right: T,
         proof: T,
+    },
+    Vec {
+        ty: T,
+        len: T,
+    },
+    VNil {
+        ty: T,
+    },
+    VCons {
+        ty: T,
+        len: T,
+        head: T,
+        tail: T,
+    },
+    Fin {
+        bound: T,
+    },
+    FZ {
+        bound: T,
+    },
+    FS {
+        bound: T,
+        pred: T,
+    },
+    VecElim {
+        level: u32,
+        ty: T,
+        motive: T,
+        nil: T,
+        cons: T,
+        len: T,
+        scrutinee: T,
+    },
+    FinElim {
+        level: u32,
+        motive: T,
+        zero: T,
+        step: T,
+        bound: T,
+        scrutinee: T,
+    },
+    Fin0Elim {
+        ty: T,
+        absurd: T,
     },
     Nat,
     Zero,

@@ -92,6 +92,70 @@ impl State {
                 right: self.subst(right, map)?,
                 proof: self.subst(proof, map)?,
             },
+            Term::Vec { ty, len } => Term::Vec {
+                ty: self.subst(ty, map)?,
+                len: self.subst(len, map)?,
+            },
+            Term::VNil { ty } => Term::VNil {
+                ty: self.subst(ty, map)?,
+            },
+            Term::VCons {
+                ty,
+                len,
+                head,
+                tail,
+            } => Term::VCons {
+                ty: self.subst(ty, map)?,
+                len: self.subst(len, map)?,
+                head: self.subst(head, map)?,
+                tail: self.subst(tail, map)?,
+            },
+            Term::Fin { bound } => Term::Fin {
+                bound: self.subst(bound, map)?,
+            },
+            Term::FZ { bound } => Term::FZ {
+                bound: self.subst(bound, map)?,
+            },
+            Term::FS { bound, pred } => Term::FS {
+                bound: self.subst(bound, map)?,
+                pred: self.subst(pred, map)?,
+            },
+            Term::VecElim {
+                level,
+                ty,
+                motive,
+                nil,
+                cons,
+                len,
+                scrutinee,
+            } => Term::VecElim {
+                level: *level,
+                ty: self.subst(ty, map)?,
+                motive: self.subst(motive, map)?,
+                nil: self.subst(nil, map)?,
+                cons: self.subst(cons, map)?,
+                len: self.subst(len, map)?,
+                scrutinee: self.subst(scrutinee, map)?,
+            },
+            Term::FinElim {
+                level,
+                motive,
+                zero,
+                step,
+                bound,
+                scrutinee,
+            } => Term::FinElim {
+                level: *level,
+                motive: self.subst(motive, map)?,
+                zero: self.subst(zero, map)?,
+                step: self.subst(step, map)?,
+                bound: self.subst(bound, map)?,
+                scrutinee: self.subst(scrutinee, map)?,
+            },
+            Term::Fin0Elim { ty, absurd } => Term::Fin0Elim {
+                ty: self.subst(ty, map)?,
+                absurd: self.subst(absurd, map)?,
+            },
             Term::Succ(n) => Term::Succ(self.subst(n, map)?),
             Term::NatElim {
                 level,
@@ -205,6 +269,82 @@ impl State {
                     .arc())
                 }
             }
+            Term::VecElim {
+                level,
+                ty,
+                motive,
+                nil,
+                cons,
+                len,
+                scrutinee,
+            } => {
+                let xs = self.whnf(scrutinee)?;
+                match xs.as_ref() {
+                    Term::VNil { .. } => self.whnf(nil),
+                    Term::VCons {
+                        len, head, tail, ..
+                    } => {
+                        let ih = Term::VecElim {
+                            level: *level,
+                            ty: ty.clone(),
+                            motive: motive.clone(),
+                            nil: nil.clone(),
+                            cons: cons.clone(),
+                            len: len.clone(),
+                            scrutinee: tail.clone(),
+                        }
+                        .arc();
+                        let branch = app2(cons.clone(), len.clone(), head.clone());
+                        self.whnf(&app2(branch, tail.clone(), ih))
+                    }
+                    _ => Ok(Term::VecElim {
+                        level: *level,
+                        ty: ty.clone(),
+                        motive: motive.clone(),
+                        nil: nil.clone(),
+                        cons: cons.clone(),
+                        len: len.clone(),
+                        scrutinee: xs,
+                    }
+                    .arc()),
+                }
+            }
+            Term::FinElim {
+                level,
+                motive,
+                zero,
+                step,
+                bound,
+                scrutinee,
+            } => {
+                let index = self.whnf(scrutinee)?;
+                match index.as_ref() {
+                    Term::FZ { bound } => self.whnf(&Term::App(zero.clone(), bound.clone()).arc()),
+                    Term::FS { bound, pred } => {
+                        let ih = Term::FinElim {
+                            level: *level,
+                            motive: motive.clone(),
+                            zero: zero.clone(),
+                            step: step.clone(),
+                            bound: bound.clone(),
+                            scrutinee: pred.clone(),
+                        }
+                        .arc();
+                        self.whnf(
+                            &Term::App(app2(step.clone(), bound.clone(), pred.clone()), ih).arc(),
+                        )
+                    }
+                    _ => Ok(Term::FinElim {
+                        level: *level,
+                        motive: motive.clone(),
+                        zero: zero.clone(),
+                        step: step.clone(),
+                        bound: bound.clone(),
+                        scrutinee: index,
+                    }
+                    .arc()),
+                }
+            }
             Term::NatElim {
                 level,
                 motive,
@@ -269,6 +409,68 @@ impl State {
                 base: self.zonk(base)?,
                 right: self.zonk(right)?,
                 proof: self.zonk(proof)?,
+            },
+            Term::Vec { ty, len } => Term::Vec {
+                ty: self.zonk(ty)?,
+                len: self.zonk(len)?,
+            },
+            Term::VNil { ty } => Term::VNil { ty: self.zonk(ty)? },
+            Term::VCons {
+                ty,
+                len,
+                head,
+                tail,
+            } => Term::VCons {
+                ty: self.zonk(ty)?,
+                len: self.zonk(len)?,
+                head: self.zonk(head)?,
+                tail: self.zonk(tail)?,
+            },
+            Term::Fin { bound } => Term::Fin {
+                bound: self.zonk(bound)?,
+            },
+            Term::FZ { bound } => Term::FZ {
+                bound: self.zonk(bound)?,
+            },
+            Term::FS { bound, pred } => Term::FS {
+                bound: self.zonk(bound)?,
+                pred: self.zonk(pred)?,
+            },
+            Term::VecElim {
+                level,
+                ty,
+                motive,
+                nil,
+                cons,
+                len,
+                scrutinee,
+            } => Term::VecElim {
+                level: *level,
+                ty: self.zonk(ty)?,
+                motive: self.zonk(motive)?,
+                nil: self.zonk(nil)?,
+                cons: self.zonk(cons)?,
+                len: self.zonk(len)?,
+                scrutinee: self.zonk(scrutinee)?,
+            },
+            Term::FinElim {
+                level,
+                motive,
+                zero,
+                step,
+                bound,
+                scrutinee,
+            } => Term::FinElim {
+                level: *level,
+                motive: self.zonk(motive)?,
+                zero: self.zonk(zero)?,
+                step: self.zonk(step)?,
+                bound: self.zonk(bound)?,
+                scrutinee: self.zonk(scrutinee)?,
+            },
+            Term::Fin0Elim { ty, absurd } => Term::Fin0Elim {
+                ty: self.zonk(ty)?,
+                absurd: self.zonk(absurd)?,
             },
             Term::Succ(n) => Term::Succ(self.zonk(n)?),
             Term::NatElim {
@@ -360,6 +562,70 @@ impl State {
                 base: self.expand(base)?,
                 right: self.expand(right)?,
                 proof: self.expand(proof)?,
+            },
+            Term::Vec { ty, len } => Term::Vec {
+                ty: self.expand(ty)?,
+                len: self.expand(len)?,
+            },
+            Term::VNil { ty } => Term::VNil {
+                ty: self.expand(ty)?,
+            },
+            Term::VCons {
+                ty,
+                len,
+                head,
+                tail,
+            } => Term::VCons {
+                ty: self.expand(ty)?,
+                len: self.expand(len)?,
+                head: self.expand(head)?,
+                tail: self.expand(tail)?,
+            },
+            Term::Fin { bound } => Term::Fin {
+                bound: self.expand(bound)?,
+            },
+            Term::FZ { bound } => Term::FZ {
+                bound: self.expand(bound)?,
+            },
+            Term::FS { bound, pred } => Term::FS {
+                bound: self.expand(bound)?,
+                pred: self.expand(pred)?,
+            },
+            Term::VecElim {
+                level,
+                ty,
+                motive,
+                nil,
+                cons,
+                len,
+                scrutinee,
+            } => Term::VecElim {
+                level: *level,
+                ty: self.expand(ty)?,
+                motive: self.expand(motive)?,
+                nil: self.expand(nil)?,
+                cons: self.expand(cons)?,
+                len: self.expand(len)?,
+                scrutinee: self.expand(scrutinee)?,
+            },
+            Term::FinElim {
+                level,
+                motive,
+                zero,
+                step,
+                bound,
+                scrutinee,
+            } => Term::FinElim {
+                level: *level,
+                motive: self.expand(motive)?,
+                zero: self.expand(zero)?,
+                step: self.expand(step)?,
+                bound: self.expand(bound)?,
+                scrutinee: self.expand(scrutinee)?,
+            },
+            Term::Fin0Elim { ty, absurd } => Term::Fin0Elim {
+                ty: self.expand(ty)?,
+                absurd: self.expand(absurd)?,
             },
             Term::Succ(n) => Term::Succ(self.expand(n)?),
             Term::NatElim {
@@ -515,6 +781,256 @@ impl State {
                     }
                     .arc(),
                     result,
+                ))
+            }
+            Expr::Vec { ty, len } => {
+                let (ty, level) = self.type_expr(ctx, ty)?;
+                let len = self.check(ctx, len, &Term::Nat.arc())?;
+                Ok((Term::Vec { ty, len }.arc(), Term::Universe(level).arc()))
+            }
+            Expr::VNil { ty } => {
+                let (ty, _) = self.type_expr(ctx, ty)?;
+                Ok((
+                    Term::VNil { ty: ty.clone() }.arc(),
+                    Term::Vec {
+                        ty,
+                        len: Term::Zero.arc(),
+                    }
+                    .arc(),
+                ))
+            }
+            Expr::VCons {
+                ty,
+                len,
+                head,
+                tail,
+            } => {
+                let (ty, _) = self.type_expr(ctx, ty)?;
+                let len = self.check(ctx, len, &Term::Nat.arc())?;
+                let head = self.check(ctx, head, &ty)?;
+                let tail = self.check(
+                    ctx,
+                    tail,
+                    &Term::Vec {
+                        ty: ty.clone(),
+                        len: len.clone(),
+                    }
+                    .arc(),
+                )?;
+                let result = Term::Vec {
+                    ty: ty.clone(),
+                    len: Term::Succ(len.clone()).arc(),
+                }
+                .arc();
+                Ok((
+                    Term::VCons {
+                        ty,
+                        len,
+                        head,
+                        tail,
+                    }
+                    .arc(),
+                    result,
+                ))
+            }
+            Expr::Fin { bound } => {
+                let bound = self.check(ctx, bound, &Term::Nat.arc())?;
+                Ok((Term::Fin { bound }.arc(), Term::Universe(0).arc()))
+            }
+            Expr::FZ { bound } => {
+                let bound = self.check(ctx, bound, &Term::Nat.arc())?;
+                Ok((
+                    Term::FZ {
+                        bound: bound.clone(),
+                    }
+                    .arc(),
+                    Term::Fin {
+                        bound: Term::Succ(bound).arc(),
+                    }
+                    .arc(),
+                ))
+            }
+            Expr::FS { bound, pred } => {
+                let bound = self.check(ctx, bound, &Term::Nat.arc())?;
+                let pred = self.check(
+                    ctx,
+                    pred,
+                    &Term::Fin {
+                        bound: bound.clone(),
+                    }
+                    .arc(),
+                )?;
+                let result = Term::Fin {
+                    bound: Term::Succ(bound.clone()).arc(),
+                }
+                .arc();
+                Ok((Term::FS { bound, pred }.arc(), result))
+            }
+            Expr::VecElim {
+                level,
+                ty,
+                motive,
+                nil,
+                cons,
+                len,
+                scrutinee,
+            } => {
+                level.checked_add(1).ok_or(Error::UniverseOverflow)?;
+                let (ty, _) = self.type_expr(ctx, ty)?;
+                let len = self.check(ctx, len, &Term::Nat.arc())?;
+                let scrutinee = self.check(
+                    ctx,
+                    scrutinee,
+                    &Term::Vec {
+                        ty: ty.clone(),
+                        len: len.clone(),
+                    }
+                    .arc(),
+                )?;
+                let k = self.fresh();
+                let h = self.fresh();
+                let t = self.fresh();
+                let ih = self.fresh();
+                let kval = Term::Local(k).arc();
+                let hval = Term::Local(h).arc();
+                let tval = Term::Local(t).arc();
+                let tail_ty = Term::Vec {
+                    ty: ty.clone(),
+                    len: kval.clone(),
+                }
+                .arc();
+                let motive_ty = pi(
+                    k,
+                    Term::Nat.arc(),
+                    pi(t, tail_ty.clone(), Term::Universe(*level).arc()),
+                );
+                let motive = self.check(ctx, motive, &motive_ty)?;
+                let nil_ty = app2(
+                    motive.clone(),
+                    Term::Zero.arc(),
+                    Term::VNil { ty: ty.clone() }.arc(),
+                );
+                let nil = self.check(ctx, nil, &nil_ty)?;
+                let ih_ty = app2(motive.clone(), kval.clone(), tval.clone());
+                let cons_value = Term::VCons {
+                    ty: ty.clone(),
+                    len: kval.clone(),
+                    head: hval,
+                    tail: tval,
+                }
+                .arc();
+                let cons_result = app2(motive.clone(), Term::Succ(kval).arc(), cons_value);
+                let cons_ty = pi(
+                    k,
+                    Term::Nat.arc(),
+                    pi(h, ty.clone(), pi(t, tail_ty, pi(ih, ih_ty, cons_result))),
+                );
+                let cons = self.check(ctx, cons, &cons_ty)?;
+                let result = app2(motive.clone(), len.clone(), scrutinee.clone());
+                Ok((
+                    Term::VecElim {
+                        level: *level,
+                        ty,
+                        motive,
+                        nil,
+                        cons,
+                        len,
+                        scrutinee,
+                    }
+                    .arc(),
+                    result,
+                ))
+            }
+            Expr::FinElim {
+                level,
+                motive,
+                zero,
+                step,
+                bound,
+                scrutinee,
+            } => {
+                level.checked_add(1).ok_or(Error::UniverseOverflow)?;
+                let bound = self.check(ctx, bound, &Term::Nat.arc())?;
+                let scrutinee = self.check(
+                    ctx,
+                    scrutinee,
+                    &Term::Fin {
+                        bound: bound.clone(),
+                    }
+                    .arc(),
+                )?;
+                let k = self.fresh();
+                let i = self.fresh();
+                let ih = self.fresh();
+                let kval = Term::Local(k).arc();
+                let ival = Term::Local(i).arc();
+                let pred_ty = Term::Fin {
+                    bound: kval.clone(),
+                }
+                .arc();
+                let motive_ty = pi(
+                    k,
+                    Term::Nat.arc(),
+                    pi(i, pred_ty.clone(), Term::Universe(*level).arc()),
+                );
+                let motive = self.check(ctx, motive, &motive_ty)?;
+                let zero_ty = pi(
+                    k,
+                    Term::Nat.arc(),
+                    app2(
+                        motive.clone(),
+                        Term::Succ(kval.clone()).arc(),
+                        Term::FZ {
+                            bound: kval.clone(),
+                        }
+                        .arc(),
+                    ),
+                );
+                let zero = self.check(ctx, zero, &zero_ty)?;
+                let ih_ty = app2(motive.clone(), kval.clone(), ival.clone());
+                let step_value = Term::FS {
+                    bound: kval.clone(),
+                    pred: ival,
+                }
+                .arc();
+                let step_result = app2(motive.clone(), Term::Succ(kval).arc(), step_value);
+                let step_ty = pi(
+                    k,
+                    Term::Nat.arc(),
+                    pi(i, pred_ty, pi(ih, ih_ty, step_result)),
+                );
+                let step = self.check(ctx, step, &step_ty)?;
+                let result = app2(motive.clone(), bound.clone(), scrutinee.clone());
+                Ok((
+                    Term::FinElim {
+                        level: *level,
+                        motive,
+                        zero,
+                        step,
+                        bound,
+                        scrutinee,
+                    }
+                    .arc(),
+                    result,
+                ))
+            }
+            Expr::Fin0Elim { ty, absurd } => {
+                let (ty, _) = self.type_expr(ctx, ty)?;
+                let absurd = self.check(
+                    ctx,
+                    absurd,
+                    &Term::Fin {
+                        bound: Term::Zero.arc(),
+                    }
+                    .arc(),
+                )?;
+                Ok((
+                    Term::Fin0Elim {
+                        ty: ty.clone(),
+                        absurd,
+                    }
+                    .arc(),
+                    ty,
                 ))
             }
             Expr::Nat => Ok((Term::Nat.arc(), Term::Universe(0).arc())),
@@ -819,6 +1335,124 @@ impl State {
                 self.unify(proof, proof2)?;
                 Ok(())
             }
+            (Term::Vec { ty, len }, Term::Vec { ty: ty2, len: len2 }) => {
+                self.unify(ty, ty2)?;
+                self.unify(len, len2)?;
+                Ok(())
+            }
+            (Term::VNil { ty }, Term::VNil { ty: ty2 }) => {
+                self.unify(ty, ty2)?;
+                Ok(())
+            }
+            (
+                Term::VCons {
+                    ty,
+                    len,
+                    head,
+                    tail,
+                },
+                Term::VCons {
+                    ty: ty2,
+                    len: len2,
+                    head: head2,
+                    tail: tail2,
+                },
+            ) => {
+                self.unify(ty, ty2)?;
+                self.unify(len, len2)?;
+                self.unify(head, head2)?;
+                self.unify(tail, tail2)?;
+                Ok(())
+            }
+            (Term::Fin { bound }, Term::Fin { bound: bound2 }) => {
+                self.unify(bound, bound2)?;
+                Ok(())
+            }
+            (Term::FZ { bound }, Term::FZ { bound: bound2 }) => {
+                self.unify(bound, bound2)?;
+                Ok(())
+            }
+            (
+                Term::FS { bound, pred },
+                Term::FS {
+                    bound: bound2,
+                    pred: pred2,
+                },
+            ) => {
+                self.unify(bound, bound2)?;
+                self.unify(pred, pred2)?;
+                Ok(())
+            }
+            (
+                Term::VecElim {
+                    level,
+                    ty,
+                    motive,
+                    nil,
+                    cons,
+                    len,
+                    scrutinee,
+                },
+                Term::VecElim {
+                    level: level2,
+                    ty: ty2,
+                    motive: motive2,
+                    nil: nil2,
+                    cons: cons2,
+                    len: len2,
+                    scrutinee: scrutinee2,
+                },
+            ) => {
+                if level != level2 {
+                    return Err(Error::CannotUnify);
+                }
+                self.unify(ty, ty2)?;
+                self.unify(motive, motive2)?;
+                self.unify(nil, nil2)?;
+                self.unify(cons, cons2)?;
+                self.unify(len, len2)?;
+                self.unify(scrutinee, scrutinee2)?;
+                Ok(())
+            }
+            (
+                Term::FinElim {
+                    level,
+                    motive,
+                    zero,
+                    step,
+                    bound,
+                    scrutinee,
+                },
+                Term::FinElim {
+                    level: level2,
+                    motive: motive2,
+                    zero: zero2,
+                    step: step2,
+                    bound: bound2,
+                    scrutinee: scrutinee2,
+                },
+            ) => {
+                if level != level2 {
+                    return Err(Error::CannotUnify);
+                }
+                self.unify(motive, motive2)?;
+                self.unify(zero, zero2)?;
+                self.unify(step, step2)?;
+                self.unify(bound, bound2)?;
+                self.unify(scrutinee, scrutinee2)?;
+                Ok(())
+            }
+            (
+                Term::Fin0Elim { ty, absurd },
+                Term::Fin0Elim {
+                    ty: ty2,
+                    absurd: absurd2,
+                },
+            ) => {
+                self.unify(ty, ty2)?;
+                self.unify(absurd, absurd2)?;
+                Ok(())
+            }
             (Term::Succ(x), Term::Succ(y)) => self.unify(x, y),
             (
                 Term::NatElim {
@@ -851,14 +1485,26 @@ impl State {
             // Eta only for lambda versus a neutral term. No general search.
             (
                 Term::Lam { id, body, .. },
-                Term::Local(_) | Term::App(_, _) | Term::NatElim { .. } | Term::J { .. },
+                Term::Local(_)
+                | Term::App(_, _)
+                | Term::NatElim { .. }
+                | Term::J { .. }
+                | Term::VecElim { .. }
+                | Term::FinElim { .. }
+                | Term::Fin0Elim { .. },
             ) => {
                 let x = Term::Local(self.fresh()).arc();
                 let body = self.replace(body, *id, x.clone())?;
                 self.unify(&body, &Term::App(b.clone(), x).arc())
             }
             (
-                Term::Local(_) | Term::App(_, _) | Term::NatElim { .. } | Term::J { .. },
+                Term::Local(_)
+                | Term::App(_, _)
+                | Term::NatElim { .. }
+                | Term::J { .. }
+                | Term::VecElim { .. }
+                | Term::FinElim { .. }
+                | Term::Fin0Elim { .. },
                 Term::Lam { .. },
             ) => self.unify(&b, &a),
             _ => Err(Error::CannotUnify),
@@ -922,6 +1568,75 @@ impl State {
                 ..
             } => {
                 for child in [ty, left, motive, base, right, proof] {
+                    self.validate_solution(solving, child, allowed)?;
+                }
+                Ok(())
+            }
+            Term::Vec { ty, len, .. } => {
+                for child in [ty, len] {
+                    self.validate_solution(solving, child, allowed)?;
+                }
+                Ok(())
+            }
+            Term::VNil { ty, .. } => {
+                self.validate_solution(solving, ty, allowed)?;
+                Ok(())
+            }
+            Term::VCons {
+                ty,
+                len,
+                head,
+                tail,
+                ..
+            } => {
+                for child in [ty, len, head, tail] {
+                    self.validate_solution(solving, child, allowed)?;
+                }
+                Ok(())
+            }
+            Term::Fin { bound, .. } => {
+                self.validate_solution(solving, bound, allowed)?;
+                Ok(())
+            }
+            Term::FZ { bound, .. } => {
+                self.validate_solution(solving, bound, allowed)?;
+                Ok(())
+            }
+            Term::FS { bound, pred, .. } => {
+                for child in [bound, pred] {
+                    self.validate_solution(solving, child, allowed)?;
+                }
+                Ok(())
+            }
+            Term::VecElim {
+                ty,
+                motive,
+                nil,
+                cons,
+                len,
+                scrutinee,
+                ..
+            } => {
+                for child in [ty, motive, nil, cons, len, scrutinee] {
+                    self.validate_solution(solving, child, allowed)?;
+                }
+                Ok(())
+            }
+            Term::FinElim {
+                motive,
+                zero,
+                step,
+                bound,
+                scrutinee,
+                ..
+            } => {
+                for child in [motive, zero, step, bound, scrutinee] {
+                    self.validate_solution(solving, child, allowed)?;
+                }
+                Ok(())
+            }
+            Term::Fin0Elim { ty, absurd, .. } => {
+                for child in [ty, absurd] {
                     self.validate_solution(solving, child, allowed)?;
                 }
                 Ok(())
@@ -1005,6 +1720,70 @@ impl State {
                 base: self.core(base, scope)?,
                 right: self.core(right, scope)?,
                 proof: self.core(proof, scope)?,
+            },
+            Term::Vec { ty, len } => Core::Vec {
+                ty: self.core(ty, scope)?,
+                len: self.core(len, scope)?,
+            },
+            Term::VNil { ty } => Core::VNil {
+                ty: self.core(ty, scope)?,
+            },
+            Term::VCons {
+                ty,
+                len,
+                head,
+                tail,
+            } => Core::VCons {
+                ty: self.core(ty, scope)?,
+                len: self.core(len, scope)?,
+                head: self.core(head, scope)?,
+                tail: self.core(tail, scope)?,
+            },
+            Term::Fin { bound } => Core::Fin {
+                bound: self.core(bound, scope)?,
+            },
+            Term::FZ { bound } => Core::FZ {
+                bound: self.core(bound, scope)?,
+            },
+            Term::FS { bound, pred } => Core::FS {
+                bound: self.core(bound, scope)?,
+                pred: self.core(pred, scope)?,
+            },
+            Term::VecElim {
+                level,
+                ty,
+                motive,
+                nil,
+                cons,
+                len,
+                scrutinee,
+            } => Core::VecElim {
+                level: *level,
+                ty: self.core(ty, scope)?,
+                motive: self.core(motive, scope)?,
+                nil: self.core(nil, scope)?,
+                cons: self.core(cons, scope)?,
+                len: self.core(len, scope)?,
+                scrutinee: self.core(scrutinee, scope)?,
+            },
+            Term::FinElim {
+                level,
+                motive,
+                zero,
+                step,
+                bound,
+                scrutinee,
+            } => Core::FinElim {
+                level: *level,
+                motive: self.core(motive, scope)?,
+                zero: self.core(zero, scope)?,
+                step: self.core(step, scope)?,
+                bound: self.core(bound, scope)?,
+                scrutinee: self.core(scrutinee, scope)?,
+            },
+            Term::Fin0Elim { ty, absurd } => Core::Fin0Elim {
+                ty: self.core(ty, scope)?,
+                absurd: self.core(absurd, scope)?,
             },
             Term::Succ(n) => Core::Succ(self.core(n, scope)?),
             Term::NatElim {
@@ -1096,6 +1875,19 @@ impl State {
     }
 }
 
+fn pi(id: Id, domain: T, body: T) -> T {
+    Term::Pi {
+        id,
+        plicity: Plicity::Explicit,
+        domain,
+        body,
+    }
+    .arc()
+}
+fn app2(f: T, a: T, b: T) -> T {
+    Term::App(Term::App(f, a).arc(), b).arc()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1106,6 +1898,244 @@ mod tests {
         Term::Local(id).arc()
     }
 
+    fn indexed_children(child: T) -> Vec<T> {
+        vec![
+            Term::Vec {
+                ty: child.clone(),
+                len: local(0),
+            }
+            .arc(),
+            Term::Vec {
+                ty: local(0),
+                len: child.clone(),
+            }
+            .arc(),
+            Term::VNil { ty: child.clone() }.arc(),
+            Term::VCons {
+                ty: child.clone(),
+                len: local(0),
+                head: local(0),
+                tail: local(0),
+            }
+            .arc(),
+            Term::VCons {
+                ty: local(0),
+                len: child.clone(),
+                head: local(0),
+                tail: local(0),
+            }
+            .arc(),
+            Term::VCons {
+                ty: local(0),
+                len: local(0),
+                head: child.clone(),
+                tail: local(0),
+            }
+            .arc(),
+            Term::VCons {
+                ty: local(0),
+                len: local(0),
+                head: local(0),
+                tail: child.clone(),
+            }
+            .arc(),
+            Term::Fin {
+                bound: child.clone(),
+            }
+            .arc(),
+            Term::FZ {
+                bound: child.clone(),
+            }
+            .arc(),
+            Term::FS {
+                bound: child.clone(),
+                pred: local(0),
+            }
+            .arc(),
+            Term::FS {
+                bound: local(0),
+                pred: child.clone(),
+            }
+            .arc(),
+            Term::VecElim {
+                level: 0,
+                ty: child.clone(),
+                motive: local(0),
+                nil: local(0),
+                cons: local(0),
+                len: local(0),
+                scrutinee: local(0),
+            }
+            .arc(),
+            Term::VecElim {
+                level: 0,
+                ty: local(0),
+                motive: child.clone(),
+                nil: local(0),
+                cons: local(0),
+                len: local(0),
+                scrutinee: local(0),
+            }
+            .arc(),
+            Term::VecElim {
+                level: 0,
+                ty: local(0),
+                motive: local(0),
+                nil: child.clone(),
+                cons: local(0),
+                len: local(0),
+                scrutinee: local(0),
+            }
+            .arc(),
+            Term::VecElim {
+                level: 0,
+                ty: local(0),
+                motive: local(0),
+                nil: local(0),
+                cons: child.clone(),
+                len: local(0),
+                scrutinee: local(0),
+            }
+            .arc(),
+            Term::VecElim {
+                level: 0,
+                ty: local(0),
+                motive: local(0),
+                nil: local(0),
+                cons: local(0),
+                len: child.clone(),
+                scrutinee: local(0),
+            }
+            .arc(),
+            Term::VecElim {
+                level: 0,
+                ty: local(0),
+                motive: local(0),
+                nil: local(0),
+                cons: local(0),
+                len: local(0),
+                scrutinee: child.clone(),
+            }
+            .arc(),
+            Term::FinElim {
+                level: 0,
+                motive: child.clone(),
+                zero: local(0),
+                step: local(0),
+                bound: local(0),
+                scrutinee: local(0),
+            }
+            .arc(),
+            Term::FinElim {
+                level: 0,
+                motive: local(0),
+                zero: child.clone(),
+                step: local(0),
+                bound: local(0),
+                scrutinee: local(0),
+            }
+            .arc(),
+            Term::FinElim {
+                level: 0,
+                motive: local(0),
+                zero: local(0),
+                step: child.clone(),
+                bound: local(0),
+                scrutinee: local(0),
+            }
+            .arc(),
+            Term::FinElim {
+                level: 0,
+                motive: local(0),
+                zero: local(0),
+                step: local(0),
+                bound: child.clone(),
+                scrutinee: local(0),
+            }
+            .arc(),
+            Term::FinElim {
+                level: 0,
+                motive: local(0),
+                zero: local(0),
+                step: local(0),
+                bound: local(0),
+                scrutinee: child.clone(),
+            }
+            .arc(),
+            Term::Fin0Elim {
+                ty: child.clone(),
+                absurd: local(0),
+            }
+            .arc(),
+            Term::Fin0Elim {
+                ty: local(0),
+                absurd: child.clone(),
+            }
+            .arc(),
+        ]
+    }
+    #[test]
+    fn indexed_children_enforce_occurs_and_scope_checks() {
+        let mut s = State::new(100_000);
+        let m = s.meta(&vec![], u(0));
+        for term in indexed_children(m) {
+            assert_eq!(
+                s.validate_solution(0, &term, &mut HashSet::from([0])),
+                Err(Error::OccursCheck)
+            );
+        }
+        for term in indexed_children(local(100)) {
+            assert_eq!(
+                s.validate_solution(0, &term, &mut HashSet::from([0])),
+                Err(Error::ScopeEscape)
+            );
+        }
+    }
+    #[test]
+    fn kernel_rechecks_indexed_eliminators_before_discarding_branches() {
+        let mut s = State::new(10_000);
+        let bad_vec = Term::VecElim {
+            level: 0,
+            ty: Term::Nat.arc(),
+            motive: Term::Nat.arc(),
+            nil: Term::Zero.arc(),
+            cons: Term::Zero.arc(),
+            len: Term::Zero.arc(),
+            scrutinee: Term::VNil {
+                ty: Term::Nat.arc(),
+            }
+            .arc(),
+        }
+        .arc();
+        assert!(matches!(
+            s.finish(bad_vec, Term::Nat.arc(), &Kernel::default()),
+            Err(Error::Kernel(_))
+        ));
+        let id = s.fresh();
+        let zero = Term::Lam {
+            id,
+            plicity: Plicity::Explicit,
+            domain: Term::Nat.arc(),
+            body: Term::Zero.arc(),
+        }
+        .arc();
+        let bad_fin = Term::FinElim {
+            level: 0,
+            motive: Term::Nat.arc(),
+            zero,
+            step: Term::Zero.arc(),
+            bound: Term::Succ(Term::Zero.arc()).arc(),
+            scrutinee: Term::FZ {
+                bound: Term::Zero.arc(),
+            }
+            .arc(),
+        }
+        .arc();
+        assert!(matches!(
+            s.finish(bad_fin, Term::Nat.arc(), &Kernel::default()),
+            Err(Error::Kernel(_))
+        ));
+    }
     fn equality_children(child: T) -> Vec<T> {
         let mut terms = vec![
             Term::Eq {
