@@ -125,12 +125,19 @@ impl Lowerer {
             if capture.pattern.is_some() {
                 return Err(error(p, "nested constructor patterns are unsupported"));
             }
-            let name = capture
-                .name
-                .as_ref()
-                .ok_or_else(|| error(p, "wildcard captures are unsupported"))?;
-            self.bind(scope, name.as_str(), name)?;
-            names.push(name.to_string());
+            if let Some(name) = &capture.name {
+                self.bind(scope, name.as_str(), name)?;
+                names.push(name.to_string());
+            } else if matches!(kind.as_str(), "FZ" | "FS") && names.is_empty() {
+                // '$' cannot occur in Python identifiers, but is a valid HIR name.
+                names.push(format!("$wild{}", self.wildcard));
+                self.wildcard += 1;
+            } else {
+                return Err(error(
+                    p,
+                    "only Fin bound witnesses may use wildcard captures",
+                ));
+            }
         }
         Ok(match (kind.as_str(), names.as_slice()) {
             ("Z", []) => Pattern::Zero,

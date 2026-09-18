@@ -21,6 +21,7 @@ struct Lowerer {
     imports: HashMap<String, String>,
     globals: HashSet<String>,
     remaining: usize,
+    wildcard: usize,
 }
 const IMPORTS: &[&str] = &[
     "dependent",
@@ -36,6 +37,8 @@ const IMPORTS: &[&str] = &[
     "FS",
     "Eq",
     "refl",
+    "cong",
+    "fin0_elim",
     "Pi",
     "Sigma",
     "Pair",
@@ -46,6 +49,7 @@ pub(super) fn module(body: &[Stmt]) -> Result<Module, Diagnostic> {
         imports: HashMap::new(),
         globals: HashSet::new(),
         remaining: 20_000,
+        wildcard: 0,
     };
     let mut declarations = vec![];
     let mut names = HashSet::new();

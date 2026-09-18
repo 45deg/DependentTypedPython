@@ -139,6 +139,12 @@ impl Lowerer {
                     (Some("Z"), []) => E::Zero,
                     (Some("S"), [n]) => n.clone().succ(),
                     (Some("refl"), [n]) => n.clone().refl(),
+                    (Some("cong"), [f, proof]) => deppy_elab::prelude::cong(0, 0)
+                        .app(f.clone())
+                        .app(proof.clone()),
+                    (Some("fin0_elim"), [absurd]) => {
+                        E::fin0_elim(E::Hole.ann(E::Universe(0)), absurd.clone())
+                    }
                     (Some("Pair"), [fst, snd]) => E::pair(fst.clone(), snd.clone()),
                     (Some("FZ"), [bound]) => E::fz(bound.clone()),
                     (Some("FS"), [bound, pred]) => E::fs(bound.clone(), pred.clone()),

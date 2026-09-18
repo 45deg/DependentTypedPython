@@ -279,3 +279,52 @@ fn structural_fin_matches_compute() {
         Term::Succ(Term::Zero.arc()).arc()
     );
 }
+
+#[test]
+fn python_get_and_zero_right_compute() {
+    for target in [Target::Python312, Target::Python313, Target::Python314] {
+        let m = check_module(include_str!("../examples/proofs.py"), target).unwrap();
+        let e = m.elaborator;
+        let nat = |n| (0..n).fold(E::Zero, |n, _| n.succ());
+        for len in 1..5 {
+            let xs = (0..len).rev().fold(E::vnil(E::Nat), |xs, i| {
+                E::vcons(E::Nat, nat(len - i - 1), nat(i), xs)
+            });
+            for index in 0..len {
+                let i = (0..index).fold(E::fz(nat(len - index - 1)), |i, j| {
+                    E::fs(nat(len - index + j), i)
+                });
+                let got = e
+                    .infer(&E::name("get").app(nat(len)).app(xs.clone()).app(i))
+                    .unwrap();
+                let want = e.infer(&nat(index)).unwrap();
+                assert_eq!(e.kernel().normalize(&got.term).unwrap(), want.term);
+            }
+        }
+        for n in 0..5 {
+            let got = e.infer(&E::name("zero_right").app(nat(n))).unwrap();
+            let want = e.infer(&nat(n).refl()).unwrap();
+            assert_eq!(e.kernel().normalize(&got.term).unwrap(), want.term);
+        }
+    }
+}
+
+#[test]
+fn python_proof_operations_reject_invalid_evidence() {
+    let fixture = include_str!("../examples/proofs.py");
+    for bad in [
+        fixture.replace("fin0_elim(i)", "fin0_elim(Z())"),
+        fixture.replace("cong(S, zero_right(k))", "refl(n)"),
+        fixture.replace("cong(S, zero_right(k))", "cong(Z(), zero_right(k))"),
+        fixture.replace("get(k, rest, j)", "get(k, rest, i)"),
+        fixture.replace("case FS(_, j):", "case FS(_, _):"),
+    ] {
+        assert!(check_module(&bad, Target::Python314).is_err(), "{bad}");
+    }
+    let aliased = fixture
+        .replace("fin0_elim,", "fin0_elim as absurd,")
+        .replace("cong\n", "cong as congruence\n")
+        .replace("fin0_elim(i)", "absurd(i)")
+        .replace("cong(S,", "congruence(S,");
+    check_module(&aliased, Target::Python314).unwrap();
+}
