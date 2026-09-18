@@ -68,7 +68,7 @@ elaborator単体の入力はRustで組み立てるASTです。Pythonの解析は
 
 ## Python frontend
 
-`deppy-python` はRuffのASTから既存の `Expr` または関数HIRを生成し、宣言順に `Elaborator::define` で登録します。[Ruffの公開crate](https://docs.rs/crate/ruff_python_parser/0.0.12)は内部APIが不安定なため、parser・AST・text sizeを同時に更新し、受理・拒否テストを通す運用とします。Ruffの型は変換層に閉じ込めています。
+`deppy-python` はRuffのASTから既存の `Expr`・関数HIR・record宣言を生成し、宣言順にelaboratorで検査・登録します。[Ruffの公開crate](https://docs.rs/crate/ruff_python_parser/0.0.12)は内部APIが不安定なため、parser・AST・text sizeを同時に更新し、受理・拒否テストを通す運用とします。Ruffの型は変換層に閉じ込めています。
 
 - `lower_module(source, Target)`：Python 3.12・3.13・3.14を選び、構文エラーとバージョン制限の両方を検査。各宣言の名前・型・本体・UTF-8 byte rangeを返します。
 - `check_module(source, Target)`：新しい環境で全宣言を型検査し、検査済みの定義とelaboratorを返します。失敗時に部分的な環境は返しません。
@@ -76,13 +76,19 @@ elaborator単体の入力はRustで組み立てるASTです。Pythonの解析は
 
 対応するのは裸の `@dependent`、注釈付き位置引数、`[A: Type]` などの暗黙引数、戻り値注釈、不変の単一ローカル代入、最後の `return` です。`from __future__ import annotations` と、対応APIの `from deppy import ...` を要求します。importの別名にも対応します。
 
-式は `Type`・`Type[level]`、Nat・Vec・Fin・Eq・Pi・Sigma、コンストラクタ、refl、Pairとfst/snd、位置引数による適用、角括弧による暗黙引数指定、Natの加算と0〜1024の整数リテラルに対応します。`VNil()` と `VCons(k, head, tail)` の要素型のuniverseは現在Type₀です。`FZ(k)` と `FS(k, pred)` はboundを明示します。例は `crates/deppy-python/examples/basics.py` にあります。
+式は `Type`・`Type[level]`、Nat・Vec・Fin・Eq・Pi・Sigma、コンストラクタ、refl・cong・fin0_elim、Pairとfst/snd、位置引数による適用、角括弧による暗黙引数指定、Natの加算と0〜1024の整数リテラルに対応します。`VNil()` と `VCons(k, head, tail)` の要素型のuniverseは現在Type₀です。`FZ(k)` と `FS(k, pred)` はboundを明示します。例は `crates/deppy-python/examples/basics.py` にあります。
 
-未検査の名前、対応外の自己参照・前方参照、再代入、可変長・デフォルト・キーワード引数、引数のない関数、任意の属性アクセス、文字列注釈、未対応の構文は拒否します。Pythonの関数スコープに合わせ、代入前のローカル名をグローバル名として解釈しません。`@record`、外部モジュールの静的importは未対応です。
+未検査の名前、対応外の自己参照・前方参照、再代入、可変長・デフォルト・キーワード引数、引数のない関数、任意の属性アクセス、文字列注釈、未対応の構文は拒否します。Pythonの関数スコープに合わせ、代入前のローカル名をグローバル名として解釈しません。外部モジュールの静的importは未対応です。
 
 `@dependent(decreases="parameter")` では、単一の `match` または `return` からなる各ブロックを関数HIRへ変換します。Natの `Z()` / `S(k)`、Vecの `VNil()` / `VCons(k, head, tail)`、Finの `FZ(k)` / `FS(k, pred)` に対応します。網羅性・添字・直接の部分構造への再帰を既存HIRで検査し、kernelで再検査します。自己呼び出しは関数名による位置引数適用に限定し、暗黙型引数は現在の型引数を補います。例は `crates/deppy-python/examples/structural.py` のadd・appendです。
 
-再帰関数のmotive universeは現在0です。分岐内の代入、guard、ワイルドカード、キーワードpattern、コンストラクタpatternの入れ子、自己呼び出しの明示的型引数は未対応です。入れ子のmatchは既存HIRの制限に従います。patternのcapture名にもPythonの関数全体のローカルスコープを適用します。`lower_module` の本体は `DeclarationBody::Expression` / `Structural` で区別されます。
+再帰関数のmotive universeは現在0です。分岐内の代入、guard、Finのbound以外のワイルドカード、キーワードpattern、コンストラクタpatternの入れ子、自己呼び出しの明示的型引数は未対応です。入れ子のmatchは既存HIRの制限に従います。patternのcapture名にもPythonの関数全体のローカルスコープを適用します。`lower_module` の本体は `DeclarationBody::Expression` / `Structural` / `Record` で区別されます。
+
+`cong(f, proof)` はJから導いた定義を適用し、`fin0_elim(i)` は戻り値の期待型を使って空のFinを消去します。現在はType₀が対象です。Fin patternのboundは `FZ(_)` / `FS(_, j)` と省略でき、他の名前を捕捉しない内部名を生成します。`crates/deppy-python/examples/proofs.py` にChatlogのget・zero_right宣言があります。これらの静的検査と生成コアの計算をテストしています。
+
+`@record class SomeVec[T: Type]` は名目的な非再帰recordを宣言します。フィールドには値のない型注釈を使い、先行フィールドは `self.n` のように参照します。`SomeVec[T]` は型、`SomeVec(n, xs)` / `SomeVec[T](n, xs)` はコンストラクタ、`r.n` / `r.value` は生成した射影へ変換します。型名と補助関数を同じelaborator環境に登録します。`CheckedModule.definitions` には関数とrecord型の公開名を返します。
+
+recordのuniverseは現在0です。継承・メタクラス・メソッド・フィールドのデフォルト値・再帰recordは未対応で、`self`・`fst`・`snd` はフィールド名に使えません。同名フィールドが複数の既知のrecordにある場合、その名前での射影は曖昧として拒否します。`crates/deppy-python/examples/records.py` のSomeVecとΣ型の相互変換、依存する射影を検査・計算しています。Python runtimeのclass生成や不変性の保証は未実装です。
 
 通常の未装飾関数とモジュール内のassertは解析のみで、型検査・実行・証明としての利用はしません。ユーザーモジュールや注釈を実行する経路はありません。Ruffの解析はCPythonのcompile検証とは別で、消去やPython実行時の意味保存も保証しません。
 
@@ -125,7 +131,7 @@ J(level, A, x, C, d, y, p) : C y p
 
 `prelude::cong(u, v)`と`prelude::transport(u, v)`はJから定義したASTを返します。universeは呼び出し時に具体的なlevelを指定します。transportは型検査と論理的な計算規則に対応し、runtime representationの検査・消去は未実装です。
 
-`prelude::zero_right()`は`(n : Nat) → Eq Nat (add n Z) n`をNat eliminatorで証明します。Zの分岐は`refl Z`、Sの分岐は`cong S ih`です。実行例は一般形をkernelで検査し、`zero_right(2)`が`refl(2)`に正規化されることも確認します。Python frontendからのこの証明例の検査には、congの接続が残っています。
+`prelude::zero_right()`は`(n : Nat) → Eq Nat (add n Z) n`をNat eliminatorで証明します。Zの分岐は`refl Z`、Sの分岐は`cong S ih`です。実行例は一般形をkernelで検査し、`zero_right(2)`が`refl(2)`に正規化されることも確認します。Python frontendでもこの証明例を検査できます。
 
 ## Vec・Finと安全な要素取得
 
@@ -201,7 +207,7 @@ RecordDecl {
 
 コアは`InductiveDecl`を検査してから登録し、`Inductive`・`Constructor`・`Elim`で表します。宣言IDはkernelの環境内で一意で、登録後の置換・変更APIはありません。同じフィールド構成でも別IDの型は区別し、Σとの変換も明示します。各フィールドのuniverseは宣言したlevel以下に制限します。自己参照・前方参照、範囲外の変数、重複名、不正な型は拒否します。射影は依存eliminatorから生成し、record専用primitiveや一般的なη規則は追加しません。
 
-`Expr::Core`は閉じたコア項の埋め込みです。入力をkernelで検査してからelaboratorに取り込み、最終結果も再検査します。`records`実行例では、第17.5節の`pack`・`as_record`・`as_pair`を名前付きASTで検査し、値を正規化して確認します。Pythonの`@record`認識、runtime class・不変性の実装、一般の帰納型や再帰・positivity checkingは未実装です。
+`Expr::Core`は閉じたコア項の埋め込みです。入力をkernelで検査してからelaboratorに取り込み、最終結果も再検査します。`records`実行例では、第17.5節の`pack`・`as_record`・`as_pair`を名前付きASTで検査し、値を正規化して確認します。Pythonの`@record`にも接続しています。runtime class・不変性の実装、一般の帰納型や再帰・positivity checkingは未実装です。
 
 ## 分岐と構造的再帰の変換
 
@@ -220,7 +226,7 @@ RecordDecl {
 
 ## 次の実装段階
 
-1. Pythonの再帰分岐内let・cong・空Finの消去を接続し、get・zero_rightの例を検査。`@record`を既存record宣言に接続。
+1. 再帰分岐内let、recordの同名フィールドを受け手の型から選ぶ処理、frontendのuniverse指定を追加。
 2. CPython 3.13のcompile検証、モジュール間の静的importと検査済みインターフェース、詳細な型エラー位置を追加。
 3. 使用検査、消去、境界の検証・再構築、Pythonコード生成と差分実行テスト。
 

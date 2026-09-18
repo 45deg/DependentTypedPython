@@ -69,8 +69,10 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - [x] fixtureをCPython 3.12.0・3.14.3でcompile検証。
 - [ ] CPython 3.13のcompile検証。
 - [x] Pythonの`match`・構造的再帰を既存関数HIRへ接続。Nat・Vec・Finと暗黙型引数の補完。
-- [ ] 再帰分岐内let、cong・空Fin消去のPython接続。
-- [ ] Pythonの`@record`を既存record宣言へ接続。
+- [x] cong・空Fin消去のPython接続と、Fin boundのワイルドカード。
+- [ ] 再帰分岐内let。
+- [x] Pythonの`@record`を既存record宣言へ接続。先行フィールド参照・型引数・コンストラクタ・射影。
+- [ ] recordの同名フィールドを受け手の型から選択、frontendのuniverse指定。
 - [ ] 静的importと検査済みインターフェース。
 - [ ] 消去対象の使用検査、消去、runtime IR。
 - [ ] ランタイムと境界データの検証・再構築。
@@ -82,9 +84,12 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - [ ] 第17.1節：Pythonランタイムでの実行と消去。
 - [x] 第17.2節：PythonのVec append宣言の静的検査と生成コアの計算。
 - [ ] 第17.2節：Pythonランタイムでのappend実行。
-- [ ] 第17.3節：Finによるget例。
-- [ ] 第17.4節：zero_right証明例。
-- [ ] 第17.5節：Σとrecordの例。
+- [x] 第17.3節：Pythonのget宣言の静的検査と生成コアの計算。
+- [ ] 第17.3節：Pythonランタイムでのget実行。
+- [x] 第17.4節：Pythonのzero_right証明の静的検査と生成コアの計算。
+- [ ] 第17.4節：Pythonランタイムでの実行・証明消去。
+- [x] 第17.5節：PythonのΣとSomeVecの静的検査、相互変換と生成コアの計算。
+- [ ] 第17.5節：Pythonランタイムでのrecord生成・実行。
 - [x] `Type : Type`の拒否（kernel）。
 - [ ] 発散する証明・添字への再代入の拒否（Python frontend）。
 - [x] metaのscope escapeの拒否（内部項と名前付き入力AST）。
@@ -97,7 +102,7 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 
 ## 検証記録（2026-09-18）
 
-- `cargo test --workspace --offline`：253件成功（kernel 84件、meta内部19件、elaboration統合128件、Python frontend 22件）。
+- `cargo test --workspace --offline`：262件成功（kernel 84件、meta内部19件、elaboration統合128件、Python frontend 31件）。
 - `cargo clippy --workspace --all-targets --offline -- -D warnings`：成功。
 - `cargo fmt --all -- --check`：成功。
 - `cargo run -p deppy-elab --example implicit_identity --offline`：暗黙型引数を補ったコアの生成とkernel再検査が成功。
@@ -120,6 +125,9 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - Python CLIの実行成功。Unicodeの名前とbyte range、再代入・名前の捕獲・型不一致・target-version構文エラーの拒否を検査。
 - `scripts/check_python_syntax.py`：CPython 3.12.0・3.14.3でfixtureのコンパイル成功。ユーザーコードは実行していない。
 - Python add・append・Fin rankの静的検査と生成コアの計算を確認。不正な再帰・非網羅／重複分岐・captureのscope違反を拒否。
+- Python getを長さ1〜4の全位置で計算し、zero_right(0〜4)の正規形がreflになることを確認。不正な証拠・再帰先を拒否。
+- Python SomeVecとΣの往復変換、型引数の推論・明示、空record、構造的再帰内でのrecord利用と依存する射影を検査。
+- 名目的な型の取り違え、長さの不一致、自己／前方参照、曖昧な射影を拒否。フィールド名とλ／import名の捕捉防止を検査。
 - Pythonランタイム実行、消去、コード生成の検証は未実施。
 
-次はPythonのget・zero_rightに必要な式の接続と、@recordの接続を進めます。
+次は再帰分岐内let・record射影の型による選択を進めます。消去・Python実行の実装も残っています。
