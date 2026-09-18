@@ -52,7 +52,7 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - [x] 関数HIRのNat・Vec・Fin constructor pattern、網羅性検査、限定した入れ子のFin分岐。
 - [x] 関数HIRの指定引数に対する直接の構造的再帰、後続引数の一般化、recursorへの変換。
 - [x] append・get・zero_rightを、明示的なmotiveを持たない分岐と自己呼び出しから生成。
-- [ ] Pythonのmatch・return・自己呼び出しから関数HIRへの変換。
+- [x] Pythonのmatch・return・自己呼び出しから関数HIRへの変換（単一文ブロック、motive universe 0）。
 - [x] Σ、期待型によるPairの検査、依存するfst・snd射影。
 - [x] 名前付きASTによるpackの一般形と射影の実行例。
 - [x] 非再帰dependent recordの名前付き宣言、名目的な単一コンストラクタ型と依存射影への変換。
@@ -68,7 +68,8 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - [x] 固定deppy APIの静的importと別名。ユーザーコード・注釈は実行しない。
 - [x] fixtureをCPython 3.12.0・3.14.3でcompile検証。
 - [ ] CPython 3.13のcompile検証。
-- [ ] Pythonの`match`・構造的再帰を既存関数HIRへ接続。
+- [x] Pythonの`match`・構造的再帰を既存関数HIRへ接続。Nat・Vec・Finと暗黙型引数の補完。
+- [ ] 再帰分岐内let、cong・空Fin消去のPython接続。
 - [ ] Pythonの`@record`を既存record宣言へ接続。
 - [ ] 静的importと検査済みインターフェース。
 - [ ] 消去対象の使用検査、消去、runtime IR。
@@ -79,7 +80,8 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 
 - [x] 第17.1節：Pythonのidentity宣言の静的検査と、生成コアの計算。
 - [ ] 第17.1節：Pythonランタイムでの実行と消去。
-- [ ] 第17.2節：Vec append例。
+- [x] 第17.2節：PythonのVec append宣言の静的検査と生成コアの計算。
+- [ ] 第17.2節：Pythonランタイムでのappend実行。
 - [ ] 第17.3節：Finによるget例。
 - [ ] 第17.4節：zero_right証明例。
 - [ ] 第17.5節：Σとrecordの例。
@@ -95,7 +97,7 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 
 ## 検証記録（2026-09-18）
 
-- `cargo test --workspace --offline`：249件成功（kernel 84件、meta内部19件、elaboration統合128件、Python frontend 18件）。
+- `cargo test --workspace --offline`：253件成功（kernel 84件、meta内部19件、elaboration統合128件、Python frontend 22件）。
 - `cargo clippy --workspace --all-targets --offline -- -D warnings`：成功。
 - `cargo fmt --all -- --check`：成功。
 - `cargo run -p deppy-elab --example implicit_identity --offline`：暗黙型引数を補ったコアの生成とkernel再検査が成功。
@@ -117,6 +119,7 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - `cargo run -p deppy-python --example check --locked --offline`：Pythonの5宣言を型検査し、twice(Z)・reflexive(Z)を生成コアで計算。
 - Python CLIの実行成功。Unicodeの名前とbyte range、再代入・名前の捕獲・型不一致・target-version構文エラーの拒否を検査。
 - `scripts/check_python_syntax.py`：CPython 3.12.0・3.14.3でfixtureのコンパイル成功。ユーザーコードは実行していない。
+- Python add・append・Fin rankの静的検査と生成コアの計算を確認。不正な再帰・非網羅／重複分岐・captureのscope違反を拒否。
 - Pythonランタイム実行、消去、コード生成の検証は未実施。
 
-次はPythonのmatch・再帰関数から既存の関数HIRへの変換と、@recordの接続を進めます。
+次はPythonのget・zero_rightに必要な式の接続と、@recordの接続を進めます。

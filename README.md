@@ -2,7 +2,7 @@
 
 Pythonの構文で記述する依存型言語の実装です。[Chatlog.md](Chatlog.md)を設計仕様とし、第19節の実装順序に沿って進めています。
 
-現在はRust製kernel、名前付きASTのelaborator、Ruffを使ったPython frontendを実装しています。Pythonソースの非再帰関数を静的に型検査できます。Python実行・コード生成と、第17節の例全体への対応は未実装です。
+現在はRust製kernel、名前付きASTのelaborator、Ruffを使ったPython frontendを実装しています。Pythonソースの非再帰関数と、対応する構造的再帰関数を静的に型検査できます。Python実行・コード生成と、第17節の例全体への対応は未実装です。
 
 ## 実行
 
@@ -68,7 +68,7 @@ elaborator単体の入力はRustで組み立てるASTです。Pythonの解析は
 
 ## Python frontend
 
-`deppy-python` はRuffのASTから既存の `Expr` を生成し、宣言順に `Elaborator::define` で登録します。[Ruffの公開crate](https://docs.rs/crate/ruff_python_parser/0.0.12)は内部APIが不安定なため、parser・AST・text sizeを同時に更新し、受理・拒否テストを通す運用とします。Ruffの型は変換層に閉じ込めています。
+`deppy-python` はRuffのASTから既存の `Expr` または関数HIRを生成し、宣言順に `Elaborator::define` で登録します。[Ruffの公開crate](https://docs.rs/crate/ruff_python_parser/0.0.12)は内部APIが不安定なため、parser・AST・text sizeを同時に更新し、受理・拒否テストを通す運用とします。Ruffの型は変換層に閉じ込めています。
 
 - `lower_module(source, Target)`：Python 3.12・3.13・3.14を選び、構文エラーとバージョン制限の両方を検査。各宣言の名前・型・本体・UTF-8 byte rangeを返します。
 - `check_module(source, Target)`：新しい環境で全宣言を型検査し、検査済みの定義とelaboratorを返します。失敗時に部分的な環境は返しません。
@@ -78,7 +78,11 @@ elaborator単体の入力はRustで組み立てるASTです。Pythonの解析は
 
 式は `Type`・`Type[level]`、Nat・Vec・Fin・Eq・Pi・Sigma、コンストラクタ、refl、Pairとfst/snd、位置引数による適用、角括弧による暗黙引数指定、Natの加算と0〜1024の整数リテラルに対応します。`VNil()` と `VCons(k, head, tail)` の要素型のuniverseは現在Type₀です。`FZ(k)` と `FS(k, pred)` はboundを明示します。例は `crates/deppy-python/examples/basics.py` にあります。
 
-未検査の名前、自己参照・前方参照、再代入、可変長・デフォルト・キーワード引数、引数のない関数、任意の属性アクセス、文字列注釈、未対応の構文は拒否します。Pythonの関数スコープに合わせ、代入前のローカル名をグローバル名として解釈しません。`match`、`@dependent(decreases=...)`、`@record`、外部モジュールの静的importは次の範囲です。
+未検査の名前、対応外の自己参照・前方参照、再代入、可変長・デフォルト・キーワード引数、引数のない関数、任意の属性アクセス、文字列注釈、未対応の構文は拒否します。Pythonの関数スコープに合わせ、代入前のローカル名をグローバル名として解釈しません。`@record`、外部モジュールの静的importは未対応です。
+
+`@dependent(decreases="parameter")` では、単一の `match` または `return` からなる各ブロックを関数HIRへ変換します。Natの `Z()` / `S(k)`、Vecの `VNil()` / `VCons(k, head, tail)`、Finの `FZ(k)` / `FS(k, pred)` に対応します。網羅性・添字・直接の部分構造への再帰を既存HIRで検査し、kernelで再検査します。自己呼び出しは関数名による位置引数適用に限定し、暗黙型引数は現在の型引数を補います。例は `crates/deppy-python/examples/structural.py` のadd・appendです。
+
+再帰関数のmotive universeは現在0です。分岐内の代入、guard、ワイルドカード、キーワードpattern、コンストラクタpatternの入れ子、自己呼び出しの明示的型引数は未対応です。入れ子のmatchは既存HIRの制限に従います。patternのcapture名にもPythonの関数全体のローカルスコープを適用します。`lower_module` の本体は `DeclarationBody::Expression` / `Structural` で区別されます。
 
 通常の未装飾関数とモジュール内のassertは解析のみで、型検査・実行・証明としての利用はしません。ユーザーモジュールや注釈を実行する経路はありません。Ruffの解析はCPythonのcompile検証とは別で、消去やPython実行時の意味保存も保証しません。
 
@@ -101,7 +105,7 @@ Zではzeroへ、S(k)では`step k (NatElim ... k)`へ簡約します。変数�
 
 名前付きASTでも`Expr::Nat`、`Zero`、`succ()`、`nat_elim(...)`を使用できます。`prelude::nat_add()`は第1引数について再帰する加算のASTを返します。専用の加算primitiveや公理は使わず、通常のelaborationとkernel検査を通します。
 
-`add Z m ≡ m`と`add (S k) m ≡ S (add k m)`は定義的等式です。変数nについて`add n Z ≡ n`とは判定しません。この等式は、EqとNatの帰納法で証明します。Pythonの整数や`+`、`match`の読み取りはまだ実装していません。
+`add Z m ≡ m`と`add (S k) m ≡ S (add k m)`は定義的等式です。変数nについて`add n Z ≡ n`とは判定しません。この等式は、EqとNatの帰納法で証明します。Python frontendでも整数・`+`・対応する`match`を読み取れます。
 
 ## 等式と帰納法による証明
 
@@ -121,7 +125,7 @@ J(level, A, x, C, d, y, p) : C y p
 
 `prelude::cong(u, v)`と`prelude::transport(u, v)`はJから定義したASTを返します。universeは呼び出し時に具体的なlevelを指定します。transportは型検査と論理的な計算規則に対応し、runtime representationの検査・消去は未実装です。
 
-`prelude::zero_right()`は`(n : Nat) → Eq Nat (add n Z) n`をNat eliminatorで証明します。Zの分岐は`refl Z`、Sの分岐は`cong S ih`です。実行例は一般形をkernelで検査し、`zero_right(2)`が`refl(2)`に正規化されることも確認します。Pythonの再帰関数やmatchからの変換はまだ扱いません。
+`prelude::zero_right()`は`(n : Nat) → Eq Nat (add n Z) n`をNat eliminatorで証明します。Zの分岐は`refl Z`、Sの分岐は`cong S ih`です。実行例は一般形をkernelで検査し、`zero_right(2)`が`refl(2)`に正規化されることも確認します。Python frontendからのこの証明例の検査には、congの接続が残っています。
 
 ## Vec・Finと安全な要素取得
 
@@ -162,7 +166,7 @@ get    : {A : Type[level]} → (n : Nat) → Vec A n → Fin n → A
 
 getのVec motiveは`P k xs = Fin k → A`です。空の分岐にはfin0_elimを使い、VConsの分岐ではFinElimから導いたcase splitで先頭と再帰呼び出しを選びます。型レベルのNat eliminatorで分岐関数の型を作るため、添字の強制変換は不要です。実行例は`[1] ++ [0] = [1, 0]`と、その2番目の値が0であることをkernelの正規化で確認します。
 
-これらは固定された型と明示的なeliminatorの実装です。ユーザー定義帰納型の宣言検査・positivity checking、Pythonのconstructor patternや再帰関数の変換、実行時のベクタ表現・境界検証は未実装です。
+これらは固定された型と明示的なeliminatorの実装です。ユーザー定義帰納型の宣言検査・positivity checking、対応範囲外のPython pattern、実行時のベクタ表現・境界検証は未実装です。
 
 ## 依存対
 
@@ -176,7 +180,7 @@ p.snd : B p.fst
 (Pair a b).snd ≡ b
 ```
 
-コアの`Pair { ty, fst, snd }`はΣ型の注釈を保持し、射影で捨てられる成分もkernelで検査します。Σの一般的なη規則は採用しません。`sigma`実行例は一般の`pack`を検査し、`Pair(1, [1])`の両射影と第2成分の型を正規化で確認します。Python構文への接続は未実装です。
+コアの`Pair { ty, fst, snd }`はΣ型の注釈を保持し、射影で捨てられる成分もkernelで検査します。Σの一般的なη規則は採用しません。`sigma`実行例は一般の`pack`を検査し、`Pair(1, [1])`の両射影と第2成分の型を正規化で確認します。Python frontendはSigma・Pair・fst/sndにも対応しています。
 
 ## Dependent record
 
@@ -212,11 +216,11 @@ RecordDecl {
 
 対応範囲外の型の別名や添字式、固定した前方引数の添字依存、pattern名による関数引数の隠蔽、さらに深い分岐は拒否します。`motive_level`は後続引数を含むmotiveの結果universeで、間違った値はkernel検査を通りません。全域性の検査を無効化する設定、一般再帰・相互再帰・Eqのpattern matchingはありません。
 
-これはプログラムから構築するHIRの実装です。Pythonの`match`・自己呼び出しをこの関数HIRへ変換する接続は未実装です。
+このHIRはプログラムからの構築に加え、上記のPython frontendからも生成します。
 
 ## 次の実装段階
 
-1. Pythonの`match`・構造的再帰・`@record`を既存の関数HIR／record宣言に接続。
+1. Pythonの再帰分岐内let・cong・空Finの消去を接続し、get・zero_rightの例を検査。`@record`を既存record宣言に接続。
 2. CPython 3.13のcompile検証、モジュール間の静的importと検査済みインターフェース、詳細な型エラー位置を追加。
 3. 使用検査、消去、境界の検証・再構築、Pythonコード生成と差分実行テスト。
 
