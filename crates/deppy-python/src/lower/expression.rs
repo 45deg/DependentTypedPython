@@ -108,6 +108,26 @@ impl Lowerer {
                 if !call.arguments.keywords.is_empty() {
                     return Err(error(call, "keyword arguments are unsupported"));
                 }
+                if let (Some((name, implicit, arity)), Expr::Name(callee)) =
+                    (&scope.recursion, call.func.as_ref())
+                {
+                    if callee.id.as_str() == name
+                        && !scope.locals.contains(name)
+                        && !scope.assigned.contains(name)
+                    {
+                        if call.arguments.args.len() != *arity {
+                            return Err(error(
+                                call,
+                                "recursive call requires all explicit arguments",
+                            ));
+                        }
+                        let mut args: Vec<E> = implicit.iter().map(E::name).collect();
+                        for arg in &call.arguments.args {
+                            args.push(self.expr(arg, scope)?);
+                        }
+                        return Ok(E::Recur(args));
+                    }
+                }
                 let builtin = self.builtin(&call.func, scope).map(str::to_owned);
                 let args = call
                     .arguments

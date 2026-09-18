@@ -147,7 +147,7 @@ fn invalid_or_unsupported_function_signatures() {
             "@dependent\ndef f({signature}) -> Nat:\n    return n"
         ));
     }
-    rejected("@dependent(decreases='n')\ndef f(n: Nat) -> Nat:\n    return n");
+    rejected("@dependent(decreases='missing')\ndef f(n: Nat) -> Nat:\n    return n");
     rejected("@dependent\nasync def f(n: Nat) -> Nat:\n    return n");
     rejected("@dependent\ndef f(n: Nat) -> Nat:\n    return f(n=n)");
 }
@@ -193,4 +193,89 @@ fn errors_in_discarded_values_and_non_cumulative_universes() {
 #[test]
 fn zero_argument_functions_are_rejected_instead_of_becoming_values() {
     rejected("@dependent\ndef zero() -> Nat:\n    return Z()");
+}
+
+#[test]
+fn structural_python_fixture_checks_and_computes() {
+    for target in [Target::Python312, Target::Python313, Target::Python314] {
+        let module = check_module(include_str!("../examples/structural.py"), target).unwrap();
+        let e = module.elaborator;
+        for n in 0..4 {
+            for m in 0..4 {
+                let nat = |n| (0..n).fold(E::Zero, |n, _| n.succ());
+                let result = e.infer(&E::name("add").app(nat(n)).app(nat(m))).unwrap();
+                let expected = e.infer(&nat(n + m)).unwrap();
+                assert_eq!(e.kernel().normalize(&result.term).unwrap(), expected.term);
+            }
+        }
+        let nil = E::vnil(E::Nat);
+        let one = E::vcons(E::Nat, E::Zero, E::Zero.succ(), nil.clone());
+        let result = e
+            .infer(
+                &E::name("append")
+                    .app(E::Zero.succ())
+                    .app(E::Zero.succ())
+                    .app(one.clone())
+                    .app(one.clone()),
+            )
+            .unwrap();
+        let expected = e
+            .infer(&E::vcons(E::Nat, E::Zero.succ(), E::Zero.succ(), one))
+            .unwrap();
+        assert_eq!(
+            e.kernel().normalize(&result.term).unwrap(),
+            e.kernel().normalize(&expected.term).unwrap()
+        );
+    }
+}
+
+#[test]
+fn structural_recursion_and_coverage_are_checked() {
+    let fixture = include_str!("../examples/structural.py");
+    for bad in [
+        fixture.replace("add(k, m)", "add(n, m)"),
+        fixture.replace("add(k, m)", "add(S(k), m)"),
+        fixture.replace("add(k, m)", "add(k)"),
+        fixture.replace("append(k, m, rest, ys)", "append(n, m, rest, ys)"),
+        fixture.replace("append(k, m, rest, ys)", "append(k, m, xs, ys)"),
+        fixture.replace("case S(k):", "case Z():"),
+        fixture.replace("        case S(k):\n            return S(add(k, m))", ""),
+        fixture.replace("case Z():", "case Z() if True:"),
+        fixture.replace("case S(k):", "case S(S(k)):"),
+        fixture.replace("case S(k):", "case S(_):"),
+        fixture.replace("case S(k):", "case S(n):"),
+    ] {
+        assert!(check_module(&bad, Target::Python314).is_err(), "{bad}");
+    }
+}
+
+#[test]
+fn structural_aliases_globals_and_local_scope() {
+    accepted("@dependent\ndef step(n: Nat) -> Nat:\n    return S(n)\n@dependent(decreases='n')\ndef count(n: Nat) -> Nat:\n    match n:\n        case Z():\n            return Z()\n        case S(k):\n            return step(count(k))");
+    let fixture = include_str!("../examples/structural.py")
+        .replace(" Z, S,", " Z as Zero, S as Succ,")
+        .replace("Z()", "Zero()")
+        .replace("S(", "Succ(");
+    check_module(&fixture, Target::Python314).unwrap();
+    // Pattern captures, like assignments, make names local throughout the function.
+    rejected("@dependent(decreases='n')\ndef count(n: Nat) -> Nat:\n    match n:\n        case Z():\n            return S(Z())\n        case S(S):\n            return Z()");
+    rejected("@dependent(decreases='n')\ndef count(n: Nat) -> Nat:\n    match n:\n        case Z():\n            return k\n        case S(k):\n            return k");
+    rejected("@dependent(decreases='n')\ndef count(n: Nat) -> Nat:\n    match n:\n        case Z():\n            return Z()\n        case S(k):\n            alias = k\n            return count(alias)");
+}
+
+#[test]
+fn structural_fin_matches_compute() {
+    let m = accepted("@dependent(decreases='i')\ndef rank(n: Nat, i: Fin[n]) -> Nat:\n    match i:\n        case FZ(k):\n            return Z()\n        case FS(k, j):\n            return S(rank(k, j))");
+    let e = m.elaborator;
+    let result = e
+        .infer(
+            &E::name("rank")
+                .app(E::Zero.succ().succ())
+                .app(E::fs(E::Zero.succ(), E::fz(E::Zero))),
+        )
+        .unwrap();
+    assert_eq!(
+        e.kernel().normalize(&result.term).unwrap(),
+        Term::Succ(Term::Zero.arc()).arc()
+    );
 }

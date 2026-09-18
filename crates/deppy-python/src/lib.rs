@@ -53,7 +53,12 @@ pub struct Declaration {
     pub name: String,
     pub span: Span,
     pub ty: Expr,
-    pub body: Expr,
+    pub body: DeclarationBody,
+}
+#[derive(Clone, Debug)]
+pub enum DeclarationBody {
+    Expression(Expr),
+    Structural(deppy_elab::lower::Function),
 }
 #[derive(Clone, Debug)]
 pub struct Module {
@@ -101,8 +106,18 @@ pub fn check_module(source: &str, target: Target) -> Result<CheckedModule, Diagn
     let mut elaborator = Elaborator::default();
     let mut definitions = vec![];
     for d in module.declarations {
+        let body =
+            match &d.body {
+                DeclarationBody::Structural(function) => elaborator
+                    .lower_function(function)
+                    .map_err(|e| Diagnostic {
+                        span: d.span,
+                        message: e.to_string(),
+                    })?,
+                DeclarationBody::Expression(body) => body.clone(),
+            };
         let id = elaborator
-            .define(&d.name, Some(&d.ty), &d.body)
+            .define(&d.name, Some(&d.ty), &body)
             .map_err(|e| Diagnostic {
                 span: d.span,
                 message: e.to_string(),

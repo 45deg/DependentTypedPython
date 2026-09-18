@@ -1,5 +1,6 @@
 mod expression;
-use crate::{Declaration, Diagnostic, Module};
+mod structural;
+use crate::{Declaration, DeclarationBody, Diagnostic, Module};
 use deppy_elab::{Expr as E, Plicity};
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_text_size::{Ranged, TextRange};
@@ -14,6 +15,7 @@ fn error(node: &impl Ranged, message: impl Into<String>) -> Diagnostic {
 struct Scope {
     locals: HashSet<String>,
     assigned: HashSet<String>,
+    recursion: Option<(String, Vec<String>, usize)>,
 }
 struct Lowerer {
     imports: HashMap<String, String>,
@@ -102,13 +104,8 @@ pub(super) fn module(body: &[Stmt]) -> Result<Module, Diagnostic> {
                 if !future {
                     return Err(error(f, "from __future__ import annotations is required"));
                 }
-                if f.decorator_list.len() != 1
-                    || l.builtin(&f.decorator_list[0].expression, &Scope::default())
-                        != Some("dependent")
-                {
-                    return Err(error(f, "only bare @dependent is supported; recursive decorators are not yet supported"));
-                }
-                let declaration = l.function(f)?;
+                let decreases = l.decorator(f)?;
+                let declaration = l.function(f, decreases)?;
                 l.globals.insert(f.name.to_string());
                 declarations.push(declaration);
             }
@@ -161,7 +158,11 @@ impl Lowerer {
         }
         Ok(())
     }
-    fn function(&mut self, f: &ast::StmtFunctionDef) -> Result<Declaration, Diagnostic> {
+    fn function(
+        &mut self,
+        f: &ast::StmtFunctionDef,
+        decreases: Option<String>,
+    ) -> Result<Declaration, Diagnostic> {
         if f.is_async {
             return Err(error(f, "async dependent functions are unsupported"));
         }
@@ -207,6 +208,43 @@ impl Lowerer {
                 .ok_or_else(|| error(f, "return annotation required"))?,
             &scope,
         )?;
+        if let Some(decreases) = decreases {
+            let implicit = parameters
+                .iter()
+                .filter(|(_, p, _)| *p == Plicity::Implicit)
+                .map(|(n, _, _)| n.clone())
+                .collect();
+            scope.recursion = Some((
+                f.name.to_string(),
+                implicit,
+                f.parameters.posonlyargs.len() + f.parameters.args.len(),
+            ));
+            Self::capture_names(&f.body, &mut scope.assigned);
+            let body = self.structural_body(&f.body, &scope)?;
+            let function = deppy_elab::lower::Function {
+                parameters: parameters
+                    .iter()
+                    .map(|(name, plicity, ty)| deppy_elab::lower::Parameter {
+                        name: name.clone(),
+                        plicity: *plicity,
+                        ty: ty.clone(),
+                    })
+                    .collect(),
+                result: ty.clone(),
+                decreases,
+                motive_level: 0,
+                body,
+            };
+            for (name, plicity, domain) in parameters.into_iter().rev() {
+                ty = E::pi(name, plicity, domain, ty);
+            }
+            return Ok(Declaration {
+                name: f.name.to_string(),
+                span: f.range.into(),
+                ty,
+                body: DeclarationBody::Structural(function),
+            });
+        }
         // Python locals have function-wide scope. Hide globals/imports before an
         // assignment too, rather than interpreting a use-before-binding as a global.
         for stmt in &f.body {
@@ -277,7 +315,7 @@ impl Lowerer {
             name: f.name.to_string(),
             span: f.range.into(),
             ty,
-            body,
+            body: DeclarationBody::Expression(body),
         })
     }
 }
