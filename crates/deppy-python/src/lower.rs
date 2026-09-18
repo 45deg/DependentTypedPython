@@ -1,7 +1,9 @@
 mod expression;
+mod record;
 mod structural;
 use crate::{Declaration, DeclarationBody, Diagnostic, Module};
 use deppy_elab::{Expr as E, Plicity};
+pub(crate) use record::{constructor_name, projection_name};
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_text_size::{Ranged, TextRange};
 use std::collections::{HashMap, HashSet};
@@ -15,6 +17,7 @@ fn error(node: &impl Ranged, message: impl Into<String>) -> Diagnostic {
 struct Scope {
     locals: HashSet<String>,
     assigned: HashSet<String>,
+    fields: HashSet<String>,
     recursion: Option<(String, Vec<String>, usize)>,
 }
 struct Lowerer {
@@ -22,9 +25,12 @@ struct Lowerer {
     globals: HashSet<String>,
     remaining: usize,
     wildcard: usize,
+    records: HashMap<String, (usize, usize)>,
+    projections: HashMap<String, Vec<String>>,
 }
 const IMPORTS: &[&str] = &[
     "dependent",
+    "record",
     "Type",
     "Nat",
     "Z",
@@ -50,6 +56,8 @@ pub(super) fn module(body: &[Stmt]) -> Result<Module, Diagnostic> {
         globals: HashSet::new(),
         remaining: 20_000,
         wildcard: 0,
+        records: HashMap::new(),
+        projections: HashMap::new(),
     };
     let mut declarations = vec![];
     let mut names = HashSet::new();
@@ -112,6 +120,19 @@ pub(super) fn module(body: &[Stmt]) -> Result<Module, Diagnostic> {
                 let declaration = l.function(f, decreases)?;
                 l.globals.insert(f.name.to_string());
                 declarations.push(declaration);
+            }
+            Stmt::ClassDef(class) => {
+                imports_done = true;
+                if !names.insert(class.name.to_string()) {
+                    return Err(error(class, "duplicate module binding"));
+                }
+                if !future {
+                    return Err(error(
+                        class,
+                        "from __future__ import annotations is required",
+                    ));
+                }
+                declarations.push(l.record(class)?);
             }
             Stmt::Assert(_) => {
                 imports_done = true;

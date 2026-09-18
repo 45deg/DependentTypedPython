@@ -18,7 +18,7 @@ fn main() -> std::process::ExitCode {
             for (name, _, _) in &module.definitions {
                 println!("checked {name}");
             }
-            println!("{} dependent definitions checked; ordinary Python and runtime erasure are not checked", module.definitions.len());
+            println!("{} dependent declarations checked; ordinary Python and runtime erasure are not checked", module.definitions.len());
             std::process::ExitCode::SUCCESS
         }
         Err(e) => {

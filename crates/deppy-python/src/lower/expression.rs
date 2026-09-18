@@ -21,7 +21,7 @@ impl Lowerer {
                             ))
                         }
                     }
-                } else if self.globals.contains(name) {
+                } else if self.records.contains_key(name) || self.globals.contains(name) {
                     E::name(name)
                 } else {
                     return Err(error(n, format!("unknown or unchecked name: {name}")));
@@ -32,6 +32,11 @@ impl Lowerer {
                     Expr::Tuple(t) => t.elts.iter().collect(),
                     e => vec![e],
                 };
+                if let Some(name) = self.record_name(&s.value, scope) {
+                    if args.len() != self.records[&name].0 {
+                        return Err(error(s, "wrong number of record type arguments"));
+                    }
+                }
                 match self.builtin(&s.value, scope).map(str::to_owned).as_deref() {
                     Some("Type") if args.len() == 1 => {
                         let Expr::NumberLiteral(n) = args[0] else {
@@ -128,6 +133,9 @@ impl Lowerer {
                         return Ok(E::Recur(args));
                     }
                 }
+                if let Some(value) = self.record_call(call, scope)? {
+                    return Ok(value);
+                }
                 let builtin = self.builtin(&call.func, scope).map(str::to_owned);
                 let args = call
                     .arguments
@@ -201,11 +209,36 @@ impl Lowerer {
                     }
                 }
             }
-            Expr::Attribute(a) => match a.attr.as_str() {
-                "fst" => self.expr(&a.value, scope)?.fst(),
-                "snd" => self.expr(&a.value, scope)?.snd(),
-                _ => return Err(error(a, "only Sigma fst/snd projections are supported")),
-            },
+            Expr::Attribute(a) => {
+                if matches!(a.value.as_ref(), Expr::Name(n) if n.id.as_str() == "self")
+                    && !scope.fields.is_empty()
+                    && !scope.locals.contains("self")
+                {
+                    if !scope.fields.contains(a.attr.as_str()) {
+                        return Err(error(a, "self may only refer to preceding record fields"));
+                    }
+                    E::name(super::record::field_binding(a.attr.as_str()))
+                } else {
+                    let value = self.expr(&a.value, scope)?;
+                    match a.attr.as_str() {
+                        "fst" => value.fst(),
+                        "snd" => value.snd(),
+                        field => {
+                            let candidates = self
+                                .projections
+                                .get(field)
+                                .ok_or_else(|| error(a, "unknown record field"))?;
+                            let [projection] = candidates.as_slice() else {
+                                return Err(error(
+                                    a,
+                                    "ambiguous record field name across declarations",
+                                ));
+                            };
+                            E::name(projection).app(value)
+                        }
+                    }
+                }
+            }
             Expr::BinOp(b) if b.op == ast::Operator::Add => deppy_elab::prelude::nat_add()
                 .app(self.expr(&b.left, scope)?)
                 .app(self.expr(&b.right, scope)?),

@@ -59,6 +59,10 @@ pub struct Declaration {
 pub enum DeclarationBody {
     Expression(Expr),
     Structural(deppy_elab::lower::Function),
+    Record {
+        declaration: deppy_elab::RecordDecl,
+        field_names: Vec<String>,
+    },
 }
 #[derive(Clone, Debug)]
 pub struct Module {
@@ -105,7 +109,39 @@ pub fn check_module(source: &str, target: Target) -> Result<CheckedModule, Diagn
     let module = lower_module(source, target)?;
     let mut elaborator = Elaborator::default();
     let mut definitions = vec![];
+    let mut record_id = 0;
     for d in module.declarations {
+        if let DeclarationBody::Record {
+            declaration: decl,
+            field_names,
+        } = &d.body
+        {
+            let register =
+                |elaborator: &mut Elaborator| -> Result<deppy_core::DefId, deppy_elab::Error> {
+                    let record = elaborator.declare_record(record_id, decl.clone())?;
+                    let id = elaborator.define(&d.name, Some(&d.ty), &record.ty())?;
+                    elaborator.define(
+                        lower::constructor_name(&d.name),
+                        None,
+                        &record.constructor(),
+                    )?;
+                    for (field, (binder, _)) in field_names.iter().zip(&decl.fields) {
+                        elaborator.define(
+                            lower::projection_name(&d.name, field),
+                            None,
+                            &record.projection(binder)?,
+                        )?;
+                    }
+                    Ok(id)
+                };
+            let id = register(&mut elaborator).map_err(|e| Diagnostic {
+                span: d.span,
+                message: e.to_string(),
+            })?;
+            record_id += 1;
+            definitions.push((d.name, id, d.span));
+            continue;
+        }
         let body =
             match &d.body {
                 DeclarationBody::Structural(function) => elaborator
@@ -115,6 +151,7 @@ pub fn check_module(source: &str, target: Target) -> Result<CheckedModule, Diagn
                         message: e.to_string(),
                     })?,
                 DeclarationBody::Expression(body) => body.clone(),
+                DeclarationBody::Record { .. } => unreachable!(),
             };
         let id = elaborator
             .define(&d.name, Some(&d.ty), &body)
