@@ -97,6 +97,7 @@ impl Lowerer {
                 let name = self.bind(&mut env, name)?;
                 E::lam(name, *plicity, domain, self.rewrite(body, &env, recursion)?)
             }
+            E::Field { value, name } => self.rewrite(value, env, recursion)?.field(name),
             E::Fst(x) => E::Fst(Box::new(self.rewrite(x, env, recursion)?)),
             E::Snd(x) => E::Snd(Box::new(self.rewrite(x, env, recursion)?)),
             E::Refl(x) => E::Refl(Box::new(self.rewrite(x, env, recursion)?)),

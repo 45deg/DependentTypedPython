@@ -3,7 +3,7 @@ mod record;
 mod structural;
 use crate::{Declaration, DeclarationBody, Diagnostic, Module};
 use deppy_elab::{Expr as E, Plicity};
-pub(crate) use record::{constructor_name, projection_name};
+pub(crate) use record::constructor_name;
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_text_size::{Ranged, TextRange};
 use std::collections::{HashMap, HashSet};
@@ -26,7 +26,6 @@ struct Lowerer {
     remaining: usize,
     wildcard: usize,
     records: HashMap<String, (usize, usize)>,
-    projections: HashMap<String, Vec<String>>,
 }
 const IMPORTS: &[&str] = &[
     "dependent",
@@ -57,7 +56,6 @@ pub(super) fn module(body: &[Stmt]) -> Result<Module, Diagnostic> {
         remaining: 20_000,
         wildcard: 0,
         records: HashMap::new(),
-        projections: HashMap::new(),
     };
     let mut declarations = vec![];
     let mut names = HashSet::new();

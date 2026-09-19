@@ -90,8 +90,8 @@ fn record_declarations_reject_unsupported_or_ill_scoped_forms() {
     ] { reject(body); }
 }
 #[test]
-fn ambiguous_field_names_are_rejected_without_guessing_record_types() {
-    reject("@record\nclass A:\n    x: Nat\n@record\nclass B:\n    x: Nat\n@dependent\ndef read(a: A) -> Nat:\n    return a.x");
+fn shared_field_names_are_selected_from_receiver_types() {
+    check("@record\nclass A:\n    x: Nat\n@record\nclass B:\n    x: Nat\n@dependent\ndef read(a: A) -> Nat:\n    return a.x");
 }
 #[test]
 fn records_work_in_structural_functions_and_later_field_types() {
@@ -118,4 +118,34 @@ fn record_field_references_do_not_capture_lambda_or_global_names() {
     check_module(globals, Target::Python314).unwrap();
     // A field called Nat must not capture the imported Nat used by the next field.
     check("@record\nclass R:\n    Nat: Nat\n    other: Nat\n@dependent\ndef make(n: Nat) -> R:\n    return R(n, n)");
+}
+
+#[test]
+fn shared_field_names_support_chains_lets_and_dependent_results() {
+    let m = check_module(
+        include_str!("../examples/branch_fields.py"),
+        Target::Python314,
+    )
+    .unwrap();
+    let got = m
+        .elaborator
+        .infer(&E::name("count").app(E::Zero.succ().succ()))
+        .unwrap();
+    assert_eq!(
+        m.elaborator.kernel().normalize(&got.term).unwrap(),
+        Term::Succ(Term::Succ(Term::Zero.arc()).arc()).arc()
+    );
+    let source = "@record\nclass A:\n    value: Nat\n@record\nclass B:\n    ignored: Nat\n    value: A\n@record\nclass C[T: Type]:\n    n: Nat\n    value: Vec[T, self.n]\n@dependent\ndef read(n: Nat) -> Nat:\n    box = B(Z(), A(n))\n    return box.value.value\n@dependent\ndef values[T: Type](c: C[T]) -> Vec[T, c.n]:\n    return c.value";
+    let m = check(source);
+    let got = m
+        .elaborator
+        .infer(&E::name("read").app(E::Zero.succ()))
+        .unwrap();
+    assert_eq!(
+        m.elaborator.kernel().normalize(&got.term).unwrap(),
+        Term::Succ(Term::Zero.arc()).arc()
+    );
+    reject(&source.replace("return box.value.value", "return box.value"));
+    reject(&source.replace("return c.value", "return c.ignored"));
+    check("@record\nclass A:\n    value: Nat\n@record\nclass B:\n    value: Nat\n@dependent(decreases='n')\ndef read(n: Nat) -> Nat:\n    match n:\n        case Z():\n            return A(Z()).value\n        case S(k):\n            box = B(read(k))\n            return S(box.value)");
 }

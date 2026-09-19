@@ -223,19 +223,7 @@ impl Lowerer {
                     match a.attr.as_str() {
                         "fst" => value.fst(),
                         "snd" => value.snd(),
-                        field => {
-                            let candidates = self
-                                .projections
-                                .get(field)
-                                .ok_or_else(|| error(a, "unknown record field"))?;
-                            let [projection] = candidates.as_slice() else {
-                                return Err(error(
-                                    a,
-                                    "ambiguous record field name across declarations",
-                                ));
-                            };
-                            E::name(projection).app(value)
-                        }
+                        field => value.field(super::record::field_binding(field)),
                     }
                 }
             }

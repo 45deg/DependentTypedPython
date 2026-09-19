@@ -22,6 +22,7 @@ struct Meta {
 pub(crate) struct State {
     kernel: Kernel,
     pub(crate) globals: HashMap<String, deppy_core::DefId>,
+    pub(crate) records: HashMap<deppy_core::InductiveId, crate::Record>,
     next_id: Id,
     remaining: usize,
     metas: Vec<Meta>,
@@ -31,6 +32,7 @@ impl State {
         Self {
             kernel: Kernel::new(remaining),
             globals: HashMap::new(),
+            records: HashMap::new(),
             next_id: 0,
             remaining,
             metas: vec![],
@@ -982,6 +984,49 @@ impl State {
                 ))
             }
             Expr::Pair { .. } => Err(Error::AnnotationRequired),
+            Expr::Field { value, name } => {
+                let (value, receiver_ty) = self.synth(ctx, value)?;
+                let receiver_ty = self.whnf(&receiver_ty)?;
+                let Term::Inductive { id, parameters } = receiver_ty.as_ref() else {
+                    return Err(Error::ExpectedRecord);
+                };
+                let projection = self
+                    .records
+                    .get(id)
+                    .ok_or(Error::ExpectedRecord)?
+                    .projection(name)?;
+                let (mut function, mut ty) = self.synth(ctx, &projection)?;
+                // Parameters come from the checked receiver's nominal type, so no
+                // candidate guessing or speculative metavariable solving is needed.
+                for (index, argument) in
+                    parameters.iter().chain(std::iter::once(&value)).enumerate()
+                {
+                    let head = self.whnf(&ty)?;
+                    let Term::Pi {
+                        id,
+                        plicity,
+                        domain,
+                        body,
+                    } = head.as_ref()
+                    else {
+                        return Err(Error::ExpectedFunction);
+                    };
+                    let expected = if index < parameters.len() {
+                        Plicity::Implicit
+                    } else {
+                        Plicity::Explicit
+                    };
+                    if *plicity != expected {
+                        return Err(Error::PlicityMismatch);
+                    }
+                    if index == parameters.len() {
+                        self.unify(domain, &receiver_ty)?;
+                    }
+                    ty = self.replace(body, *id, argument.clone())?;
+                    function = Term::App(function, argument.clone()).arc();
+                }
+                Ok((function, ty))
+            }
             Expr::Fst(p) | Expr::Snd(p) => {
                 let (p, ty) = self.synth(ctx, p)?;
                 let ty = self.whnf(&ty)?;

@@ -25,6 +25,7 @@ pub enum Error {
     ExpectedUniverse,
     ExpectedFunction,
     ExpectedSigma,
+    ExpectedRecord,
     PlicityMismatch,
     CannotUnify,
     OccursCheck,
@@ -49,6 +50,7 @@ impl fmt::Display for Error {
             Self::ExpectedUniverse => {
                 write!(f, "expected a concrete universe; add a type annotation")
             }
+            Self::ExpectedRecord => write!(f, "expected a known nominal record type"),
             Self::ExpectedSigma => write!(f, "expected a known dependent pair type"),
             Self::ExpectedFunction => write!(f, "expected a known dependent function type"),
             Self::PlicityMismatch => write!(f, "explicit/implicit argument mismatch"),
@@ -90,6 +92,7 @@ pub struct Elaborator {
     max_steps: usize,
     globals: std::collections::HashMap<String, deppy_core::DefId>,
     next_definition: deppy_core::DefId,
+    records: std::collections::HashMap<deppy_core::InductiveId, Record>,
 }
 impl Default for Elaborator {
     fn default() -> Self {
@@ -103,6 +106,7 @@ impl Elaborator {
             max_steps,
             globals: Default::default(),
             next_definition: 0,
+            records: Default::default(),
             kernel: Kernel::new(max_steps),
         }
     }
@@ -147,6 +151,7 @@ impl Elaborator {
     pub fn infer(&self, expr: &Expr) -> Result<Elaborated, Error> {
         let mut state = State::with_kernel(self.max_steps, self.kernel.clone());
         state.globals = self.globals.clone();
+        state.records = self.records.clone();
         let (term, ty) = state.synth(&Context::new(), expr)?;
         state.finish(term, ty, &self.kernel)
     }
@@ -154,6 +159,7 @@ impl Elaborator {
     pub fn check(&self, expr: &Expr, expected: &Expr) -> Result<Elaborated, Error> {
         let mut state = State::with_kernel(self.max_steps, self.kernel.clone());
         state.globals = self.globals.clone();
+        state.records = self.records.clone();
         let ctx = Context::new();
         let (ty, _) = state.type_expr(&ctx, expected)?;
         let term = state.check(&ctx, expr, &ty)?;

@@ -84,11 +84,13 @@ impl Elaborator {
             .map(|((name, _), p)| (name, Expr::Core(p)))
             .collect();
         self.kernel = kernel;
-        Ok(Record {
+        let record = Record {
             id,
             ty,
             constructor,
             projections,
-        })
+        };
+        self.records.insert(id, record.clone());
+        Ok(record)
     }
 }

@@ -112,8 +112,7 @@ pub fn check_module(source: &str, target: Target) -> Result<CheckedModule, Diagn
     let mut record_id = 0;
     for d in module.declarations {
         if let DeclarationBody::Record {
-            declaration: decl,
-            field_names,
+            declaration: decl, ..
         } = &d.body
         {
             let register =
@@ -125,13 +124,6 @@ pub fn check_module(source: &str, target: Target) -> Result<CheckedModule, Diagn
                         None,
                         &record.constructor(),
                     )?;
-                    for (field, (binder, _)) in field_names.iter().zip(&decl.fields) {
-                        elaborator.define(
-                            lower::projection_name(&d.name, field),
-                            None,
-                            &record.projection(binder)?,
-                        )?;
-                    }
                     Ok(id)
                 };
             let id = register(&mut elaborator).map_err(|e| Diagnostic {

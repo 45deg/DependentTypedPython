@@ -42,6 +42,11 @@ pub enum Expr {
         fst: Box<Expr>,
         snd: Box<Expr>,
     },
+    /// Resolve a named record projection from the inferred nominal receiver type.
+    Field {
+        value: Box<Expr>,
+        name: String,
+    },
     Fst(Box<Expr>),
     Snd(Box<Expr>),
     Name(String),
@@ -139,6 +144,13 @@ pub enum Expr {
     Hole,
 }
 impl Expr {
+    pub fn field(self, name: impl Into<String>) -> Self {
+        Self::Field {
+            value: Box::new(self),
+            name: name.into(),
+        }
+    }
+
     pub fn let_in(name: impl Into<String>, ty: Option<Self>, value: Self, body: Self) -> Self {
         Self::Let {
             name: name.into(),

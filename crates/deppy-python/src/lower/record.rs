@@ -4,10 +4,6 @@ use super::*;
 pub(crate) fn constructor_name(record: &str) -> String {
     format!("$record:{record}:new")
 }
-pub(crate) fn projection_name(record: &str, field: &str) -> String {
-    format!("$record:{record}:field:{field}")
-}
-
 pub(super) fn field_binding(field: &str) -> String {
     format!("$field:{field}")
 }
@@ -143,12 +139,6 @@ impl Lowerer {
             });
         self.records
             .insert(name.clone(), (parameters.len(), fields.len()));
-        for (field, _) in &fields {
-            self.projections
-                .entry(field.clone())
-                .or_default()
-                .push(projection_name(&name, field));
-        }
         let field_names = fields.iter().map(|(name, _)| name.clone()).collect();
         let fields = fields
             .into_iter()

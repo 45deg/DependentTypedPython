@@ -268,3 +268,104 @@ fn missing_parameters_and_budget_are_not_guessed() {
     ));
     assert!(Elaborator::new(1).declare_record(1, decl()).is_err());
 }
+
+#[test]
+fn fields_resolve_by_nominal_receiver_type_with_dependent_results() {
+    let (mut e, r) = setup();
+    let other = e
+        .declare_record(
+            2,
+            RecordDecl {
+                parameters: vec![],
+                fields: vec![("value".into(), E::Nat)],
+                level: 0,
+            },
+        )
+        .unwrap();
+    let value = ctor(&r);
+    let inferred = e.infer(&value.clone().field("value")).unwrap();
+    let explicit = e
+        .infer(&r.projection("value").unwrap().app(value.clone()))
+        .unwrap();
+    assert_eq!(
+        e.kernel().normalize(&inferred.term).unwrap(),
+        e.kernel().normalize(&explicit.term).unwrap()
+    );
+    assert_eq!(
+        e.kernel().normalize(&inferred.ty).unwrap(),
+        e.kernel().normalize(&explicit.ty).unwrap()
+    );
+    let got = e
+        .infer(&other.constructor().app(E::Zero.succ()).field("value"))
+        .unwrap();
+    assert_eq!(
+        e.kernel().normalize(&got.term).unwrap(),
+        Term::Succ(Term::Zero.arc()).arc()
+    );
+    e.define("R", None, &r.ty()).unwrap();
+    let general = lam("r", E::name("R").implicit(E::Nat), n("r").field("value"));
+    e.check(
+        &general,
+        &E::pi(
+            "r",
+            Explicit,
+            E::name("R").implicit(E::Nat),
+            E::vec(E::Nat, n("r").field("n")),
+        ),
+    )
+    .unwrap();
+    e.infer(&E::let_in("r", None, value, n("r").field("n")))
+        .unwrap();
+}
+
+#[test]
+fn field_lookup_rejects_unknown_receivers_fields_and_bad_discarded_values() {
+    let (mut e, r) = setup();
+    assert!(matches!(
+        e.infer(&E::Zero.field("n")),
+        Err(Error::ExpectedRecord)
+    ));
+    assert!(e.infer(&E::Hole.field("n")).is_err());
+    assert!(matches!(
+        e.infer(&ctor(&r).field("missing")),
+        Err(Error::UnknownName(_))
+    ));
+    let bad = r.constructor().app(E::Zero).app(E::vnil(E::Universe(0)));
+    assert!(e.infer(&bad.field("n")).is_err());
+    let replacement = RecordDecl {
+        parameters: vec![],
+        fields: vec![("new".into(), E::Nat)],
+        level: 0,
+    };
+    assert!(e.declare_record(r.id, replacement).is_err());
+    e.infer(&ctor(&r).field("n")).unwrap();
+    assert!(e.infer(&ctor(&r).field("new")).is_err());
+}
+
+#[test]
+fn named_fields_handle_higher_universes_and_chained_records() {
+    let mut e = Elaborator::default();
+    let high = e
+        .declare_record(
+            1,
+            RecordDecl {
+                parameters: vec![],
+                fields: vec![("carrier".into(), E::Universe(0))],
+                level: 1,
+            },
+        )
+        .unwrap();
+    let outer = e
+        .declare_record(
+            2,
+            RecordDecl {
+                parameters: vec![],
+                fields: vec![("inner".into(), high.ty())],
+                level: 1,
+            },
+        )
+        .unwrap();
+    let value = outer.constructor().app(high.constructor().app(E::Nat));
+    let got = e.infer(&value.field("inner").field("carrier")).unwrap();
+    assert_eq!(e.kernel().normalize(&got.term).unwrap(), Term::Nat.arc());
+}
