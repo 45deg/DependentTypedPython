@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: Rust checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run tests
+        run: cargo test --workspace --locked
+
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Run examples
+        run: |
+          cargo run -p deppy-core --example identity --locked
+          cargo run -p deppy-elab --example implicit_identity --locked
+          cargo run -p deppy-elab --example nat_add --locked
+          cargo run -p deppy-elab --example zero_right --locked
+          cargo run -p deppy-elab --example vectors --locked
+          cargo run -p deppy-elab --example sigma --locked
+          cargo run -p deppy-elab --example records --locked
+          cargo run -p deppy-elab --example structural --locked
+          cargo run -p deppy-python --example check --locked
+          cargo run -p deppy-python --locked -- crates/deppy-python/examples/basics.py
+
+  python-syntax:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.12', '3.13', '3.14']
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Check Python fixture syntax
+        run: python scripts/check_python_syntax.py

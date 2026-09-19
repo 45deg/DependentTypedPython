@@ -1,8 +1,7 @@
 use super::*;
 impl Lowerer {
-    /// Initial nested fragment: split the sole generalized Fin (S k) argument,
-    /// with a result independent of that argument. Fin's predecessor is recovered
-    /// by a type-level Nat motive, not asserted equal to the outer bound.
+    /// Split the sole generalized Fin (S k) argument with a dependent result.
+    /// A type-level Nat motive recovers the predecessor without index coercions.
     pub(super) fn branch_body(
         &mut self,
         f: &Function,
@@ -58,19 +57,21 @@ impl Lowerer {
         let mut result_env = env.clone();
         self.clear_locals(locals, &mut result_env);
         result_env.remove(scrutinee);
-        // A dependent result would need a more general motive; reject it rather
-        // than retaining the original index in a supposedly refined branch.
-        let result = self
-            .rewrite(&f.result, &result_env, None)
-            .map_err(|error| {
-                if matches!(&error,Error::UnknownName(name) if name==scrutinee) {
-                    Error::UnsupportedMatch(
-                        "nested Fin result must not depend on the matched index value".into(),
-                    )
-                } else {
-                    error
-                }
-            })?;
+        // Retain the smaller case combinator for index-independent results.
+        let constant_result = match self.rewrite(&f.result, &result_env, None) {
+            Ok(result) => Some(result),
+            Err(Error::UnknownName(name)) if name == *scrutinee => None,
+            Err(error) => return Err(error),
+        };
+        let index = self.fresh();
+        result_env.insert(scrutinee.clone(), E::name(&index));
+        let result = self.rewrite(&f.result, &result_env, None)?;
+        let family = E::lam(
+            index,
+            Plicity::Explicit,
+            Some(E::fin(bound.as_ref().clone())),
+            result,
+        );
         let Pattern::FZ(zero_bound) = &zero.pattern else {
             unreachable!()
         };
@@ -109,12 +110,21 @@ impl Lowerer {
             step_locals,
             self.terminal_body(&step.body, &step_env, recursion)?,
         );
-        Ok(crate::prelude::fin_case(f.motive_level)
-            .implicit(result)
-            .app(*k.clone())
-            .app(E::name(&suffix[0].name))
-            .app(zero)
-            .app(E::lam(j, Plicity::Explicit, Some(E::fin(*k.clone())), step)))
+        let case = if let Some(result) = constant_result {
+            crate::prelude::fin_case(f.motive_level)
+                .implicit(result)
+                .app(*k.clone())
+        } else {
+            crate::prelude::fin_case_dependent(f.motive_level)
+                .app(*k.clone())
+                .app(family)
+        };
+        Ok(case.app(E::name(&suffix[0].name)).app(zero).app(E::lam(
+            j,
+            Plicity::Explicit,
+            Some(E::fin(*k.clone())),
+            step,
+        )))
     }
     fn terminal_body(
         &mut self,

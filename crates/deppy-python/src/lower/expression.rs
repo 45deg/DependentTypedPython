@@ -150,6 +150,9 @@ impl Lowerer {
                     (Some("cong"), [f, proof]) => deppy_elab::prelude::cong(0, 0)
                         .app(f.clone())
                         .app(proof.clone()),
+                    (Some("trans"), [first, second]) => deppy_elab::prelude::trans(0)
+                        .app(first.clone())
+                        .app(second.clone()),
                     (Some("fin0_elim"), [absurd]) => {
                         E::fin0_elim(E::Hole.ann(E::Universe(0)), absurd.clone())
                     }

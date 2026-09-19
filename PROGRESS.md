@@ -142,3 +142,10 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - 大きなaddの生成closure呼び出しでPythonのRecursionErrorを確認。スタック制約の解消は未実装。
 
 実行MVPの完了条件は達成済みです。universe指定の追加やモジュール間インターフェースなどは、その後の拡張として扱います。
+
+## reverse_getの証明（2026-09-19）
+
+- `examples/reverse.py` に `snoc`・`reverse`・`last`・`weaken`・`mirror` と参照補題、`reverse_get` を実装。
+- 添字値に依存する戻り値型を持つ入れ子のFin分岐と、Jから導く `trans` に対応。kernelの規則・公理は追加せず、Python frontendの検査予算を1,000,000に拡大。
+- Python 3.12・3.13・3.14を対象とするfrontendで一般の証明を検査。長さ1〜4の全位置で証明の正規形が `refl` になること、誤った証明・添字・つながらない等式を拒否することを検証。
+- 生成Pythonで長さ0〜6の反転、全位置のmirrorと参照結果、証明の実行、Fin[0]入力の拒否を検証。

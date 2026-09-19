@@ -43,6 +43,7 @@ const IMPORTS: &[&str] = &[
     "Eq",
     "refl",
     "cong",
+    "trans",
     "fin0_elim",
     "Pi",
     "Sigma",

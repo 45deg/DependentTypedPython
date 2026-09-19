@@ -110,7 +110,9 @@ pub fn lower_module(source: &str, target: Target) -> Result<Module, Diagnostic> 
 /// A fresh environment makes checking a module atomic from the caller's perspective.
 pub fn check_module(source: &str, target: Target) -> Result<CheckedModule, Diagnostic> {
     let module = lower_module(source, target)?;
-    let mut elaborator = Elaborator::default();
+    // Dependent Fin motives and composed equality proofs (e.g. reverse_get)
+    // exceed the small elaborator default. Keep checking explicitly bounded.
+    let mut elaborator = Elaborator::new(1_000_000);
     let mut definitions = vec![];
     let mut record_id = 0;
     let mut constructors = vec![];

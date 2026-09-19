@@ -76,7 +76,7 @@ elaborator単体の入力はRustで組み立てるASTです。Pythonの解析は
 
 対応するのは裸の `@dependent`、注釈付き位置引数、`[A: Type]` などの暗黙引数、戻り値注釈、不変の単一ローカル代入、最後の `return` です。`from __future__ import annotations` と、対応APIの `from deppy import ...` を要求します。importの別名にも対応します。
 
-式は `Type`・`Type[level]`、Nat・Vec・Fin・Eq・Pi・Sigma、コンストラクタ、refl・cong・fin0_elim、Pairとfst/snd、位置引数による適用、角括弧による暗黙引数指定、Natの加算と0〜1024の整数リテラルに対応します。`VNil()` と `VCons(k, head, tail)` の要素型のuniverseは現在Type₀です。`FZ(k)` と `FS(k, pred)` はboundを明示します。例は `crates/deppy-python/examples/basics.py` にあります。
+式は `Type`・`Type[level]`、Nat・Vec・Fin・Eq・Pi・Sigma、コンストラクタ、refl・cong・trans・fin0_elim、Pairとfst/snd、位置引数による適用、角括弧による暗黙引数指定、Natの加算と0〜1024の整数リテラルに対応します。`VNil()` と `VCons(k, head, tail)` の要素型のuniverseは現在Type₀です。`FZ(k)` と `FS(k, pred)` はboundを明示します。例は `crates/deppy-python/examples/basics.py` にあります。
 
 未検査の名前、対応外の自己参照・前方参照、再代入、可変長・デフォルト・キーワード引数、引数のない関数、任意の属性アクセス、文字列注釈、未対応の構文は拒否します。Pythonの関数スコープに合わせ、代入前のローカル名をグローバル名として解釈しません。外部モジュールの静的importは未対応です。
 
@@ -84,7 +84,7 @@ elaborator単体の入力はRustで組み立てるASTです。Pythonの解析は
 
 再帰関数のmotive universeは省略時0で、`@dependent(decreases="n", motive_level=1)` のように具体値を指定できます。guard、Finのbound以外のワイルドカード、キーワードpattern、コンストラクタpatternの入れ子、自己呼び出しの明示的型引数は未対応です。入れ子のmatchは既存HIRの制限に従います。patternのcapture名にもPythonの関数全体のローカルスコープを適用します。`lower_module` の本体は `DeclarationBody::Expression` / `Structural` / `Record` で区別されます。
 
-`cong(f, proof)` はJから導いた定義を適用し、`fin0_elim(i)` は戻り値の期待型を使って空のFinを消去します。現在はType₀が対象です。Fin patternのboundは `FZ(_)` / `FS(_, j)` と省略でき、他の名前を捕捉しない内部名を生成します。`crates/deppy-python/examples/proofs.py` にChatlogのget・zero_right宣言があります。これらの静的検査と生成コアの計算をテストしています。
+`cong(f, proof)` と等式の推移律 `trans(p, q)` はJから導いた定義を適用し、`fin0_elim(i)` は戻り値の期待型を使って空のFinを消去します。現在はType₀が対象です。Fin patternのboundは `FZ(_)` / `FS(_, j)` と省略でき、他の名前を捕捉しない内部名を生成します。`crates/deppy-python/examples/proofs.py` にChatlogのget・zero_right宣言があります。これらの静的検査と生成コアの計算をテストしています。
 
 `@record class SomeVec[T: Type]` は名目的な非再帰recordを宣言します。フィールドには値のない型注釈を使い、先行フィールドは `self.n` のように参照します。`SomeVec[T]` は型、`SomeVec(n, xs)` / `SomeVec[T](n, xs)` はコンストラクタ、`r.n` / `r.value` は生成した射影へ変換します。型名と補助関数を同じelaborator環境に登録します。`CheckedModule.definitions` には関数とrecord型の公開名を返します。
 
@@ -178,6 +178,27 @@ getのVec motiveは`P k xs = Fin k → A`です。空の分岐にはfin0_elimを
 
 これらは固定された型と明示的なeliminatorの実装です。一般のユーザー定義帰納型・positivity checking、対応範囲外のPython patternは未実装です。生成runtimeのVecは不変tupleで、境界で長さと既知の要素型を検査します。
 
+## reverseとmirrorの参照等式
+
+`crates/deppy-python/examples/reverse.py` に、末尾追加 `snoc`、`reverse`、`mirror` と次の証明があります。
+
+```python
+@dependent(decreases="xs")
+def reverse_get[T: Type](n: Nat, xs: Vec[T, n], i: Fin[n]) -> Eq[
+    T, get(n, reverse(n, xs), mirror(n, i)), get(n, xs, i),
+]:
+    ...
+```
+
+実装はVecの構造的帰納法です。空のVecでは `fin0_elim`、先頭では末尾追加した要素を参照する補題、後続では末尾追加が既存の要素を保つ補題と帰納法の仮定を `trans` でつなぎます。公理や新しいkernel primitiveは追加していません。
+
+```sh
+cargo run -p deppy-python --locked --offline -- crates/deppy-python/examples/reverse.py
+cargo test -p deppy-python --locked --offline --test reverse
+```
+
+Python frontendのelaboration・kernel検査予算は、依存するFin motiveと証明の合成を扱うため1,000,000ステップに設定しています。有限の具体例だけでなく宣言の一般形を型検査し、テストでは具体的な証明の `refl` への正規化、誤った証明の拒否、生成Pythonでの実行も確認します。
+
 ## 依存対
 
 `Expr::sigma("n", Expr::Nat, Expr::vec(Expr::Nat, Expr::name("n")))`で、長さとベクタの依存対型を表せます。`Expr::pair(n, xs)`は期待されるΣ型を使って検査します。単独のPairから型族を推論することはせず、`Elaborator::check`または`.ann(...)`で型を与えます。
@@ -224,7 +245,7 @@ RecordDecl {
 - 外側の分岐は`decreases`で指定した`Nat`・`Vec`・`Fin`引数を分解し、両コンストラクタを一度ずつ網羅します。
 - 再帰先は直前に分解したコンストラクタの直接の部分構造に限定します。Vec・Finの再帰では添字もそのwitnessに一致させます。
 - 分解対象より前の引数は、添字以外を固定します。後続の引数はmotiveに一般化し、再帰時に変更できます。`get`では`Fin n → A`というmotiveを生成します。
-- 入れ子の分岐は、唯一の後続引数が`Fin (S k)`で、戻り値型がそのindex値に依存しないケースに対応します。`get`の`FZ`・`FS`分岐はこの範囲です。空の分岐では明示的な`fin0_elim`を使います。
+- 入れ子の分岐は、唯一の後続引数が`Fin (S k)`で、戻り値型がそのindex値に依存するケースにも対応します。依存する分岐は型レベルのNat motiveで型族も一般化し、添字の強制変換なしに導きます。空の分岐では明示的な`fin0_elim`を使います。
 
 対応範囲外の型の別名や添字式、固定した前方引数の添字依存、pattern名による既存のローカル名・グローバル名の隠蔽、さらに深い分岐は拒否します。`motive_level`は後続引数を含むmotiveの結果universeで、間違った値はkernel検査を通りません。全域性の検査を無効化する設定、一般再帰・相互再帰・Eqのpattern matchingはありません。
 

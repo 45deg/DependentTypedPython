@@ -151,3 +151,30 @@ for xs in [(-1,), (True,), ('x',)]:
 "#);
     }).unwrap().join().unwrap();
 }
+
+#[test]
+fn reversed_vectors_and_mirrored_indices_execute() {
+    run(
+        include_str!("../examples/reverse.py"),
+        r#"
+for n in range(7):
+    xs = tuple(10 + 3 * i for i in range(n))
+    ys = exports['reverse'](n, xs)
+    assert ys == xs[::-1]
+    assert exports['snoc'](n, 99, xs) == xs + (99,)
+    assert exports['get_snoc_last'](n, 99, xs) is None
+    for index in range(n):
+        i = (n, index)
+        j = exports['mirror'](n, i)
+        assert j == (n, n - 1 - index)
+        assert exports['get'](n, ys, j) == xs[index]
+        assert exports['reverse_get'](n, xs, i) is None
+try:
+    exports['reverse_get'](0, (), (0, 0))
+except TypeError:
+    pass
+else:
+    raise AssertionError('Fin[0] must have no inhabitants')
+"#,
+    );
+}

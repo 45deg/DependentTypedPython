@@ -108,3 +108,72 @@ pub(crate) fn fin_case(level: u32) -> E {
         body,
     )
 }
+
+/// Dependent case analysis on Fin (S k), derived from FinElim and NatElim.
+/// Generalizing the family at each successor bound avoids index coercions.
+/// M (S k) i = (P : Fin (S k) -> Type[level]) -> P (FZ k) ->
+///             ((j : Fin k) -> P (FS k j)) -> P i.
+/// M Z i = Type[level] is unused; the fold lives one universe above P.
+pub(crate) fn fin_case_dependent(level: u32) -> E {
+    let family_ty = E::pi("i", Explicit, E::fin(n("k").succ()), E::Universe(level));
+    let rest_ty = E::pi(
+        "j",
+        Explicit,
+        E::fin(n("k")),
+        n("P").app(E::fs(n("k"), n("j"))),
+    );
+    let choice = E::pi(
+        "P",
+        Explicit,
+        family_ty.clone(),
+        E::pi(
+            "first",
+            Explicit,
+            n("P").app(E::fz(n("k"))),
+            E::pi("rest", Explicit, rest_ty.clone(), n("P").app(n("index"))),
+        ),
+    );
+    let lifted = level.saturating_add(1);
+    let family = E::nat_elim(
+        lifted.saturating_add(1),
+        lambdas(
+            &["size"],
+            E::pi("index", Explicit, E::fin(n("size")), E::Universe(lifted)),
+        ),
+        lambdas(&["index"], E::Universe(level)),
+        lambdas(&["k", "unused", "index"], choice),
+        n("size"),
+    );
+    let motive = lambdas(&["size", "index"], family.app(n("index")));
+    let zero = lambdas(&["k", "P", "first", "rest"], n("first"));
+    let step = lambdas(
+        &["k", "j", "ih", "P", "first", "rest"],
+        n("rest").app(n("j")),
+    );
+    let body = E::fin_elim(lifted, motive, zero, step, n("k").succ(), n("i"))
+        .app(n("P"))
+        .app(n("first"))
+        .app(n("rest"));
+    bind_lambdas(
+        vec![
+            ("k", Explicit, E::Nat),
+            ("P", Explicit, family_ty),
+            ("i", Explicit, E::fin(n("k").succ())),
+            ("first", Explicit, n("P").app(E::fz(n("k")))),
+            ("rest", Explicit, rest_ty),
+        ],
+        body,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn dependent_fin_case_is_kernel_checked() {
+        for level in [0, 1, 2] {
+            crate::Elaborator::default()
+                .infer(&super::fin_case_dependent(level))
+                .unwrap();
+        }
+    }
+}
