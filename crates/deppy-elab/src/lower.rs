@@ -24,7 +24,17 @@ pub struct Function {
 #[derive(Clone, Debug)]
 pub enum Body {
     Return(E),
-    Match { scrutinee: String, arms: Vec<Arm> },
+    /// Immutable definition, checked before any following match.
+    Let {
+        name: String,
+        ty: Option<E>,
+        value: E,
+        body: Box<Body>,
+    },
+    Match {
+        scrutinee: String,
+        arms: Vec<Arm>,
+    },
 }
 #[derive(Clone, Debug)]
 pub struct Arm {
@@ -47,6 +57,14 @@ pub enum Pattern {
         pred: String,
     },
 }
+#[derive(Clone)]
+struct Local {
+    name: String,
+    ty: Option<E>,
+    value: E,
+}
+type CheckedLocal = (String, Option<E>, E);
+
 #[derive(Clone)]
 struct Recursion {
     ih: String,
@@ -91,6 +109,51 @@ impl Elaborator {
     }
 }
 impl Lowerer {
+    fn local(
+        &mut self,
+        local: &Local,
+        env: &mut Env,
+        recursion: Option<&Recursion>,
+    ) -> Result<CheckedLocal, Error> {
+        self.tick()?;
+        // Do not shadow another local or pattern binding. Globals may be hidden.
+        if env.get(&local.name).is_some_and(|value| {
+            !matches!(value, E::Core(term) if matches!(term.as_ref(), deppy_core::Term::Global(_)))
+        }) {
+            return Err(Error::InvalidDeclarationName(local.name.clone()));
+        }
+        let ty = local
+            .ty
+            .as_ref()
+            .map(|ty| self.rewrite(ty, env, recursion))
+            .transpose()?;
+        let value = self.rewrite(&local.value, env, recursion)?;
+        let name = self.bind(env, &local.name)?;
+        Ok((name, ty, value))
+    }
+
+    fn clear_locals(&self, locals: &[Local], env: &mut Env) {
+        for local in locals {
+            env.remove(&local.name);
+            if let Some(global) = self.globals.get(&local.name) {
+                env.insert(local.name.clone(), global.clone());
+            }
+        }
+    }
+
+    fn replay_locals(
+        &mut self,
+        locals: &[Local],
+        env: &mut Env,
+        recursion: Option<&Recursion>,
+    ) -> Result<Vec<CheckedLocal>, Error> {
+        self.clear_locals(locals, env);
+        locals
+            .iter()
+            .map(|local| self.local(local, env, recursion))
+            .collect()
+    }
+
     fn tick(&mut self) -> Result<(), Error> {
         self.remaining = self.remaining.checked_sub(1).ok_or(Error::BudgetExceeded)?;
         Ok(())
@@ -169,7 +232,27 @@ impl Lowerer {
                 self.rewrite(&p.ty, &fixed, None)?;
             }
         }
-        let body = match &f.body {
+        let mut source_body = &f.body;
+        let mut locals = vec![];
+        let mut checked = vec![];
+        while let Body::Let {
+            name,
+            ty,
+            value,
+            body,
+        } = source_body
+        {
+            let local = Local {
+                name: name.clone(),
+                ty: ty.clone(),
+                value: value.clone(),
+            };
+            checked.push(self.local(&local, &mut env, None)?);
+            locals.push(local);
+            source_body = body;
+        }
+        let body = match source_body {
+            Body::Let { .. } => unreachable!(),
             Body::Return(value) => self.rewrite(value, &env, None)?,
             Body::Match {
                 scrutinee: subject,
@@ -184,6 +267,7 @@ impl Lowerer {
                 let k = self.fresh();
                 let item = self.fresh();
                 let mut motive_env = env.clone();
+                self.clear_locals(&locals, &mut motive_env);
                 motive_env.insert(
                     f.decreases.clone(),
                     E::name(if matches!(kind, Kind::Nat) { &k } else { &item }),
@@ -197,8 +281,8 @@ impl Lowerer {
                 } else {
                     lambda(&k, lambda(&item, motive_result))
                 };
-                let base = self.arm(f, d, &kind, base, &env, &parameters)?;
-                let step = self.arm(f, d, &kind, step, &env, &parameters)?;
+                let base = self.arm(f, d, &kind, base, (&env, &parameters, &locals))?;
+                let step = self.arm(f, d, &kind, step, (&env, &parameters, &locals))?;
                 let elim = match &kind {
                     Kind::Nat => {
                         E::nat_elim(f.motive_level, motive, base, step, E::name(&scrutinee))
@@ -226,7 +310,7 @@ impl Lowerer {
                     .fold(elim, |fun, p| apply(fun, E::name(&p.name), p.plicity))
             }
         };
-        Ok(lambdas(&parameters, body).ann(signature))
+        Ok(lambdas(&parameters, wrap_locals(checked, body)).ann(signature))
     }
     fn index(&mut self, f: &Function, d: usize, index: &E) -> Result<usize, Error> {
         let E::Name(name) = index else {
@@ -261,17 +345,18 @@ impl Lowerer {
         d: usize,
         kind: &Kind,
         arm: &Arm,
-        outer: &Env,
-        parameters: &[Parameter],
+        context: (&Env, &[Parameter], &[Local]),
     ) -> Result<E, Error> {
         self.tick()?;
+        let (outer, parameters, locals) = context;
         let mut env = outer.clone();
+        self.clear_locals(locals, &mut env);
         let mut bound = vec![];
         let mut seen = HashSet::new();
         let mut bind = |this: &mut Self, name: &str| -> Result<String, Error> {
-            if f.parameters.iter().any(|p| p.name == name) {
+            if outer.contains_key(name) {
                 return Err(Error::InvalidPattern(
-                    "pattern shadows a function parameter".into(),
+                    "pattern shadows an existing binding".into(),
                 ));
             }
             if !seen.insert(name.to_owned()) {
@@ -357,10 +442,22 @@ impl Lowerer {
                 ty,
             });
         }
-        let body = self.branch_body(f, &arm.body, &env, recursion.as_ref(), &suffix)?;
+        let checked = self.replay_locals(locals, &mut env, recursion.as_ref())?;
+        let body = self.branch_body(f, &arm.body, &env, recursion.as_ref(), (&suffix, locals))?;
+        let body = wrap_locals(checked, body);
         let body = lambdas(&suffix, body);
         Ok(bound.iter().rev().fold(body, |b, n| lambda(n, b)))
     }
+}
+// Keep the generic definitions as well as their refined branch instances:
+// unused or ill-typed values must still be checked before specialization.
+fn wrap_locals(locals: Vec<CheckedLocal>, body: E) -> E {
+    locals
+        .into_iter()
+        .rev()
+        .fold(body, |body, (name, ty, value)| {
+            E::let_in(name, ty, value, body)
+        })
 }
 fn lambda(name: &str, body: E) -> E {
     E::lam(name, Plicity::Explicit, None, body)

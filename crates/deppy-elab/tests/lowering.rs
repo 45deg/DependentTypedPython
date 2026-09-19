@@ -511,3 +511,66 @@ fn return_only_functions_and_parameter_shadowing() {
     };
     assert!(e.compile_function(&f).is_err());
 }
+
+#[test]
+fn body_lets_support_nested_terminal_bodies_and_preserve_computation() {
+    let mut f = structural::get(0);
+    let Body::Match { arms, .. } = &mut step(&mut f).body else {
+        panic!()
+    };
+    for arm in arms {
+        let Body::Return(value) = &arm.body else {
+            panic!()
+        };
+        arm.body = Body::Let {
+            name: "answer".into(),
+            ty: Some(n("A")),
+            value: value.clone(),
+            body: Box::new(Body::Return(n("answer"))),
+        };
+    }
+    f.body = Body::Let {
+        name: "saved".into(),
+        ty: Some(E::vec(n("A"), n("n"))),
+        value: n("xs"),
+        body: Box::new(f.body),
+    };
+    let e = Elaborator::default();
+    let lowered = e.lower_function(&f).unwrap();
+    let got = e
+        .infer(
+            &lowered
+                .app(num(2))
+                .app(vector(&[3, 4]))
+                .app(E::fs(num(1), E::fz(num(0)))),
+        )
+        .unwrap();
+    assert_eq!(
+        e.kernel().normalize(&got.term).unwrap(),
+        e.infer(&num(4)).unwrap().term
+    );
+}
+
+#[test]
+fn body_lets_reject_invalid_generic_values_shadowing_and_forward_names() {
+    for (name, ty, value) in [
+        ("unused", Some(E::Nat), E::Universe(0)),
+        (
+            "unused",
+            Some(E::eq(E::Nat, n("n"), E::Zero)),
+            E::refl(n("n")),
+        ),
+        ("n", None, E::Zero),
+        ("unused", None, n("later")),
+        ("unused", None, E::Recur(vec![n("n"), n("m")])),
+    ] {
+        let mut f = structural::add();
+        f.body = Body::Let {
+            name: name.into(),
+            ty,
+            value,
+            body: Box::new(f.body),
+        };
+        assert!(Elaborator::default().compile_function(&f).is_err());
+    }
+}

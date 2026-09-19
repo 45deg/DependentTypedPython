@@ -9,9 +9,29 @@ impl Lowerer {
         body: &Body,
         env: &Env,
         recursion: Option<&Recursion>,
-        suffix: &[Parameter],
+        context: (&[Parameter], &[Local]),
     ) -> Result<E, Error> {
         self.tick()?;
+        let (suffix, locals) = context;
+        if let Body::Let {
+            name,
+            ty,
+            value,
+            body,
+        } = body
+        {
+            let local = Local {
+                name: name.clone(),
+                ty: ty.clone(),
+                value: value.clone(),
+            };
+            let mut env = env.clone();
+            let checked = self.local(&local, &mut env, recursion)?;
+            let mut locals = locals.to_vec();
+            locals.push(local);
+            let body = self.branch_body(f, body, &env, recursion, (suffix, &locals))?;
+            return Ok(wrap_locals(vec![checked], body));
+        }
         let Body::Match { scrutinee, arms } = body else {
             let Body::Return(value) = body else {
                 unreachable!()
@@ -36,6 +56,7 @@ impl Lowerer {
         };
         let (zero, step) = coverage(&Kind::Fin { index: 0 }, arms)?;
         let mut result_env = env.clone();
+        self.clear_locals(locals, &mut result_env);
         result_env.remove(scrutinee);
         // A dependent result would need a more general motive; reject it rather
         // than retaining the original index in a supposedly refined branch.
@@ -78,23 +99,53 @@ impl Lowerer {
         step_env.insert(step_bound.clone(), *k.clone());
         let j = self.bind(&mut step_env, pred)?;
         step_env.insert(scrutinee.clone(), E::fs(*k.clone(), E::name(&j)));
-        let Body::Return(zero) = &zero.body else {
-            return Err(Error::UnsupportedMatch(
-                "only one nested Fin split is supported".into(),
-            ));
-        };
-        let Body::Return(step) = &step.body else {
-            return Err(Error::UnsupportedMatch(
-                "only one nested Fin split is supported".into(),
-            ));
-        };
-        let zero = self.rewrite(zero, &zero_env, recursion)?;
-        let step = self.rewrite(step, &step_env, recursion)?;
+        let zero_locals = self.replay_locals(locals, &mut zero_env, recursion)?;
+        let step_locals = self.replay_locals(locals, &mut step_env, recursion)?;
+        let zero = wrap_locals(
+            zero_locals,
+            self.terminal_body(&zero.body, &zero_env, recursion)?,
+        );
+        let step = wrap_locals(
+            step_locals,
+            self.terminal_body(&step.body, &step_env, recursion)?,
+        );
         Ok(crate::prelude::fin_case(f.motive_level)
             .implicit(result)
             .app(*k.clone())
             .app(E::name(&suffix[0].name))
             .app(zero)
             .app(E::lam(j, Plicity::Explicit, Some(E::fin(*k.clone())), step)))
+    }
+    fn terminal_body(
+        &mut self,
+        body: &Body,
+        env: &Env,
+        recursion: Option<&Recursion>,
+    ) -> Result<E, Error> {
+        self.tick()?;
+        match body {
+            Body::Return(value) => self.rewrite(value, env, recursion),
+            Body::Let {
+                name,
+                ty,
+                value,
+                body,
+            } => {
+                let local = Local {
+                    name: name.clone(),
+                    ty: ty.clone(),
+                    value: value.clone(),
+                };
+                let mut env = env.clone();
+                let checked = self.local(&local, &mut env, recursion)?;
+                Ok(wrap_locals(
+                    vec![checked],
+                    self.terminal_body(body, &env, recursion)?,
+                ))
+            }
+            Body::Match { .. } => Err(Error::UnsupportedMatch(
+                "only one nested Fin split is supported".into(),
+            )),
+        }
     }
 }
