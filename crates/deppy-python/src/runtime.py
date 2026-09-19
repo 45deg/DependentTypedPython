@@ -5,6 +5,7 @@ class _Proof:
     __slots__ = ()
 
 _PROOF = _Proof()
+_ERASED_PROOF = _Proof()
 
 def _natural(n):
     if type(n) is not int or n < 0:
@@ -54,6 +55,9 @@ def _snd(p):
 
 def _refl():
     return _PROOF
+
+def _erased_proof():
+    return _ERASED_PROOF
 
 def _j(base, proof):
     if proof is not _PROOF:
@@ -124,7 +128,7 @@ def _validate(value, schema, output=False):
     if kind == 'nat':
         return _natural(value)
     if kind == 'proof':
-        if not output or value is not _PROOF:
+        if not output or (value is not _PROOF and value is not _ERASED_PROOF):
             raise TypeError('unchecked Python cannot supply equality proofs')
         return None
     if kind == 'vec':

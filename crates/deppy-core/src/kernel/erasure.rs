@@ -3,8 +3,8 @@ use super::*;
 use crate::Relevance;
 
 /// Pure runtime IR. Variable indices count retained binders only.
-/// Types and reflexivity payloads have no runtime representation; equality
-/// elimination retains a proof token rather than assuming arbitrary transport.
+/// Types and reflexivity payloads have no runtime representation. Discarded
+/// proof results have a distinct marker that computational J cannot consume.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RuntimeTerm {
     Unit,
@@ -17,12 +17,22 @@ pub enum RuntimeTerm {
     Let(Box<Self>, Box<Self>),
     Prim(&'static str, Vec<Self>),
 }
+// Values stored in lets, passed to functions or constructors, or supplied to
+// eliminators must remain usable by a later J, even behind a type variable or a
+// higher-order function. Only a result position may discard its proof. This is
+// deliberately conservative; it does not infer argument/field irrelevance.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ProofDemand {
+    Result,
+    Computational,
+}
+
 impl Kernel {
     /// Kernel validation precedes usage checking, including discarded subterms.
     pub fn erase(&self, term: &Tm) -> Result<RuntimeTerm, Error> {
         self.infer(term)?;
         let mut budget = Budget(self.max_steps, self.definitions.clone());
-        erase(&self.context(), term, &[], &mut budget)
+        erase(&self.context(), term, &[], &mut budget, ProofDemand::Result)
     }
 
     /// Include private helpers as well as public definitions. Definitions cannot
@@ -39,12 +49,20 @@ fn erase(
     term: &Tm,
     kept: &[bool],
     budget: &mut Budget,
+    demand: ProofDemand,
 ) -> Result<RuntimeTerm, Error> {
     budget.tick()?;
-    if matches!(synth(ctx, term, budget)?.as_ref(), Value::Universe(_)) {
+    let ty = synth(ctx, term, budget)?;
+    if matches!(ty.as_ref(), Value::Universe(_)) {
         return Ok(RuntimeTerm::Unit);
     }
-    let mut sub = |t: &Tm| erase(ctx, t, kept, budget);
+    // A checked proof result can be discarded. The token is only an output
+    // marker, never evidence for a computational J: all retained inputs below
+    // are erased in computational mode, including higher-order arguments.
+    if demand == ProofDemand::Result && matches!(ty.as_ref(), Value::Eq(..)) {
+        return Ok(RuntimeTerm::Prim("erased_proof", vec![]));
+    }
+    let mut sub = |t: &Tm| erase(ctx, t, kept, budget, ProofDemand::Computational);
     let prim = |name, args| Ok(RuntimeTerm::Prim(name, args));
     match term.as_ref() {
         Term::Var(i) => {
@@ -71,8 +89,15 @@ fn erase(
                 globals: ctx.globals.clone(),
                 ..Context::default()
             };
-            erase(&closed, &body, &[], budget)?;
-            Ok(RuntimeTerm::Global(*id))
+            let erased = erase(&closed, &body, &[], budget, demand)?;
+            // The ordinary global may have discarded its proof result. Inline
+            // the checked body for computational uses instead of reusing that
+            // output marker. Definitions are acyclic; the budget bounds growth.
+            Ok(if demand == ProofDemand::Computational {
+                erased
+            } else {
+                RuntimeTerm::Global(*id)
+            })
         }
         Term::Lam {
             relevance,
@@ -83,7 +108,7 @@ fn erase(
             let retain = *relevance == Relevance::Runtime;
             let mut next = kept.to_vec();
             next.push(retain);
-            let body = erase(&ctx.bind(domain), body, &next, budget)?;
+            let body = erase(&ctx.bind(domain), body, &next, budget, demand)?;
             Ok(if retain {
                 RuntimeTerm::Lam(Box::new(body))
             } else {
@@ -91,29 +116,78 @@ fn erase(
             })
         }
         Term::App { function, argument } => {
+            // The elaborator represents source lets as immediate lambda
+            // applications. Apply the same proof-usage rule to this encoding.
+            if let Term::Lam {
+                relevance: Relevance::Runtime,
+                domain,
+                body,
+            } = function.as_ref()
+            {
+                if matches!(
+                    value::eval(domain, &ctx.env, budget)?.as_ref(),
+                    Value::Eq(..)
+                ) {
+                    return erase(
+                        ctx,
+                        &Term::Let {
+                            ty: domain.clone(),
+                            value: argument.clone(),
+                            body: body.clone(),
+                        }
+                        .arc(),
+                        kept,
+                        budget,
+                        demand,
+                    );
+                }
+            }
             let ty = synth(ctx, function, budget)?;
             let Value::Pi(relevance, _, _) = ty.as_ref() else {
                 return Err(Error::ExpectedFunction);
             };
-            let f = erase(ctx, function, kept, budget)?;
+            let f = erase(ctx, function, kept, budget, demand)?;
             if *relevance == Relevance::Erased {
                 Ok(f)
             } else {
                 Ok(RuntimeTerm::App(
                     Box::new(f),
-                    Box::new(erase(ctx, argument, kept, budget)?),
+                    Box::new(erase(
+                        ctx,
+                        argument,
+                        kept,
+                        budget,
+                        ProofDemand::Computational,
+                    )?),
                 ))
             }
         }
         Term::Let { ty, value: v, body } => {
-            let rhs = sub(v)?;
             let ty = value::eval(ty, &ctx.env, budget)?;
             let val = value::eval(v, &ctx.env, budget)?;
+            // Proof lets may disappear when all their uses disappear. Try with
+            // an unavailable runtime slot; keep the binding if usage requires it.
+            if matches!(ty.as_ref(), Value::Eq(..)) {
+                let mut discarded = kept.to_vec();
+                discarded.push(false);
+                match erase(
+                    &ctx.define(ty.clone(), val.clone()),
+                    body,
+                    &discarded,
+                    budget,
+                    demand,
+                ) {
+                    Ok(body) => return Ok(body),
+                    Err(Error::ErasedVariableUsed(_)) => {}
+                    Err(error) => return Err(error),
+                }
+            }
+            let rhs = erase(ctx, v, kept, budget, ProofDemand::Computational)?;
             let mut next = kept.to_vec();
             next.push(true);
             Ok(RuntimeTerm::Let(
                 Box::new(rhs),
-                Box::new(erase(&ctx.define(ty, val), body, &next, budget)?),
+                Box::new(erase(&ctx.define(ty, val), body, &next, budget, demand)?),
             ))
         }
         Term::Zero => prim("zero", vec![]),
@@ -229,7 +303,7 @@ fn schema(
     budget.tick()?;
     let mut index = |v| {
         let term = value::quote(v, ctx.env.len(), budget)?;
-        erase(ctx, &term, kept, budget)
+        erase(ctx, &term, kept, budget, ProofDemand::Computational)
     };
     Ok(match ty.as_ref() {
         Value::Universe(_) => RuntimeType::Type,

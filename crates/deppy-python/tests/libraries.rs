@@ -182,8 +182,7 @@ fn axioms_are_tracked_through_libraries_and_never_become_runtime_stubs() {
         vec!["assumptions.assumption"]
     );
     assert!(m.axiom_dependencies["clean"].is_empty());
-    let err = compile_module_with_resolver(&main, TARGET, &mut resolver).unwrap_err();
-    assert!(err.message.contains("no runtime implementation"));
+    compile_module_with_resolver(&main, TARGET, &mut resolver).unwrap();
     let bad = source("@axiom\ndef assumed() -> Eq[Nat, 0, 1]:\n    ...\n@dependent\ndef bogus() -> Eq[Nat, 0, 1]:\n    return refl(0)\n");
     assert!(check_module(&bad, TARGET).is_err());
     assert!(
@@ -251,4 +250,24 @@ fn explicit_reverse_proof_uses_only_python_library_and_eliminators() {
         );
     }
     compile_module(include_str!("../examples/reverse_explicit.py"), TARGET).unwrap();
+}
+
+#[test]
+fn discarded_axiomatic_proofs_cannot_leak_into_runtime_j() {
+    let lib = source("@axiom\ndef assumed() -> Eq[Nat, 0, 0]:\n    ...\n@dependent\ndef proof() -> Eq[Nat, 0, 0]:\n    return assumed()\n");
+    for expression in [
+        "proof()",
+        "ann(lambda f: f(0), Pi[Pi[Nat, lambda n: Eq[Nat, 0, 0]], lambda f: Eq[Nat, 0, 0]])(lambda n: proof())",
+    ] {
+        let main = source(&format!("from assumptions import proof\n@dependent\ndef bad() -> Nat:\n    return J(0, Nat, 0, lambda end, p: Nat, 0, 0, {expression})\n"));
+        let mut resolver = |_: &str| Ok(Some(lib.clone()));
+        check_module_with_resolver(&main, TARGET, &mut resolver).unwrap();
+        assert!(compile_module_with_resolver(&main, TARGET, &mut resolver).unwrap_err().message.contains("no runtime implementation"));
+    }
+    let bad = source("@dependent\ndef bad[p: Eq[Nat, 0, 0]]() -> Nat:\n    return J(0, Nat, 0, lambda end, q: Nat, 0, 0, p)\n");
+    check_module(&bad, TARGET).unwrap();
+    assert!(compile_module(&bad, TARGET)
+        .unwrap_err()
+        .message
+        .contains("erased variable"));
 }

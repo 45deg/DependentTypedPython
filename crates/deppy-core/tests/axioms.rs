@@ -81,8 +81,12 @@ fn axioms_are_explicit_atomic_opaque_and_do_not_reflect_equality() {
         ),
         Err(Error::DuplicateDefinition(0))
     ));
+    assert_eq!(
+        k.erase(&proof).unwrap(),
+        deppy_core::RuntimeTerm::Prim("erased_proof", vec![])
+    );
     assert!(matches!(
-        k.erase(&proof),
+        k.erase(&transport),
         Err(Error::AxiomHasNoRuntimeValue(0))
     ));
     k.define(

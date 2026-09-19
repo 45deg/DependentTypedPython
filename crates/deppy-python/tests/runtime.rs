@@ -238,3 +238,72 @@ for n in range(6):
 "#,
     );
 }
+
+#[test]
+fn proof_results_are_discarded_but_computational_proofs_remain_available() {
+    run(
+        r#"
+from __future__ import annotations
+from deppy import dependent, Nat, Eq, refl, J, Pi, ann
+from deppy.equality import sym
+@dependent
+def erased[p: Eq[Nat, 0, 0]]() -> Eq[Nat, 0, 0]:
+    return sym(p)
+@dependent
+def proof(n: Nat) -> Eq[Nat, n, n]:
+    return sym(refl(n))
+@dependent
+def use(n: Nat) -> Nat:
+    return J(0, Nat, n, lambda end, p: Nat, n, n, proof(n))
+@dependent
+def via_let(n: Nat) -> Nat:
+    p = proof(n)
+    return J(0, Nat, n, lambda end, q: Nat, n, n, p)
+@dependent
+def higher(n: Nat) -> Nat:
+    return ann(lambda f: J(0, Nat, n, lambda end, p: Nat, n, n, f(n)), Pi[Pi[Nat, lambda k: Eq[Nat, k, k]], lambda f: Nat])(proof)
+"#,
+        r#"
+assert exports['erased']() is None
+for n in range(6):
+    assert exports['proof'](n) is None
+    assert exports['use'](n) == n
+    assert exports['via_let'](n) == n
+    assert exports['higher'](n) == n
+try:
+    _j(0, _erased_proof())
+except TypeError:
+    pass
+else:
+    raise AssertionError('discarded result accepted as computational proof')
+"#,
+    );
+}
+
+#[test]
+fn erased_proof_examples_skip_proof_computation_at_runtime() {
+    run(
+        include_str!("../examples/proof_erasure.py"),
+        r#"
+original_j = _j
+def forbidden(*args):
+    raise AssertionError('erased proof computation executed')
+_j = forbidden
+assert exports['erased']() is None
+assert exports['proof'](8) is None
+assert exports['keep'](8) == 8
+_j = original_j
+assert exports['compute'](8) == 8
+"#,
+    );
+    run(
+        include_str!("../examples/proofs.py"),
+        r#"
+def forbidden(*args):
+    raise AssertionError('erased recursive proof executed')
+_nat_elim = forbidden
+_j = forbidden
+assert exports['zero_right'](10000) is None
+"#,
+    );
+}

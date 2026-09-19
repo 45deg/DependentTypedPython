@@ -95,3 +95,151 @@ fn referenced_definitions_cannot_hide_erased_runtime_usage() {
         Err(Error::ErasedVariableUsed(0))
     );
 }
+
+fn proposition() -> deppy_core::Tm {
+    Term::Eq {
+        ty: Term::Nat.arc(),
+        left: Term::Zero.arc(),
+        right: Term::Zero.arc(),
+    }
+    .arc()
+}
+fn lam(relevance: Relevance, domain: deppy_core::Tm, body: deppy_core::Tm) -> deppy_core::Tm {
+    Term::Lam {
+        relevance,
+        domain,
+        body,
+    }
+    .arc()
+}
+fn observe(proof: deppy_core::Tm) -> deppy_core::Tm {
+    Term::J {
+        level: 0,
+        ty: Term::Nat.arc(),
+        left: Term::Zero.arc(),
+        motive: lam(
+            Relevance::Runtime,
+            Term::Nat.arc(),
+            lam(
+                Relevance::Runtime,
+                Term::Eq {
+                    ty: Term::Nat.arc(),
+                    left: Term::Zero.arc(),
+                    right: Term::Var(0).arc(),
+                }
+                .arc(),
+                Term::Nat.arc(),
+            ),
+        ),
+        base: Term::Zero.arc(),
+        right: Term::Zero.arc(),
+        proof,
+    }
+    .arc()
+}
+
+#[test]
+fn erased_proofs_may_flow_to_proof_results_but_not_computational_j() {
+    let k = Kernel::default();
+    let erased = lam(Relevance::Erased, proposition(), Term::Var(0).arc());
+    assert_eq!(
+        k.erase(&erased).unwrap(),
+        RuntimeTerm::Prim("erased_proof", vec![])
+    );
+    let computational = lam(
+        Relevance::Erased,
+        proposition(),
+        observe(Term::Var(0).arc()),
+    );
+    k.infer(&computational).unwrap();
+    assert_eq!(k.erase(&computational), Err(Error::ErasedVariableUsed(0)));
+    // Checking still precedes discarding the proof body.
+    let invalid = lam(
+        Relevance::Erased,
+        proposition(),
+        Term::App {
+            function: Term::Var(0).arc(),
+            argument: Term::Zero.arc(),
+        }
+        .arc(),
+    );
+    assert!(k.erase(&invalid).is_err());
+}
+
+#[test]
+fn computational_uses_do_not_reuse_discarded_global_proofs() {
+    let mut k = Kernel::default();
+    k.declare_axiom(0, proposition()).unwrap();
+    k.define(
+        1,
+        deppy_core::Definition {
+            ty: proposition(),
+            body: Term::Global(0).arc(),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        k.erase(&Term::Global(1).arc()).unwrap(),
+        RuntimeTerm::Prim("erased_proof", vec![])
+    );
+    assert_eq!(
+        k.erase(&observe(Term::Global(1).arc())),
+        Err(Error::AxiomHasNoRuntimeValue(0))
+    );
+
+    // A transparent, computational proof remains usable, even though its
+    // separately emitted declaration has an erased result.
+    k.define(
+        2,
+        deppy_core::Definition {
+            ty: proposition(),
+            body: Term::Refl {
+                ty: Term::Nat.arc(),
+                value: Term::Zero.arc(),
+            }
+            .arc(),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        k.erase(&observe(Term::Global(2).arc())).unwrap(),
+        RuntimeTerm::Prim(
+            "j",
+            vec![
+                RuntimeTerm::Prim("zero", vec![]),
+                RuntimeTerm::Prim("refl", vec![]),
+            ]
+        )
+    );
+}
+
+#[test]
+fn proof_lets_are_removed_only_when_their_runtime_uses_disappear() {
+    let mut k = Kernel::default();
+    k.declare_axiom(0, proposition()).unwrap();
+    let binding = |body| {
+        Term::Let {
+            ty: proposition(),
+            value: Term::Global(0).arc(),
+            body,
+        }
+        .arc()
+    };
+    assert_eq!(
+        k.erase(&binding(Term::Zero.arc())).unwrap(),
+        RuntimeTerm::Prim("zero", vec![])
+    );
+    assert_eq!(
+        k.erase(&binding(observe(Term::Var(0).arc()))),
+        Err(Error::AxiomHasNoRuntimeValue(0))
+    );
+    let renumbered = lam(
+        Relevance::Runtime,
+        Term::Nat.arc(),
+        binding(Term::Var(1).arc()),
+    );
+    assert_eq!(
+        k.erase(&renumbered).unwrap(),
+        RuntimeTerm::Lam(Box::new(RuntimeTerm::Var(0)))
+    );
+}
