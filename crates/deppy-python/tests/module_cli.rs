@@ -1,6 +1,45 @@
 use std::{fs, process::Command};
 
 #[test]
+fn cli_accepts_an_elaboration_budget_and_rejects_invalid_values() {
+    let root = std::env::temp_dir().join(format!("deppy-budget-cli-{}", std::process::id()));
+    fs::create_dir_all(&root).unwrap();
+    let path = root.join("proof.py");
+    fs::write(
+        &path,
+        "from __future__ import annotations\nfrom deppy import dependent, Nat, Eq, refl\n@dependent\ndef proof(n: Nat) -> Eq[Nat, n, n]:\n    return refl(n)\n",
+    )
+    .unwrap();
+    let run = |steps: &str| {
+        Command::new(env!("CARGO_BIN_EXE_deppy-python"))
+            .args(["--elaboration-steps", steps])
+            .arg(&path)
+            .output()
+            .unwrap()
+    };
+    let accepted = run("10000000");
+    assert!(
+        accepted.status.success(),
+        "{}",
+        String::from_utf8_lossy(&accepted.stderr)
+    );
+    let exhausted = run("1");
+    assert!(!exhausted.status.success());
+    assert!(String::from_utf8_lossy(&exhausted.stderr).contains("budget exhausted"));
+    for invalid in ["0", "-1", "no", "999999999999999999999999999999"] {
+        let output = run(invalid);
+        assert_eq!(output.status.code(), Some(2));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("positive integer"));
+    }
+    let missing = Command::new(env!("CARGO_BIN_EXE_deppy-python"))
+        .arg("--elaboration-steps")
+        .output()
+        .unwrap();
+    assert_eq!(missing.status.code(), Some(2));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn cli_resolves_local_modules_without_executing_python() {
     let root = std::env::temp_dir().join(format!("deppy-library-cli-{}", std::process::id()));
     fs::create_dir_all(root.join("proofs")).unwrap();

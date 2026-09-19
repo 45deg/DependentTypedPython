@@ -1,23 +1,31 @@
-use deppy_python::{analyze_module_with_resolver, FileResolver, Target};
+use deppy_python::{analyze_module_with_options_and_resolver, FileResolver, FrontendOptions};
 fn main() -> std::process::ExitCode {
     let mut goals = false;
     let mut json = false;
-    let args: Vec<_> = std::env::args_os()
-        .skip(1)
-        .filter(|arg| {
-            if arg == "--goals" {
-                goals = true;
-                false
-            } else if arg == "--json" {
-                json = true;
-                false
-            } else {
-                true
-            }
-        })
-        .collect();
+    let mut options = FrontendOptions::default();
+    let mut args = Vec::new();
+    let mut input = std::env::args_os().skip(1);
+    while let Some(arg) = input.next() {
+        if arg == "--goals" {
+            goals = true;
+        } else if arg == "--json" {
+            json = true;
+        } else if arg == "--elaboration-steps" {
+            let steps = input
+                .next()
+                .and_then(|value| value.to_str().and_then(|s| s.parse::<usize>().ok()))
+                .filter(|steps| *steps > 0);
+            let Some(steps) = steps else {
+                eprintln!("--elaboration-steps requires a positive integer");
+                return std::process::ExitCode::from(2);
+            };
+            options.elaboration_steps = steps;
+        } else {
+            args.push(arg);
+        }
+    }
     if args.len() != 1 {
-        eprintln!("usage: deppy-python [--goals] [--json] FILE.py (Python 3.14 input syntax)");
+        eprintln!("usage: deppy-python [--goals] [--json] [--elaboration-steps N] FILE.py (Python 3.14 input syntax)");
         return std::process::ExitCode::from(2);
     }
     let path = std::path::Path::new(&args[0]);
@@ -39,7 +47,7 @@ fn main() -> std::process::ExitCode {
             return std::process::ExitCode::FAILURE;
         }
     };
-    let mut analysis = analyze_module_with_resolver(&source, Target::Python314, &mut resolver);
+    let mut analysis = analyze_module_with_options_and_resolver(&source, options, &mut resolver);
     analysis.set_root_source_name(&path.display().to_string());
     if json {
         println!("{}", analysis.to_json());
