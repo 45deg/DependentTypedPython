@@ -1,0 +1,10 @@
+[package]
+name = "deppy-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+deppy-core = { path = "../deppy-core" }
+deppy-python = { path = "../deppy-python" }
+

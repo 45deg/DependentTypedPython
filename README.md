@@ -1,8 +1,8 @@
 # DepPy
 
-Pythonの構文で記述する依存型言語の実装です。[Chatlog.md](Chatlog.md)を設計仕様とし、第19節の実装順序に沿って進めています。
+Pythonの構文で記述する依存型言語の実装です。[Chatlog.md](Chatlog.md)を初期設計仕様とし、第19節の実装順序に沿って進めています。今後の二層構成と実装境界は[DepPy2の設計方針](docs/deppy2.md)にまとめています。
 
-Rust製kernel、名前付きASTのelaborator、Ruffを使ったPython frontend、使用検査・消去、Pythonコード生成を実装しています。identity・append・get・zero_right・SomeVecの例について、型検査から生成コードの実行まで通ります。対応範囲と残る制約は下記の実行MVPの節に記載しています。
+Rust製kernel、名前付きASTのelaborator、Ruffを使ったPython frontendと、分離した任意のruntime backendを実装しています。identity・append・get・zero_right・SomeVecの例について、型検査から生成コードの実行まで通ります。対応範囲と残る制約は下記の実行MVPの節に記載しています。
 
 Pythonでの証明項・公理・ライブラリ利用は [証明言語のガイド](docs/proofs.md) を参照してください。`examples/reverse_explicit.py` はRustに補題を追加せず、Pythonのeliminatorとライブラリだけで証明する例です。
 
@@ -28,6 +28,15 @@ cargo clippy --workspace --all-targets --offline -- -D warnings
 
 進捗と未実装項目は[PROGRESS.md](PROGRESS.md)で管理しています。
 
+## Crate構成
+
+- `crates/deppy-core`：明示的なcore term、kernel、NbE、変換判定、公理依存に加え、kernel検査済みtermからruntime IRへのchecked projectionを提供します。trusted coreの中心です。
+- `crates/deppy-elab`：名前付きAST、bidirectional elaboration、meta、定義と再帰の検査を担当します。
+- `crates/deppy-python`：Ruffを使ったPython frontend、静的module解決、`@dependent`のloweringを担当します。
+- `crates/deppy-runtime`：`deppy-core`が生成したruntime IRを消費し、Pythonコード生成、runtime shim、公開境界wrapperと生成用CLIを提供する任意backendです。型検査と証明の妥当性には必要ありません。
+
+DepPy2では`@dependent`を独立した証明支援系として発展させ、その上にVerified HIRとWP/VC generationを持つ`@verified`層を追加します。生成したVCはdependent coreの証明としてkernelで再検査し、`verified_spec`として後続の証明から再利用します。現行機能と未実装の目標は[設計方針](docs/deppy2.md)で区別しています。
+
 ## 現在の実装
 
 `crates/deppy-core`は、完全に明示化したコア項を直接検査するライブラリです。
@@ -46,7 +55,7 @@ cargo clippy --workspace --all-targets --offline -- -D warnings
 
 公開APIは閉じた項を受け取ります。正規化・等価性判定も入力を型検査してから評価するため、未検査の自己適用を評価器へ直接渡せません。型の一致はuniverseの持ち上げを行いません。正規化はβ・ζ・ι正規形を返し、ηは等価性判定で扱います。
 
-`Kernel::erase` はkernel検査後に消去対象の変数の実行時使用を検査し、`RuntimeTerm` を生成します。参照するグローバル定義も検査します。型検査だけを行う `check_module` と、使用検査・境界スキーマ生成も行う `compile_module` は別APIです。エラーはコア項を表示し、frontendは構文・名前解決のエラーを元のソース範囲に、elaborationのエラーを関数宣言の範囲に対応させます。
+`Kernel::erase` はkernel検査後に消去対象の変数の実行時使用を検査し、`RuntimeTerm` を生成します。参照するグローバル定義も検査します。このchecked projectionと`RuntimeType`・境界スキーマの導出は現在`deppy-core`にあります。型検査だけを行う`deppy-python`の`check_module`と、この結果を消費してPythonを生成する`deppy-runtime`の`compile_module`は別APIです。エラーはコア項を表示し、frontendは構文・名前解決のエラーを元のソース範囲に、elaborationのエラーを関数宣言の範囲に対応させます。
 
 処理予算は計算回数を制限しますが、再帰的なRust実装に対するスタック・メモリの完全な保護ではありません。universe levelは`u32`で表現し、後続levelを表現できない場合は拒否します。
 
@@ -262,10 +271,10 @@ RecordDecl {
 
 ## 実行MVP
 
-`compile_module(source, Target)` またはCLIの `--emit-python` で、外部パッケージ不要のPythonモジュールを生成します。
+`deppy-runtime`の`compile_module(source, Target)`または生成用CLIで、外部パッケージ不要のPythonモジュールを生成します。
 
 ```sh
-cargo run -p deppy-python --locked --offline -- --emit-python crates/deppy-python/examples/proofs.py > /tmp/deppy_proofs.py
+cargo run -p deppy-runtime --locked --offline -- crates/deppy-python/examples/proofs.py > /tmp/deppy_proofs.py
 uv run --no-project --offline --python 3.12 python -c "import runpy; f = runpy.run_path('/tmp/deppy_proofs.py')['exports']; print(f['get'](3, (10, 20, 30), (3, 1))); print(f['zero_right'](3))"
 ```
 

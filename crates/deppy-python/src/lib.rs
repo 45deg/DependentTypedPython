@@ -1,8 +1,6 @@
 //! Static Python frontend using pinned Ruff components. No user code is executed.
-mod codegen;
 mod lower;
 mod modules;
-pub use codegen::{compile_module, compile_module_with_resolver};
 use deppy_elab::{Elaborator, Expr};
 pub use modules::{lower_module_with_resolver, FileResolver, SourceResolver};
 use ruff_python_ast::PythonVersion;

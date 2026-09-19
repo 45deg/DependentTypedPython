@@ -12,13 +12,13 @@ import reference_deppy as ref
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLES = ROOT / 'crates/deppy-python/examples'
 sys.modules['deppy'] = ref
-subprocess.run(['cargo', 'build', '-p', 'deppy-python', '--locked', '--offline'], cwd=ROOT, check=True)
+subprocess.run(['cargo', 'build', '-p', 'deppy-runtime', '--locked', '--offline'], cwd=ROOT, check=True)
 
 
 def load(name):
     path = EXAMPLES / f'{name}.py'
     generated = subprocess.run(
-        [str(ROOT / 'target/debug/deppy-python'), '--emit-python', str(path)],
+        [str(ROOT / 'target/debug/deppy-runtime'), str(path)],
         check=True, text=True, capture_output=True,
     ).stdout
     source_module = types.ModuleType(f'reference_{name}')

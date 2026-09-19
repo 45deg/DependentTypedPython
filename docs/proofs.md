@@ -48,7 +48,7 @@ def result(n: Nat) -> Eq[Nat, n, n]:
 
 ```sh
 cargo run -p deppy-python --locked --offline -- path/to/main.py
-cargo run -p deppy-python --locked --offline -- --emit-python path/to/main.py
+cargo run -p deppy-runtime --locked --offline -- path/to/main.py
 ```
 
 CLIの検索ルートは入力ファイルの親ディレクトリです。`from proofs.lemmas import lemma` は、そのルートの `proofs/lemmas.py`、または `proofs/lemmas/__init__.py` を読みます。ルート外へ出るsymlinkは拒否します。Pythonのimport機構、site-packages、`sys.path`、パッケージ初期化コードは実行しません。
@@ -57,7 +57,7 @@ CLIの検索ルートは入力ファイルの親ディレクトリです。`from
 
 読み込むソースは1ファイル1 MB、グラフ全体8 MB、import深さ32に制限し、モジュール数にも上限を設けています。各宣言のelaborationとkernel検査には有限のステップ予算があります。
 
-Rust APIでは `check_module_with_resolver`・`compile_module_with_resolver` に `SourceResolver` を渡せます。`FileResolver` はCLIと同じファイル解決を提供します。従来の `check_module`・`compile_module` は標準ライブラリだけを解決し、カレントディレクトリを暗黙には読みません。
+Rust APIでは、`deppy-python`の`check_module_with_resolver`と`deppy-runtime`の`compile_module_with_resolver`に`SourceResolver`を渡せます。`FileResolver`はCLIと同じファイル解決を提供します。resolverを取らない`check_module`・`compile_module`は標準ライブラリだけを解決し、カレントディレクトリを暗黙には読みません。
 
 生成Pythonの `exports` に載るのは入力モジュール自身の宣言です。importした関数を外部から実行したい場合は、入力モジュールでラッパーを定義してください。ライブラリの高階関数は検査済み内部呼び出しとして利用でき、外部Pythonとの高階関数の境界検査は引き続き未対応です。
 
@@ -125,7 +125,7 @@ def assumed[A: Type](x: A, y: A) -> Eq[A, x, y]:
 
 CLIは各公開宣言を `[axiom-free]` または `[axioms: ...]` と表示します。Rust APIの `CheckedModule.axiom_dependencies` からも確認できます。追跡には宣言の型、型注釈、参照先の定義・recordも含みます。これは構文上の依存関係であり、必要な公理の最小集合を探索する処理ではありません。
 
-公理には実行実装がありません。公開した公理そのものや、実行時に公理の値・証明トークンを必要とするコードは `--emit-python` で拒否します。実行可能な証明トークンや公理の実装は捏造しません。公理に依存する証明でも、結果として消去する場合はコード生成できます。公理への依存情報は引き続き保持します。現在のコード生成は読み込んだ透明な定義全体を消去検査するため、未使用のライブラリ関数でも実行時に公理を必要とすれば生成を拒否する場合があります。
+公理には実行実装がありません。公開した公理そのものや、実行時に公理の値・証明トークンを必要とするコードは`deppy-runtime`のコード生成で拒否します。実行可能な証明トークンや公理の実装は捏造しません。公理に依存する証明でも、結果として消去する場合はコード生成できます。公理への依存情報は引き続き保持します。現在のコード生成は読み込んだ透明な定義全体を消去検査するため、未使用のライブラリ関数でも実行時に公理を必要とすれば生成を拒否する場合があります。
 
 ## 到達範囲
 

@@ -1,6 +1,6 @@
 # 実装進捗
 
-Chatlog.md第19節の順序に沿ったチェックリストです。チェック済みは実装・検証済み、未チェックは未実装または作業中です。既存のidentity・append・get・zero_right・SomeVecを型検査からPython生成・実行まで通す実行MVPは完了しました。Chatlogの全仕様を実装したものではなく、残る拡張は未チェックのまま管理します。
+Chatlog.md第19節の順序に沿ったチェックリストです。チェック済みは実装・検証済み、未チェックは未実装または作業中です。既存のidentity・append・get・zero_right・SomeVecを型検査からPython生成・実行まで通す実行MVPは完了しました。Chatlogの全仕様を実装したものではなく、残る拡張は未チェックのまま管理します。`@dependent`と将来の`@verified`を接続する次期構成は[DepPy2の設計方針](docs/deppy2.md)に記載しています。
 
 ## 1. 明示的コアとkernel
 
@@ -79,7 +79,7 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - [ ] 静的importと検査済みインターフェース。
 - [x] 消去対象の使用検査、型・暗黙引数の消去、runtime IR。一般のJでは証明トークンを保持。
 - [x] Nat・Vec・Fin・Sigma・recordの不変runtime表現と、対応する境界データの検証・再構築。
-- [x] Pythonコード生成CLIとソース／生成コードの差分実行。
+- [x] `deppy-runtime`へ分離したPythonコード生成CLIとソース／生成コードの差分実行。
 - [ ] `Proof[...]` 構文、高階・任意の型族の境界検査。
 - [x] 使用条件を満たす証明結果・証明letの計算全体の消去（下記2026-09-20追記）。
 
@@ -171,3 +171,10 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - 計算に必要なグローバルは本体を展開して検査し、公理・消去指定の証明が計算用トークンに化けることを拒否。
 - kernelの定義的等しさ・公理依存情報は不変。明示引数と証明フィールドの自動削除は対象外。
 - 検証：`cargo test --workspace --locked --offline`、Clippy（全target・警告をエラー扱い）、fmtを通過。生成Pythonの実行テストで証明再帰の除去、計算用Jの保持、公理・消去済み結果の誤使用拒否を確認。CPython 3.12/3.14で15ファイルのcompile検証、各244件の既存ソース／生成コード比較を通過。
+
+### 2026-09-20：Runtime backendの分離とDepPy2方針
+
+- Pythonコード生成、runtime shim、公開境界wrapper、生成用CLIとruntime統合テストを`crates/deppy-runtime`へ分離。
+- `RuntimeTerm`・`RuntimeType`・`Kernel::erase`・`runtime_signature`は、kernel検査済みtermからruntime IRへのchecked projectionとして`deppy-core`に保持。
+- `deppy-python`のCLIは静的検査、`deppy-runtime`のCLIはPython生成を担当。runtime経路は型検査と証明の妥当性の成立条件にしない。
+- `@dependent`を独立した証明支援系として発展させ、別層の`@verified`が生成したVCをcore proofとして再利用するロードマップを`docs/deppy2.md`に記載。`@verified`、Verified HIR、WP/VC generation、`verified_spec`は未実装。

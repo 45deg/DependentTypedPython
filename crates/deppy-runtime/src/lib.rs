@@ -1,5 +1,5 @@
-use crate::{check_module, Diagnostic, Span, Target};
 use deppy_core::RuntimeTerm;
+use deppy_python::{check_module, Diagnostic, Span, Target};
 
 /// Generate a standalone Python module from kernel-checked runtime IR.
 /// The generated declarations are curried internally and exposed as ordinary
@@ -11,12 +11,14 @@ pub fn compile_module(source: &str, target: Target) -> Result<String, Diagnostic
 pub fn compile_module_with_resolver(
     source: &str,
     target: Target,
-    resolver: &mut impl crate::SourceResolver,
+    resolver: &mut impl deppy_python::SourceResolver,
 ) -> Result<String, Diagnostic> {
-    compile_checked(crate::check_module_with_resolver(source, target, resolver)?)
+    compile_checked(deppy_python::check_module_with_resolver(
+        source, target, resolver,
+    )?)
 }
 
-fn compile_checked(checked: crate::CheckedModule) -> Result<String, Diagnostic> {
+fn compile_checked(checked: deppy_python::CheckedModule) -> Result<String, Diagnostic> {
     let kernel = checked.elaborator.kernel();
     let definitions = kernel.erase_definitions().map_err(|e| Diagnostic {
         span: Span { start: 0, end: 0 },

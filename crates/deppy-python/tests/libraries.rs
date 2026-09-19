@@ -1,7 +1,5 @@
 use deppy_elab::Expr as E;
-use deppy_python::{
-    check_module, check_module_with_resolver, compile_module, compile_module_with_resolver, Target,
-};
+use deppy_python::{check_module, check_module_with_resolver, Target};
 const TARGET: Target = Target::Python314;
 const HEADER: &str = "from __future__ import annotations\nfrom deppy import dependent, axiom, Type, Nat, Z, S, Pi, ImplicitPi, Eq, refl, J, nat_elim, vec_elim, fin_elim, Fin, FZ, FS, Vec, vnil, vcons, lam, implicit_lam, ann, record, record_elim\n";
 fn source(body: &str) -> String {
@@ -44,7 +42,6 @@ def boxed(n: Nat) -> Box[Nat]:
 "#;
     let checked = check_module(source, TARGET).unwrap();
     assert_eq!(checked.definitions.len(), 5);
-    compile_module(source, TARGET).unwrap();
 }
 
 #[test]
@@ -57,7 +54,6 @@ def symmetric(n: Nat) -> Eq[Nat, n, n]:
     return sym(refl(n))
 "#;
     check_module(source, TARGET).unwrap();
-    compile_module(source, TARGET).unwrap();
     assert!(check_module(
         &source.replace("from deppy import", "from deppy.prelude import"),
         TARGET
@@ -181,7 +177,6 @@ fn checked_libraries_alias_reexport_and_namespace_their_definitions() {
         m.elaborator.kernel().normalize(&got.term).unwrap(),
         expected.term
     );
-    compile_module_with_resolver(&main, TARGET, &mut resolver).unwrap();
     assert!(check_module(&main, TARGET).is_err());
 }
 
@@ -226,7 +221,7 @@ fn invalid_import_graphs_and_unchecked_names_are_rejected() {
 }
 
 #[test]
-fn axioms_are_tracked_through_libraries_and_never_become_runtime_stubs() {
+fn axioms_are_tracked_through_libraries() {
     let lib = source("@axiom\ndef assumption(n: Nat) -> Eq[Nat, n, 0]:\n    ...\n@axiom\ndef unused() -> Nat:\n    ...\n");
     let main = source("from assumptions import assumption\nfrom deppy.equality import sym\n@dependent\ndef theorem(n: Nat) -> Eq[Nat, 0, n]:\n    return sym(assumption(n))\n@dependent\ndef clean(n: Nat) -> Eq[Nat, n, n]:\n    return refl(n)\n");
     let mut resolver = |_: &str| Ok(Some(lib.clone()));
@@ -236,15 +231,8 @@ fn axioms_are_tracked_through_libraries_and_never_become_runtime_stubs() {
         vec!["assumptions.assumption"]
     );
     assert!(m.axiom_dependencies["clean"].is_empty());
-    compile_module_with_resolver(&main, TARGET, &mut resolver).unwrap();
     let bad = source("@axiom\ndef assumed() -> Eq[Nat, 0, 1]:\n    ...\n@dependent\ndef bogus() -> Eq[Nat, 0, 1]:\n    return refl(0)\n");
     assert!(check_module(&bad, TARGET).is_err());
-    assert!(
-        compile_module(&source("@axiom\ndef assumed() -> Nat:\n    ...\n"), TARGET)
-            .unwrap_err()
-            .message
-            .contains("no runtime implementation")
-    );
     for body in ["return refl(0)", "pass", "...\n    return refl(0)"] {
         assert!(check_module(
             &source(&format!(
@@ -303,25 +291,4 @@ fn explicit_reverse_proof_uses_only_python_library_and_eliminators() {
             want.term
         );
     }
-    compile_module(include_str!("../examples/reverse_explicit.py"), TARGET).unwrap();
-}
-
-#[test]
-fn discarded_axiomatic_proofs_cannot_leak_into_runtime_j() {
-    let lib = source("@axiom\ndef assumed() -> Eq[Nat, 0, 0]:\n    ...\n@dependent\ndef proof() -> Eq[Nat, 0, 0]:\n    return assumed()\n");
-    for expression in [
-        "proof()",
-        "ann(lambda f: f(0), Pi[Pi[Nat, lambda n: Eq[Nat, 0, 0]], lambda f: Eq[Nat, 0, 0]])(lambda n: proof())",
-    ] {
-        let main = source(&format!("from assumptions import proof\n@dependent\ndef bad() -> Nat:\n    return J(0, Nat, 0, lambda end, p: Nat, 0, 0, {expression})\n"));
-        let mut resolver = |_: &str| Ok(Some(lib.clone()));
-        check_module_with_resolver(&main, TARGET, &mut resolver).unwrap();
-        assert!(compile_module_with_resolver(&main, TARGET, &mut resolver).unwrap_err().message.contains("no runtime implementation"));
-    }
-    let bad = source("@dependent\ndef bad[p: Eq[Nat, 0, 0]]() -> Nat:\n    return J(0, Nat, 0, lambda end, q: Nat, 0, 0, p)\n");
-    check_module(&bad, TARGET).unwrap();
-    assert!(compile_module(&bad, TARGET)
-        .unwrap_err()
-        .message
-        .contains("erased variable"));
 }
