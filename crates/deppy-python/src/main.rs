@@ -1,11 +1,12 @@
-use deppy_python::{check_module, Target};
+use deppy_python::{check_module, compile_module, Target};
 fn main() -> std::process::ExitCode {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
-    if args.len() != 1 {
-        eprintln!("usage: deppy-python FILE.py (Python 3.14 syntax; static checking only)");
+    let emit = args.len() == 2 && args[0] == "--emit-python";
+    if args.len() != 1 && !emit {
+        eprintln!("usage: deppy-python [--emit-python] FILE.py (Python 3.14 input syntax)");
         return std::process::ExitCode::from(2);
     }
-    let path = std::path::Path::new(&args[0]);
+    let path = std::path::Path::new(&args[usize::from(emit)]);
     let source = match std::fs::read_to_string(path) {
         Ok(s) => s,
         Err(e) => {
@@ -13,6 +14,18 @@ fn main() -> std::process::ExitCode {
             return std::process::ExitCode::FAILURE;
         }
     };
+    if emit {
+        return match compile_module(&source, Target::Python314) {
+            Ok(code) => {
+                print!("{code}");
+                std::process::ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("{}: {e}", path.display());
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
     match check_module(&source, Target::Python314) {
         Ok(module) => {
             for (name, _, _) in &module.definitions {

@@ -1,5 +1,7 @@
 //! Static Python frontend using pinned Ruff components. No user code is executed.
+mod codegen;
 mod lower;
+pub use codegen::compile_module;
 use deppy_elab::{Elaborator, Expr};
 use ruff_python_ast::PythonVersion;
 use ruff_text_size::TextRange;
@@ -71,6 +73,7 @@ pub struct Module {
 pub struct CheckedModule {
     pub elaborator: Elaborator,
     pub definitions: Vec<(String, deppy_core::DefId, Span)>,
+    pub constructors: Vec<(String, deppy_core::DefId, Span)>,
 }
 
 /// Parse Python, reject target-version syntax errors, and lower the supported subset.
@@ -110,20 +113,22 @@ pub fn check_module(source: &str, target: Target) -> Result<CheckedModule, Diagn
     let mut elaborator = Elaborator::default();
     let mut definitions = vec![];
     let mut record_id = 0;
+    let mut constructors = vec![];
     for d in module.declarations {
         if let DeclarationBody::Record {
             declaration: decl, ..
         } = &d.body
         {
-            let register =
+            let mut register =
                 |elaborator: &mut Elaborator| -> Result<deppy_core::DefId, deppy_elab::Error> {
                     let record = elaborator.declare_record(record_id, decl.clone())?;
                     let id = elaborator.define(&d.name, Some(&d.ty), &record.ty())?;
-                    elaborator.define(
+                    let constructor_id = elaborator.define(
                         lower::constructor_name(&d.name),
                         None,
                         &record.constructor(),
                     )?;
+                    constructors.push((d.name.clone(), constructor_id, d.span));
                     Ok(id)
                 };
             let id = register(&mut elaborator).map_err(|e| Diagnostic {
@@ -156,5 +161,6 @@ pub fn check_module(source: &str, target: Target) -> Result<CheckedModule, Diagn
     Ok(CheckedModule {
         elaborator,
         definitions,
+        constructors,
     })
 }
