@@ -1,6 +1,6 @@
 # 実装進捗
 
-Chatlog.md第19節の順序に沿ったチェックリストです。チェック済みは実装・検証済み、未チェックは未実装または作業中です。MVP全体は未完成です。
+Chatlog.md第19節の順序に沿ったチェックリストです。チェック済みは実装・検証済み、未チェックは未実装または作業中です。既存のidentity・append・get・zero_right・SomeVecを型検査からPython生成・実行まで通す実行MVPは完了しました。Chatlogの全仕様を実装したものではなく、残る拡張は未チェックのまま管理します。
 
 ## 1. 明示的コアとkernel
 
@@ -77,22 +77,23 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - [x] frontendのrecord level・再帰motive levelの具体値指定。
 - [ ] Vecコンストラクタ・cong・fin0_elimのuniverse指定（現在0）。
 - [ ] 静的importと検査済みインターフェース。
-- [ ] 消去対象の使用検査、消去、runtime IR。
-- [ ] ランタイムと境界データの検証・再構築。
-- [ ] Pythonコード生成とソース／生成コードの差分実行。
+- [x] 消去対象の使用検査、型・暗黙引数の消去、runtime IR。一般のJでは証明トークンを保持。
+- [x] Nat・Vec・Fin・Sigma・recordの不変runtime表現と、対応する境界データの検証・再構築。
+- [x] Pythonコード生成CLIとソース／生成コードの差分実行。
+- [ ] `Proof[...]` 構文、証明計算全体の消去、高階・任意の型族の境界検査。
 
 ## 5. MVP受け入れ条件
 
 - [x] 第17.1節：Pythonのidentity宣言の静的検査と、生成コアの計算。
-- [ ] 第17.1節：Pythonランタイムでの実行と消去。
+- [x] 第17.1節：Pythonランタイムでの実行と消去。
 - [x] 第17.2節：PythonのVec append宣言の静的検査と生成コアの計算。
-- [ ] 第17.2節：Pythonランタイムでのappend実行。
+- [x] 第17.2節：Pythonランタイムでのappend実行。
 - [x] 第17.3節：Pythonのget宣言の静的検査と生成コアの計算。
-- [ ] 第17.3節：Pythonランタイムでのget実行。
+- [x] 第17.3節：Pythonランタイムでのget実行。
 - [x] 第17.4節：Pythonのzero_right証明の静的検査と生成コアの計算。
-- [ ] 第17.4節：Pythonランタイムでの実行・証明消去。
+- [x] 第17.4節：Pythonランタイムでの実行。証明のpayloadと公開結果は消去し、内部Jのトークンは保持。
 - [x] 第17.5節：PythonのΣとSomeVecの静的検査、相互変換と生成コアの計算。
-- [ ] 第17.5節：Pythonランタイムでのrecord生成・実行。
+- [x] 第17.5節：Pythonランタイムでのrecord生成・実行。
 - [x] `Type : Type`の拒否（kernel）。
 - [ ] 発散する証明・添字への再代入の拒否（Python frontend）。
 - [x] metaのscope escapeの拒否（内部項と名前付き入力AST）。
@@ -101,11 +102,11 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 
 ## 現在の制約
 
-消去の安全性やPython実行の意味保存はまだ検証できません。計算ステップの予算はRustのスタック・メモリを完全に保護するものではありません。型エラーの位置は関数宣言単位です。universe polymorphism、一般の高階単一化は未実装です。
+使用検査の拒否テストと、対象fixtureでのソース／生成コードの差分実行を実施しています。一般的な意味保存の形式証明はありません。外部Pythonからの証明入力は拒否し、消去した添字が境界検査に必要な関数・高階の境界・任意の型族はコード生成時に拒否します。型パラメータはopaqueな不変データとして扱い、任意のPythonクラスを検証する仕組みではありません。計算ステップの予算はRustのスタック・メモリを完全に保護するものではありません。型エラーの位置は関数宣言単位です。universe polymorphism、一般の高階単一化は未実装です。
 
 ## 検証記録（2026-09-19）
 
-- `cargo test --workspace --offline`：279件成功（kernel 84件、meta内部19件、elaboration統合133件、Python frontend 43件）。
+- `cargo test --workspace --offline`：293件成功（kernel 88件、meta内部19件、elaboration統合133件、Python frontend・runtime 53件）。
 - `cargo clippy --workspace --all-targets --offline -- -D warnings`：成功。
 - `cargo fmt --all -- --check`：成功。
 - `cargo run -p deppy-elab --example implicit_identity --offline`：暗黙型引数を補ったコアの生成とkernel再検査が成功。
@@ -136,6 +137,8 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - `branch_fields.py` をPython frontendのCLIで静的検査し、生成コアでcount(2) = 2を確認。
 - Pythonの高いrecord／motive levelの検査と生成コアの計算、level不整合・不正リテラル・未知／重複オプションの拒否を検査。
 - match前letのNat・Vec・Finに対する絞り込み、入れ子のFin分岐、期待Sigma型、未使用の不正な値・名前の捕捉・再帰先の別名化の拒否を検査。
-- Pythonランタイム実行、消去、コード生成の検証は未実施。
+- runtime統合10件：get、zero_right、record往復、append、Fin再帰、match前let、消去の誤用、型・添字・可変値・証明入力の拒否、256のリテラル生成を検証。リテラル検査はRustの再帰的走査用に16 MiBのテストスレッドを使用。
+- `scripts/check_python_runtime.py`：Python 3.12.0・3.14.3それぞれでソース／生成コードの244比較成功。参照モデルはテスト専用。
+- 大きなaddの生成closure呼び出しでPythonのRecursionErrorを確認。スタック制約の解消は未実装。
 
-次はVecコンストラクタ・cong・fin0_elimのuniverse指定が残っています。消去・Python実行も未実装です。
+実行MVPの完了条件は達成済みです。universe指定の追加やモジュール間インターフェースなどは、その後の拡張として扱います。

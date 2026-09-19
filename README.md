@@ -2,7 +2,7 @@
 
 Pythonの構文で記述する依存型言語の実装です。[Chatlog.md](Chatlog.md)を設計仕様とし、第19節の実装順序に沿って進めています。
 
-現在はRust製kernel、名前付きASTのelaborator、Ruffを使ったPython frontendを実装しています。Pythonソースの非再帰関数と、対応する構造的再帰関数を静的に型検査できます。Python実行・コード生成と、第17節の例全体への対応は未実装です。
+Rust製kernel、名前付きASTのelaborator、Ruffを使ったPython frontend、使用検査・消去、Pythonコード生成を実装しています。identity・append・get・zero_right・SomeVecの例について、型検査から生成コードの実行まで通ります。対応範囲と残る制約は下記の実行MVPの節に記載しています。
 
 ## 実行
 
@@ -44,7 +44,7 @@ cargo clippy --workspace --all-targets --offline -- -D warnings
 
 公開APIは閉じた項を受け取ります。正規化・等価性判定も入力を型検査してから評価するため、未検査の自己適用を評価器へ直接渡せません。型の一致はuniverseの持ち上げを行いません。正規化はβ・ζ・ι正規形を返し、ηは等価性判定で扱います。
 
-`Relevance::Erased`は現時点では束縛と型に保持する情報です。実行時使用の検査と消去は未実装であり、kernelの受理だけでは消去やPython実行の安全性を保証しません。エラーはコア項を表示し、frontendは構文・名前解決のエラーを元のソース範囲に、elaborationのエラーを関数宣言の範囲に対応させます。
+`Kernel::erase` はkernel検査後に消去対象の変数の実行時使用を検査し、`RuntimeTerm` を生成します。参照するグローバル定義も検査します。型検査だけを行う `check_module` と、使用検査・境界スキーマ生成も行う `compile_module` は別APIです。エラーはコア項を表示し、frontendは構文・名前解決のエラーを元のソース範囲に、elaborationのエラーを関数宣言の範囲に対応させます。
 
 処理予算は計算回数を制限しますが、再帰的なRust実装に対するスタック・メモリの完全な保護ではありません。universe levelは`u32`で表現し、後続levelを表現できない場合は拒否します。
 
@@ -88,13 +88,13 @@ elaborator単体の入力はRustで組み立てるASTです。Pythonの解析は
 
 `@record class SomeVec[T: Type]` は名目的な非再帰recordを宣言します。フィールドには値のない型注釈を使い、先行フィールドは `self.n` のように参照します。`SomeVec[T]` は型、`SomeVec(n, xs)` / `SomeVec[T](n, xs)` はコンストラクタ、`r.n` / `r.value` は生成した射影へ変換します。型名と補助関数を同じelaborator環境に登録します。`CheckedModule.definitions` には関数とrecord型の公開名を返します。
 
-recordのuniverseは省略時0で、`@record(level=1)` のように具体値を指定できます。levelは非負のu32整数リテラルに限定し、型との整合性や後続levelのoverflowはkernelで検査します。`examples/universes.py` に型を保持するrecordと型を返す再帰関数の例があります。継承・メタクラス・メソッド・フィールドのデフォルト値・再帰recordは未対応で、`self`・`fst`・`snd` はフィールド名に使えません。同名フィールドを持つ複数のrecordに対応し、射影は受け手から推論した名目的な型で選びます。受け手の型が不明な場合は推測せず拒否します。`crates/deppy-python/examples/records.py` のSomeVecとΣ型の相互変換、依存する射影を検査・計算しています。Python runtimeのclass生成や不変性の保証は未実装です。
+recordのuniverseは省略時0で、`@record(level=1)` のように具体値を指定できます。levelは非負のu32整数リテラルに限定し、型との整合性や後続levelのoverflowはkernelで検査します。`examples/universes.py` に型を保持するrecordと型を返す再帰関数の例があります。継承・メタクラス・メソッド・フィールドのデフォルト値・再帰recordは未対応で、`self`・`fst`・`snd` はフィールド名に使えません。同名フィールドを持つ複数のrecordに対応し、射影は受け手から推論した名目的な型で選びます。受け手の型が不明な場合は推測せず拒否します。`crates/deppy-python/examples/records.py` のSomeVecとΣ型の相互変換、依存する射影を検査・計算しています。生成runtimeではclassではなく、モジュール固有の名目的なタグと不変tupleで表現します。公開コンストラクタ・関数でフィールドと依存する長さを検査します。
 
 再帰分岐の `return` 前では、`previous: Nat = count(k)` のように再帰結果を保持できます。既存のlet検査へ変換し、依存型と期待型を保ちます。未使用の不正な値も拒否します。再帰先を別名に置き換えることは認めず、直接の部分構造だけを許す停止性検査を維持します。`crates/deppy-python/examples/branch_fields.py` は分岐内letと同名フィールド・連続する射影の例です。
 
-`match` 前の代入・値付き型注釈にも対応します。定義を分岐前の文脈で検査し、分岐内では絞り込んだ引数に合わせて定義を再展開します。`saved: Vec[T, n] = xs` や等式の証拠を保持でき、既存の入れ子のFin分岐にも対応します。元の定義も検査対象に残すため、未使用の不正な定義は拒否します。例は `crates/deppy-python/examples/before_match.py` です。patternで既存のローカル名・グローバル名を隠すことはできません。この変換は計算の共有を保証せず、runtimeでの一度だけの評価や消去は今後の実装対象です。
+`match` 前の代入・値付き型注釈にも対応します。定義を分岐前の文脈で検査し、分岐内では絞り込んだ引数に合わせて定義を再展開します。`saved: Vec[T, n] = xs` や等式の証拠を保持でき、既存の入れ子のFin分岐にも対応します。元の定義も検査対象に残すため、未使用の不正な定義は拒否します。例は `crates/deppy-python/examples/before_match.py` です。patternで既存のローカル名・グローバル名を隠すことはできません。この変換は計算の共有を保証しません。受理する本体は純粋な計算に限定し、生成runtimeで結果の一致を検証しています。
 
-通常の未装飾関数とモジュール内のassertは解析のみで、型検査・実行・証明としての利用はしません。ユーザーモジュールや注釈を実行する経路はありません。Ruffの解析はCPythonのcompile検証とは別で、消去やPython実行時の意味保存も保証しません。
+通常の未装飾関数とモジュール内のassertは解析のみで、型検査・実行・証明としての利用はしません。コンパイラはユーザーモジュールや注釈を実行しません。生成物には検査済み宣言だけが含まれます。Ruffの解析とCPythonのcompile検証は別です。意味保存は対象fixtureの差分実行で検証しており、一般的な形式証明は行っていません。
 
 fixtureのCPythonコンパイル検証は `uv run --no-project --offline --python 3.14 scripts/check_python_syntax.py` で再現できます（対応するPythonがインストール済みであること）。3.12.0と3.14.3で成功しました。CPython 3.13は未検証です。
 
@@ -133,7 +133,7 @@ J(level, A, x, C, d, y, p) : C y p
 
 証明が`refl`ならdへ簡約し、neutralな証明ではJを保持します。motiveやbaseも簡約前に検査します。等式の証明から定義的等しさを導く規則、proof irrelevance、UIP・Kなどの公理は追加していません。
 
-`prelude::cong(u, v)`と`prelude::transport(u, v)`はJから定義したASTを返します。universeは呼び出し時に具体的なlevelを指定します。transportは型検査と論理的な計算規則に対応し、runtime representationの検査・消去は未実装です。
+`prelude::cong(u, v)`と`prelude::transport(u, v)`はJから定義したASTを返します。universeは呼び出し時に具体的なlevelを指定します。runtimeのJは証明トークンを確認してbaseを返します。証明引数まで消去する一般のtransport最適化は行いません。
 
 `prelude::zero_right()`は`(n : Nat) → Eq Nat (add n Z) n`をNat eliminatorで証明します。Zの分岐は`refl Z`、Sの分岐は`cong S ih`です。実行例は一般形をkernelで検査し、`zero_right(2)`が`refl(2)`に正規化されることも確認します。Python frontendでもこの証明例を検査できます。
 
@@ -176,7 +176,7 @@ get    : {A : Type[level]} → (n : Nat) → Vec A n → Fin n → A
 
 getのVec motiveは`P k xs = Fin k → A`です。空の分岐にはfin0_elimを使い、VConsの分岐ではFinElimから導いたcase splitで先頭と再帰呼び出しを選びます。型レベルのNat eliminatorで分岐関数の型を作るため、添字の強制変換は不要です。実行例は`[1] ++ [0] = [1, 0]`と、その2番目の値が0であることをkernelの正規化で確認します。
 
-これらは固定された型と明示的なeliminatorの実装です。ユーザー定義帰納型の宣言検査・positivity checking、対応範囲外のPython pattern、実行時のベクタ表現・境界検証は未実装です。
+これらは固定された型と明示的なeliminatorの実装です。一般のユーザー定義帰納型・positivity checking、対応範囲外のPython patternは未実装です。生成runtimeのVecは不変tupleで、境界で長さと既知の要素型を検査します。
 
 ## 依存対
 
@@ -213,7 +213,7 @@ RecordDecl {
 
 名前付きASTの `expr.field("field_name")` は、受け手を一度型推論し、その名目的なrecord IDに登録された射影を選びます。推論済みの型引数と受け手を、既存の生成済み射影へ適用します。新しいコアprimitiveは追加せず、依存する結果型もkernelで再検査します。型の別名、let、連続する射影、関数HIRにも対応します。未知のフィールドや不明な受け手の型は拒否します。
 
-`Expr::Core`は閉じたコア項の埋め込みです。入力をkernelで検査してからelaboratorに取り込み、最終結果も再検査します。`records`実行例では、第17.5節の`pack`・`as_record`・`as_pair`を名前付きASTで検査し、値を正規化して確認します。Pythonの`@record`にも接続しています。runtime class・不変性の実装、一般の帰納型や再帰・positivity checkingは未実装です。
+`Expr::Core`は閉じたコア項の埋め込みです。入力をkernelで検査してからelaboratorに取り込み、最終結果も再検査します。`records`実行例では、第17.5節の`pack`・`as_record`・`as_pair`を名前付きASTで検査し、値を正規化して確認します。Pythonの`@record`にも接続しています。runtimeはタグ付き不変tupleを使います。一般の帰納型や再帰record・positivity checkingは未実装です。
 
 ## 分岐と構造的再帰の変換
 
@@ -230,10 +230,43 @@ RecordDecl {
 
 このHIRはプログラムからの構築に加え、上記のPython frontendからも生成します。
 
-## 次の実装段階
+## 実行MVP
 
-1. frontendのuniverse指定と、`match` の前に置くローカル定義への対応を追加。
-2. CPython 3.13のcompile検証、モジュール間の静的importと検査済みインターフェース、詳細な型エラー位置を追加。
-3. 使用検査、消去、境界の検証・再構築、Pythonコード生成と差分実行テスト。
+`compile_module(source, Target)` またはCLIの `--emit-python` で、外部パッケージ不要のPythonモジュールを生成します。
 
-第17節の5例を検査・実行できることがMVPの到達条件です。未実装の構文や穴を公理・`Any`として受理する機能は設けません。
+```sh
+cargo run -p deppy-python --locked --offline -- --emit-python crates/deppy-python/examples/proofs.py > /tmp/deppy_proofs.py
+uv run --no-project --offline --python 3.12 python -c "import runpy; f = runpy.run_path('/tmp/deppy_proofs.py')['exports']; print(f['get'](3, (10, 20, 30), (3, 1))); print(f['zero_right'](3))"
+```
+
+出力は `20` と `None` です。名前の衝突を防ぐため、公開宣言は `exports['名前']` から呼び出します。型の暗黙引数は渡しません。record宣言の名前はコンストラクタになります。
+
+| コアの値 | Python表現 |
+| --- | --- |
+| Nat | 非負のint（boolは拒否） |
+| Vec | 要素の不変tuple |
+| Fin | `(上限, 0始まりの位置)` |
+| Sigma | `(第1成分, 第2成分)` |
+| record | モジュール固有タグとフィールドtuple。`exports` のコンストラクタで生成 |
+| 型 | `None` |
+| 等式の証明 | 内部ではpayloadなしのトークン、公開結果では `None` |
+
+公開関数は引数・結果のスキーマを検査し、不変の値を再構築します。Vecの長さ、Finの上限、Sigma・recordの依存フィールドを検査し、リストなどの可変値、偽造した添字・異なるrecordのタグを拒否します。消去した型パラメータの要素はopaqueな不変データとして扱い、元の具体的なPythonクラスを検証する仕組みではありません。既知の `Vec[Nat, n]` なら各要素のNatも検査します。
+
+これは既存例を実行できるMVPです。次は対応範囲外です。
+
+- 外部Pythonからの証明入力。内部の証明トークンを渡しても拒否します。`Proof[...]` の構文と、証明計算全体を除去する最適化は未実装です。
+- 高階関数・任意の型族を公開境界で検証すること。消去した値添字が境界のサイズ検査に必要な場合も、コンパイル時に拒否します。
+- 一般Pythonとの混在コンパイル、ソース互換のruntime class、モジュール間の検査済みインターフェース。
+- 深い項や大きな再帰に対するスタック・メモリ保証。recursor自体はループを使いますが、生成closureの呼び出しにはPythonのスタック上限があります。Rustの再帰的な検査にもスタック制約があります。
+
+検証は `cargo test --workspace --locked --offline` と、次の差分実行で再現できます。Rustのruntime統合テストには `python3` が必要です。
+
+```sh
+uv run --no-project --offline --python 3.12 scripts/check_python_runtime.py
+uv run --no-project --offline --python 3.14 scripts/check_python_runtime.py
+```
+
+Python 3.12.0・3.14.3で各244ケースが一致しました。比較するのはリポジトリの5fixtureです。ソース側にはテスト専用の `scripts/reference_deppy.py` を使います。この参照モデルは型検査器・証明検査器ではありません。
+
+残る拡張はuniverse指定の追加、CPython 3.13の検証、モジュール間インターフェース、詳細なエラー位置などです。これらを既存例の実行MVPの完了条件には含めません。未対応の構文や未解決の穴を公理として受理する機能は設けません。
