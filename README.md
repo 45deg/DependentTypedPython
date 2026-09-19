@@ -80,15 +80,17 @@ elaborator単体の入力はRustで組み立てるASTです。Pythonの解析は
 
 未検査の名前、対応外の自己参照・前方参照、再代入、可変長・デフォルト・キーワード引数、引数のない関数、任意の属性アクセス、文字列注釈、未対応の構文は拒否します。Pythonの関数スコープに合わせ、代入前のローカル名をグローバル名として解釈しません。外部モジュールの静的importは未対応です。
 
-`@dependent(decreases="parameter")` では、単一の `match` または `return` からなる各ブロックを関数HIRへ変換します。Natの `Z()` / `S(k)`、Vecの `VNil()` / `VCons(k, head, tail)`、Finの `FZ(k)` / `FS(k, pred)` に対応します。網羅性・添字・直接の部分構造への再帰を既存HIRで検査し、kernelで再検査します。自己呼び出しは関数名による位置引数適用に限定し、暗黙型引数は現在の型引数を補います。例は `crates/deppy-python/examples/structural.py` のadd・appendです。
+`@dependent(decreases="parameter")` では、単一の `match`、または不変のローカル定義列に続く `return` を関数HIRへ変換します。Natの `Z()` / `S(k)`、Vecの `VNil()` / `VCons(k, head, tail)`、Finの `FZ(k)` / `FS(k, pred)` に対応します。網羅性・添字・直接の部分構造への再帰を既存HIRで検査し、kernelで再検査します。自己呼び出しは関数名による位置引数適用に限定し、暗黙型引数は現在の型引数を補います。例は `crates/deppy-python/examples/structural.py` のadd・appendです。
 
-再帰関数のmotive universeは現在0です。分岐内の代入、guard、Finのbound以外のワイルドカード、キーワードpattern、コンストラクタpatternの入れ子、自己呼び出しの明示的型引数は未対応です。入れ子のmatchは既存HIRの制限に従います。patternのcapture名にもPythonの関数全体のローカルスコープを適用します。`lower_module` の本体は `DeclarationBody::Expression` / `Structural` / `Record` で区別されます。
+再帰関数のmotive universeは現在0です。`match` の前に置くローカル定義、guard、Finのbound以外のワイルドカード、キーワードpattern、コンストラクタpatternの入れ子、自己呼び出しの明示的型引数は未対応です。入れ子のmatchは既存HIRの制限に従います。patternのcapture名にもPythonの関数全体のローカルスコープを適用します。`lower_module` の本体は `DeclarationBody::Expression` / `Structural` / `Record` で区別されます。
 
 `cong(f, proof)` はJから導いた定義を適用し、`fin0_elim(i)` は戻り値の期待型を使って空のFinを消去します。現在はType₀が対象です。Fin patternのboundは `FZ(_)` / `FS(_, j)` と省略でき、他の名前を捕捉しない内部名を生成します。`crates/deppy-python/examples/proofs.py` にChatlogのget・zero_right宣言があります。これらの静的検査と生成コアの計算をテストしています。
 
 `@record class SomeVec[T: Type]` は名目的な非再帰recordを宣言します。フィールドには値のない型注釈を使い、先行フィールドは `self.n` のように参照します。`SomeVec[T]` は型、`SomeVec(n, xs)` / `SomeVec[T](n, xs)` はコンストラクタ、`r.n` / `r.value` は生成した射影へ変換します。型名と補助関数を同じelaborator環境に登録します。`CheckedModule.definitions` には関数とrecord型の公開名を返します。
 
-recordのuniverseは現在0です。継承・メタクラス・メソッド・フィールドのデフォルト値・再帰recordは未対応で、`self`・`fst`・`snd` はフィールド名に使えません。同名フィールドが複数の既知のrecordにある場合、その名前での射影は曖昧として拒否します。`crates/deppy-python/examples/records.py` のSomeVecとΣ型の相互変換、依存する射影を検査・計算しています。Python runtimeのclass生成や不変性の保証は未実装です。
+recordのuniverseは現在0です。継承・メタクラス・メソッド・フィールドのデフォルト値・再帰recordは未対応で、`self`・`fst`・`snd` はフィールド名に使えません。同名フィールドを持つ複数のrecordに対応し、射影は受け手から推論した名目的な型で選びます。受け手の型が不明な場合は推測せず拒否します。`crates/deppy-python/examples/records.py` のSomeVecとΣ型の相互変換、依存する射影を検査・計算しています。Python runtimeのclass生成や不変性の保証は未実装です。
+
+再帰分岐の `return` 前では、`previous: Nat = count(k)` のように再帰結果を保持できます。既存のlet検査へ変換し、依存型と期待型を保ちます。未使用の不正な値も拒否します。再帰先を別名に置き換えることは認めず、直接の部分構造だけを許す停止性検査を維持します。`crates/deppy-python/examples/branch_fields.py` は分岐内letと同名フィールド・連続する射影の例です。
 
 通常の未装飾関数とモジュール内のassertは解析のみで、型検査・実行・証明としての利用はしません。ユーザーモジュールや注釈を実行する経路はありません。Ruffの解析はCPythonのcompile検証とは別で、消去やPython実行時の意味保存も保証しません。
 
@@ -207,6 +209,8 @@ RecordDecl {
 
 コアは`InductiveDecl`を検査してから登録し、`Inductive`・`Constructor`・`Elim`で表します。宣言IDはkernelの環境内で一意で、登録後の置換・変更APIはありません。同じフィールド構成でも別IDの型は区別し、Σとの変換も明示します。各フィールドのuniverseは宣言したlevel以下に制限します。自己参照・前方参照、範囲外の変数、重複名、不正な型は拒否します。射影は依存eliminatorから生成し、record専用primitiveや一般的なη規則は追加しません。
 
+名前付きASTの `expr.field("field_name")` は、受け手を一度型推論し、その名目的なrecord IDに登録された射影を選びます。推論済みの型引数と受け手を、既存の生成済み射影へ適用します。新しいコアprimitiveは追加せず、依存する結果型もkernelで再検査します。型の別名、let、連続する射影、関数HIRにも対応します。未知のフィールドや不明な受け手の型は拒否します。
+
 `Expr::Core`は閉じたコア項の埋め込みです。入力をkernelで検査してからelaboratorに取り込み、最終結果も再検査します。`records`実行例では、第17.5節の`pack`・`as_record`・`as_pair`を名前付きASTで検査し、値を正規化して確認します。Pythonの`@record`にも接続しています。runtime class・不変性の実装、一般の帰納型や再帰・positivity checkingは未実装です。
 
 ## 分岐と構造的再帰の変換
@@ -226,7 +230,7 @@ RecordDecl {
 
 ## 次の実装段階
 
-1. 再帰分岐内let、recordの同名フィールドを受け手の型から選ぶ処理、frontendのuniverse指定を追加。
+1. frontendのuniverse指定と、`match` の前に置くローカル定義への対応を追加。
 2. CPython 3.13のcompile検証、モジュール間の静的importと検査済みインターフェース、詳細な型エラー位置を追加。
 3. 使用検査、消去、境界の検証・再構築、Pythonコード生成と差分実行テスト。
 
