@@ -1,0 +1,82 @@
+use super::{Binding, Exports};
+
+const BUILTINS: &[&str] = &[
+    "dependent",
+    "hole",
+    "axiom",
+    "record",
+    "Type",
+    "Nat",
+    "Z",
+    "S",
+    "Vec",
+    "VNil",
+    "VCons",
+    "Fin",
+    "FZ",
+    "FS",
+    "Eq",
+    "refl",
+    "J",
+    "nat_elim",
+    "vec_elim",
+    "fin_elim",
+    "record_elim",
+    "ann",
+    "lam",
+    "implicit_lam",
+    "ImplicitPi",
+    "vnil",
+    "vcons",
+    "pair",
+    "fin0_elim",
+    "Pi",
+    "Sigma",
+    "Pair",
+];
+
+fn builtin_names(module: &str) -> &'static [&'static str] {
+    match module {
+        "deppy._builtins" => BUILTINS,
+        "deppy.core" => &[
+            "dependent",
+            "hole",
+            "axiom",
+            "Type",
+            "Pi",
+            "ImplicitPi",
+            "lam",
+            "implicit_lam",
+            "ann",
+        ],
+        "deppy.nat" => &["Nat", "Z", "S", "nat_elim"],
+        "deppy.equality" => &["Eq", "refl", "J"],
+        "deppy.sigma" => &["Sigma", "Pair", "pair"],
+        "deppy.fin" => &["Fin", "FZ", "FS", "fin_elim", "fin0_elim"],
+        "deppy.vectors" => &["Vec", "VNil", "VCons", "vnil", "vcons", "vec_elim"],
+        "deppy.records" => &["record", "record_elim"],
+        _ => &[],
+    }
+}
+
+pub(super) fn builtin_exports(module: &str) -> Exports {
+    builtin_names(module)
+        .iter()
+        .map(|name| ((*name).into(), Binding::builtin(name)))
+        .collect()
+}
+
+pub(super) fn standard(name: &str) -> Option<&'static str> {
+    match name {
+        "deppy" => Some(include_str!("../../stdlib/deppy/__init__.py")),
+        "deppy._builtins" => Some(include_str!("../../stdlib/deppy/_builtins.py")),
+        "deppy.core" => Some(include_str!("../../stdlib/deppy/core.py")),
+        "deppy.nat" => Some(include_str!("../../stdlib/deppy/nat.py")),
+        "deppy.vectors" => Some(include_str!("../../stdlib/deppy/vectors.py")),
+        "deppy.fin" => Some(include_str!("../../stdlib/deppy/fin.py")),
+        "deppy.equality" => Some(include_str!("../../stdlib/deppy/equality.py")),
+        "deppy.sigma" => Some(include_str!("../../stdlib/deppy/sigma.py")),
+        "deppy.records" => Some(include_str!("../../stdlib/deppy/records.py")),
+        _ => None,
+    }
+}

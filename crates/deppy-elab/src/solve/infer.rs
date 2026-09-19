@@ -52,6 +52,10 @@ impl State {
     pub(crate) fn synth(&mut self, ctx: &Context, expr: &Expr) -> Result<(T, T), Error> {
         self.tick()?;
         match expr {
+            Expr::Located {
+                location,
+                expression,
+            } => self.synth(ctx, expression).map_err(|e| e.at(location)),
             Expr::Let {
                 name,
                 ty,
@@ -682,12 +686,24 @@ impl State {
                 let (ty, _) = self.type_expr(ctx, ty)?;
                 Ok((self.check(ctx, term, &ty)?, ty))
             }
-            Expr::Hole => Err(Error::AnnotationRequired),
+            Expr::Hole | Expr::UserHole(_) => Err(Error::AnnotationRequired),
         }
     }
 
     pub(crate) fn check(&mut self, ctx: &Context, expr: &Expr, expected: &T) -> Result<T, Error> {
         self.tick()?;
+        if let Expr::Located {
+            location,
+            expression,
+        } = expr
+        {
+            let previous = self.location.replace(location.clone());
+            let result = self
+                .check(ctx, expression, expected)
+                .map_err(|e| e.at(location));
+            self.location = previous;
+            return result;
+        }
         if let Expr::Let {
             name,
             ty,
@@ -698,6 +714,18 @@ impl State {
             return Ok(self
                 .let_expr(ctx, name, ty.as_deref(), value, body, Some(expected))?
                 .0);
+        }
+        if let Expr::UserHole(name) = expr {
+            let id = self.metas.len();
+            let term = self.meta(ctx, expected.clone());
+            self.user_goals.push((
+                id,
+                name.clone(),
+                self.location.clone(),
+                ctx.clone(),
+                expected.clone(),
+            ));
+            return Ok(term);
         }
         if matches!(expr, Expr::Hole) {
             return Ok(self.meta(ctx, expected.clone()));
@@ -766,7 +794,16 @@ impl State {
             .arc());
         }
         let (term, ty) = self.synth(ctx, expr)?;
-        self.unify(&ty, expected)?;
+        self.unify(&ty, expected).map_err(|error| {
+            if self.location.is_some() && matches!(error, Error::CannotUnify) {
+                Error::TypeMismatch {
+                    expected: self.describe(expected, ctx),
+                    actual: self.describe(&ty, ctx),
+                }
+            } else {
+                error
+            }
+        })?;
         Ok(term)
     }
 }

@@ -43,12 +43,12 @@ impl Lowerer {
                 "nested match must inspect the sole generalized parameter".into(),
             ));
         }
-        let E::Fin { bound } = &suffix[0].ty else {
+        let E::Fin { bound } = suffix[0].ty.unlocated() else {
             return Err(Error::UnsupportedMatch(
                 "nested match requires Fin (S k)".into(),
             ));
         };
-        let E::Succ(k) = bound.as_ref() else {
+        let E::Succ(k) = bound.unlocated() else {
             return Err(Error::UnsupportedMatch(
                 "nested match requires a successor bound".into(),
             ));
@@ -60,7 +60,9 @@ impl Lowerer {
         // Retain the smaller case combinator for index-independent results.
         let constant_result = match self.rewrite(&f.result, &result_env, None) {
             Ok(result) => Some(result),
-            Err(Error::UnknownName(name)) if name == *scrutinee => None,
+            Err(error) if matches!(error.cause(), Error::UnknownName(name) if name == scrutinee) => {
+                None
+            }
             Err(error) => return Err(error),
         };
         let index = self.fresh();

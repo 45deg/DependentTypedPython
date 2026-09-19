@@ -1,8 +1,23 @@
-use deppy_python::{check_module_with_resolver, FileResolver, Target};
+use deppy_python::{analyze_module_with_resolver, FileResolver, Target};
 fn main() -> std::process::ExitCode {
-    let args: Vec<_> = std::env::args_os().skip(1).collect();
+    let mut goals = false;
+    let mut json = false;
+    let args: Vec<_> = std::env::args_os()
+        .skip(1)
+        .filter(|arg| {
+            if arg == "--goals" {
+                goals = true;
+                false
+            } else if arg == "--json" {
+                json = true;
+                false
+            } else {
+                true
+            }
+        })
+        .collect();
     if args.len() != 1 {
-        eprintln!("usage: deppy-python FILE.py (Python 3.14 input syntax)");
+        eprintln!("usage: deppy-python [--goals] [--json] FILE.py (Python 3.14 input syntax)");
         return std::process::ExitCode::from(2);
     }
     let path = std::path::Path::new(&args[0]);
@@ -24,25 +39,71 @@ fn main() -> std::process::ExitCode {
             return std::process::ExitCode::FAILURE;
         }
     };
-    match check_module_with_resolver(&source, Target::Python314, &mut resolver) {
-        Ok(module) => {
-            for (name, _, _) in &module.definitions {
-                let assumptions = &module.axiom_dependencies[name];
-                if assumptions.is_empty() {
-                    println!("checked {name} [axiom-free]");
-                } else {
-                    println!("checked {name} [axioms: {}]", assumptions.join(", "));
-                }
-            }
-            println!("{} dependent declarations checked; ordinary Python and runtime erasure are not checked", module.definitions.len());
+    let mut analysis = analyze_module_with_resolver(&source, Target::Python314, &mut resolver);
+    analysis.set_root_source_name(&path.display().to_string());
+    if json {
+        println!("{}", analysis.to_json());
+        return if analysis.checked.is_some() {
             std::process::ExitCode::SUCCESS
-        }
-        Err(e) => {
-            let prefix = &source[..e.span.start];
-            let line = prefix.bytes().filter(|b| *b == b'\n').count() + 1;
-            let column = prefix.rsplit('\n').next().unwrap_or("").chars().count() + 1;
-            eprintln!("{}:{line}:{column}: {}", path.display(), e.message);
+        } else {
             std::process::ExitCode::FAILURE
+        };
+    }
+    if goals {
+        for goal in &analysis.goals {
+            println!("goal {}: {}", goal.id, goal.name);
+            if let Some(location) = &goal.location {
+                println!(
+                    "  source {} bytes {}..{}",
+                    location.source, location.start, location.end
+                );
+            }
+            for local in &goal.context {
+                println!(
+                    "  {}: {}{}",
+                    local.name,
+                    local.ty,
+                    local
+                        .value
+                        .as_ref()
+                        .map(|v| format!(" = {v}"))
+                        .unwrap_or_default()
+                );
+            }
+            println!("  ⊢ {}", goal.expected);
         }
+    }
+    if let Some(module) = analysis.checked {
+        for (name, _, _) in &module.definitions {
+            let assumptions = &module.axiom_dependencies[name];
+            if assumptions.is_empty() {
+                println!("checked {name} [axiom-free]");
+            } else {
+                println!("checked {name} [axioms: {}]", assumptions.join(", "));
+            }
+        }
+        println!("{} dependent declarations checked; ordinary Python and runtime erasure are not checked", module.definitions.len());
+        std::process::ExitCode::SUCCESS
+    } else {
+        for e in analysis.diagnostics {
+            let prefix = source.get(..e.span.start).unwrap_or("");
+            let line = e
+                .details
+                .line
+                .unwrap_or_else(|| prefix.bytes().filter(|b| *b == b'\n').count() + 1);
+            let column = e
+                .details
+                .column
+                .unwrap_or_else(|| prefix.rsplit('\n').next().unwrap_or("").chars().count() + 1);
+            let origin = e
+                .details
+                .source
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)
+                .unwrap_or_else(|| path.display().to_string());
+            eprintln!("{origin}:{line}:{column}: {}", e.message);
+        }
+        std::process::ExitCode::FAILURE
     }
 }

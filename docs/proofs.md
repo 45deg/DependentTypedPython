@@ -161,3 +161,34 @@ def keep[p: Eq[Nat, 0, 0]](n: Nat) -> Nat:
 証明を計算に使う場合、透明なグローバル定義は証明計算を保持する形で展開します。消去済みのグローバル結果を再利用しないための処理です。展開には既存の計算予算を適用しますが、生成コードが大きくなる場合があります。
 
 これは保守的な使用検査です。明示的な証明引数を自動で暗黙引数に変えたり、record・Sigma・Vec内の証明フィールドを削除したりはしません。一般の `transport` の証明トークンも保持します。実行例は `crates/deppy-python/examples/proof_erasure.py` にあります。
+
+
+## 名前付きholeとgoal表示
+
+```python
+from __future__ import annotations
+from deppy import dependent, Nat, Eq, hole
+
+@dependent
+def identity_proof(n: Nat) -> Eq[Nat, n, n]:
+    return hole("identity")
+```
+
+`--goals` は `n: Nat` と期待型 `Eq[Nat, n, n]` を表示します。`--json` はdiagnosticsとgoalsをJSONで返します。Rustでは `analyze_module` / `analyze_module_with_resolver` を使います。goalのIDはその解析結果内の識別子です。
+
+型が推論できない位置では `ann(hole("name"), Nat)` のように期待型を与えてください。利用者のholeは暗黙引数推論用のmetaとは区別され、未使用になった場合も未完成として扱います。holeを含むmoduleから `CheckedModule` は返りません。
+
+## Opaqueな検査済み定義
+
+```python
+from __future__ import annotations
+from deppy import dependent, Nat, Eq, refl
+
+@dependent(opaque=True)
+def identity_proof(n: Nat) -> Eq[Nat, n, n]:
+    return refl(n)
+```
+
+本体は通常どおりkernelで検査しますが、正規化と変換判定では展開しません。後続の証明は公開された型を使ってこの定理を適用できます。`decreases`・`motive_level` と併用できます。`opaque=False` は透明定義です。
+
+opaque定義は公理ではありません。本体が公理を使う場合、その依存はimport後も追跡します。明示的なunfold機能はありません。runtime extractionは変換判定とは別で、保持した検査済み本体を利用します。

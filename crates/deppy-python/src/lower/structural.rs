@@ -53,13 +53,13 @@ impl Lowerer {
     pub(super) fn decorator(
         &self,
         f: &ast::StmtFunctionDef,
-    ) -> Result<Option<(String, u32)>, Diagnostic> {
+    ) -> Result<(Option<(String, u32)>, bool), Diagnostic> {
         if f.decorator_list.len() != 1 {
             return Err(error(f, "expected one @dependent decorator"));
         }
         let expr = &f.decorator_list[0].expression;
         if self.builtin(expr, &Scope::default()) == Some("dependent") {
-            return Ok(None);
+            return Ok((None, false));
         }
         if let Expr::Call(call) = expr {
             if self.builtin(&call.func, &Scope::default()) == Some("dependent")
@@ -67,8 +67,15 @@ impl Lowerer {
             {
                 let mut decreases = None;
                 let mut level = None;
+                let mut opaque = None;
                 for keyword in &call.arguments.keywords {
                     match keyword.arg.as_ref().map(|a| a.as_str()) {
+                        Some("opaque") if opaque.is_none() => {
+                            let Expr::BooleanLiteral(value) = &keyword.value else {
+                                return Err(error(keyword, "opaque requires a boolean literal"));
+                            };
+                            opaque = Some(value.value);
+                        }
                         Some("decreases") if decreases.is_none() => {
                             let Expr::StringLiteral(value) = &keyword.value else {
                                 return Err(error(
@@ -85,13 +92,16 @@ impl Lowerer {
                     }
                 }
                 if let Some(name) = decreases {
-                    return Ok(Some((name, level.unwrap_or(0))));
+                    return Ok((Some((name, level.unwrap_or(0))), opaque.unwrap_or(false)));
+                }
+                if let (Some(opaque), None) = (opaque, level) {
+                    return Ok((None, opaque));
                 }
             }
         }
         Err(error(
             expr,
-            "expected @dependent or @dependent(decreases=parameter, motive_level=level)",
+            "expected @dependent or @dependent(decreases=parameter, motive_level=level, opaque=boolean)",
         ))
     }
 
@@ -187,6 +197,7 @@ impl Lowerer {
         }
         let [stmt] = statements else {
             return Err(Diagnostic {
+                details: Default::default(),
                 span: statements
                     .first()
                     .map(|s| s.range().into())

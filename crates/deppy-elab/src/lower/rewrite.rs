@@ -8,6 +8,14 @@ impl Lowerer {
     ) -> Result<E, Error> {
         self.tick()?;
         Ok(match e {
+            E::UserHole(name) => E::UserHole(name.clone()),
+            E::Located {
+                location,
+                expression,
+            } => self
+                .rewrite(expression, env, recursion)
+                .map_err(|e| e.at(location))?
+                .located(location.clone()),
             E::Let {
                 name,
                 ty,
@@ -48,7 +56,7 @@ impl Lowerer {
                 for (arg, expected) in arguments.iter().zip(&rec.arguments) {
                     let arg = self.rewrite(arg, env, recursion)?;
                     if let Some(expected) = expected {
-                        if !matches!(&arg,E::Name(actual) if actual==expected) {
+                        if !matches!(arg.unlocated(),E::Name(actual) if actual==expected) {
                             return Err(Error::InvalidRecursion("self-call must use the direct recursive field, its index, and unchanged prefix parameters".into()));
                         }
                     } else {

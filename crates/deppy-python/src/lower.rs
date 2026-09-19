@@ -9,6 +9,7 @@ use ruff_text_size::{Ranged, TextRange};
 use std::collections::{HashMap, HashSet};
 fn error(node: &impl Ranged, message: impl Into<String>) -> Diagnostic {
     Diagnostic {
+        details: Default::default(),
         span: node.range().into(),
         message: message.into(),
     }
@@ -32,12 +33,13 @@ pub(super) fn module(
     body: &[Stmt],
     namespace: &str,
     libraries: &HashMap<String, HashMap<String, crate::modules::Binding>>,
+    lowering_steps: usize,
 ) -> Result<Vec<Declaration>, Diagnostic> {
     let mut l = Lowerer {
         imports: HashMap::new(),
         globals: HashMap::new(),
         namespace: namespace.into(),
-        remaining: 20_000,
+        remaining: lowering_steps,
         wildcard: 0,
         records: HashMap::new(),
     };
@@ -115,8 +117,13 @@ pub(super) fn module(
                 let is_axiom = f.decorator_list.len() == 1
                     && l.builtin(&f.decorator_list[0].expression, &Scope::default())
                         == Some("axiom");
-                let decreases = if is_axiom { None } else { l.decorator(f)? };
+                let (decreases, opaque) = if is_axiom {
+                    (None, false)
+                } else {
+                    l.decorator(f)?
+                };
                 let mut declaration = l.function(f, decreases)?;
+                declaration.opaque = opaque;
                 declaration.name = l.qualified(f.name.as_str());
                 l.globals.insert(
                     f.name.to_string(),
@@ -172,6 +179,7 @@ impl Lowerer {
     }
     fn tick(&mut self, range: TextRange) -> Result<(), Diagnostic> {
         self.remaining = self.remaining.checked_sub(1).ok_or_else(|| Diagnostic {
+            details: Default::default(),
             span: range.into(),
             message: "frontend budget exhausted".into(),
         })?;
@@ -266,6 +274,7 @@ impl Lowerer {
                 ty = E::pi(name, plicity, domain, ty);
             }
             return Ok(Declaration {
+                opaque: false,
                 name: f.name.to_string(),
                 span: f.range.into(),
                 ty,
@@ -303,6 +312,7 @@ impl Lowerer {
                 ty = E::pi(name, plicity, domain, ty);
             }
             return Ok(Declaration {
+                opaque: false,
                 name: f.name.to_string(),
                 span: f.range.into(),
                 ty,
@@ -376,6 +386,7 @@ impl Lowerer {
             body = E::lam(name, plicity, Some(domain), body);
         }
         Ok(Declaration {
+            opaque: false,
             name: f.name.to_string(),
             span: f.range.into(),
             ty,

@@ -1,5 +1,9 @@
 //! Static source linking. No Python import machinery or user code is executed.
+mod registry;
+mod resolver;
 use crate::{Declaration, DeclarationBody, Diagnostic, Module, Span, Target};
+use registry::{builtin_exports, standard};
+pub use resolver::{FileResolver, SourceResolver};
 use ruff_python_ast::{Mod, Stmt};
 use std::collections::{HashMap, HashSet};
 
@@ -23,98 +27,11 @@ impl Binding {
     }
 }
 
-const BUILTINS: &[&str] = &[
-    "dependent",
-    "axiom",
-    "record",
-    "Type",
-    "Nat",
-    "Z",
-    "S",
-    "Vec",
-    "VNil",
-    "VCons",
-    "Fin",
-    "FZ",
-    "FS",
-    "Eq",
-    "refl",
-    "J",
-    "nat_elim",
-    "vec_elim",
-    "fin_elim",
-    "record_elim",
-    "ann",
-    "lam",
-    "implicit_lam",
-    "ImplicitPi",
-    "vnil",
-    "vcons",
-    "pair",
-    "fin0_elim",
-    "Pi",
-    "Sigma",
-    "Pair",
-];
-
-fn builtin_names(module: &str) -> &'static [&'static str] {
-    match module {
-        "deppy._builtins" => BUILTINS,
-        "deppy.core" => &[
-            "dependent",
-            "axiom",
-            "Type",
-            "Pi",
-            "ImplicitPi",
-            "lam",
-            "implicit_lam",
-            "ann",
-        ],
-        "deppy.nat" => &["Nat", "Z", "S", "nat_elim"],
-        "deppy.equality" => &["Eq", "refl", "J"],
-        "deppy.sigma" => &["Sigma", "Pair", "pair"],
-        "deppy.fin" => &["Fin", "FZ", "FS", "fin_elim", "fin0_elim"],
-        "deppy.vectors" => &["Vec", "VNil", "VCons", "vnil", "vcons", "vec_elim"],
-        "deppy.records" => &["record", "record_elim"],
-        _ => &[],
-    }
-}
-
-fn builtin_exports(module: &str) -> Exports {
-    builtin_names(module)
-        .iter()
-        .map(|name| ((*name).into(), Binding::builtin(name)))
-        .collect()
-}
-
-/// Return source for a checked module name. None means the module is unavailable.
-/// The resolver supplies data, never executed Python objects.
-pub trait SourceResolver {
-    fn source(&mut self, name: &str) -> Result<Option<String>, String>;
-}
-impl<F: FnMut(&str) -> Result<Option<String>, String>> SourceResolver for F {
-    fn source(&mut self, name: &str) -> Result<Option<String>, String> {
-        self(name)
-    }
-}
 fn error(message: impl Into<String>) -> Diagnostic {
     Diagnostic {
+        details: Default::default(),
         span: Span { start: 0, end: 0 },
         message: message.into(),
-    }
-}
-fn standard(name: &str) -> Option<&'static str> {
-    match name {
-        "deppy" => Some(include_str!("../stdlib/deppy/__init__.py")),
-        "deppy._builtins" => Some(include_str!("../stdlib/deppy/_builtins.py")),
-        "deppy.core" => Some(include_str!("../stdlib/deppy/core.py")),
-        "deppy.nat" => Some(include_str!("../stdlib/deppy/nat.py")),
-        "deppy.vectors" => Some(include_str!("../stdlib/deppy/vectors.py")),
-        "deppy.fin" => Some(include_str!("../stdlib/deppy/fin.py")),
-        "deppy.equality" => Some(include_str!("../stdlib/deppy/equality.py")),
-        "deppy.sigma" => Some(include_str!("../stdlib/deppy/sigma.py")),
-        "deppy.records" => Some(include_str!("../stdlib/deppy/records.py")),
-        _ => None,
     }
 }
 fn parse(source: &str, target: Target) -> Result<Vec<Stmt>, Diagnostic> {
@@ -127,11 +44,13 @@ fn parse(source: &str, target: Target) -> Result<Vec<Stmt>, Diagnostic> {
         ParseOptions::from(Mode::Module).with_target_version(target.version()),
     )
     .map_err(|e| Diagnostic {
+        details: Default::default(),
         span: e.location.into(),
         message: e.to_string(),
     })?;
     if let Some(e) = parsed.unsupported_syntax_errors().first() {
         return Err(Diagnostic {
+            details: Default::default(),
             span: e.range.into(),
             message: format!("unsupported target-version syntax: {:?}", e.kind),
         });
@@ -147,17 +66,43 @@ pub fn lower_module_with_resolver(
     target: Target,
     resolver: &mut impl SourceResolver,
 ) -> Result<Module, Diagnostic> {
+    lower_with_options(
+        source,
+        crate::FrontendOptions {
+            target,
+            ..Default::default()
+        },
+        resolver,
+    )
+}
+
+pub(crate) fn lower_with_options(
+    source: &str,
+    options: crate::FrontendOptions,
+    resolver: &mut impl SourceResolver,
+) -> Result<Module, Diagnostic> {
     let mut loader = Loader {
         resolver,
-        target,
+        sources: HashMap::new(),
+        source_names: HashMap::new(),
+        target: options.target,
+        lowering_steps: options.lowering_steps,
         loaded: HashMap::new(),
         active: HashSet::new(),
         declarations: vec![],
         origins: HashMap::new(),
         total_bytes: 0,
     };
-    let root = loader.lower("", source)?;
+    let root = loader.lower("", source).map_err(|e| {
+        if e.details.source.is_some() {
+            e
+        } else {
+            e.in_source("", source)
+        }
+    })?;
     Ok(Module {
+        sources: loader.sources,
+        source_names: loader.source_names,
         declarations: loader.declarations,
         public_names: root
             .values()
@@ -168,8 +113,11 @@ pub fn lower_module_with_resolver(
     })
 }
 struct Loader<'a, R> {
+    sources: HashMap<String, String>,
+    source_names: HashMap<String, String>,
     resolver: &'a mut R,
     target: Target,
+    lowering_steps: usize,
     loaded: HashMap<String, Exports>,
     active: HashSet<String>,
     declarations: Vec<Declaration>,
@@ -198,17 +146,21 @@ impl<R: SourceResolver> Loader<'_, R> {
                 .map_err(error)?
                 .ok_or_else(|| error(format!("checked module not found: {name}")))?
         };
+        let source_name = self.resolver.source_name(name);
+        self.source_names.insert(name.into(), source_name.clone());
         let exports = self.lower(name, &source).map_err(|e| {
-            error(format!(
-                "in {name}, bytes {}..{}: {}",
-                e.span.start, e.span.end, e.message
-            ))
+            if e.details.source.is_some() {
+                e
+            } else {
+                e.in_source(&source_name, &source)
+            }
         })?;
         self.active.remove(name);
         self.loaded.insert(name.into(), exports.clone());
         Ok(exports)
     }
     fn lower(&mut self, name: &str, source: &str) -> Result<Exports, Diagnostic> {
+        self.sources.insert(name.into(), source.into());
         self.total_bytes += source.len();
         if self.total_bytes > 8_000_000 {
             return Err(error("checked module graph exceeds source size limit"));
@@ -240,7 +192,7 @@ impl<R: SourceResolver> Loader<'_, R> {
                     .extend(available);
             }
         }
-        let declarations = crate::lower::module(&body, name, &libraries)?;
+        let declarations = crate::lower::module(&body, name, &libraries, self.lowering_steps)?;
         for d in &declarations {
             let record = match &d.body {
                 DeclarationBody::Record { declaration, .. } => {
@@ -269,48 +221,5 @@ impl<R: SourceResolver> Loader<'_, R> {
         }
         self.declarations.extend(declarations);
         Ok(exports)
-    }
-}
-
-/// Resolve .py files (or package __init__.py files) under a fixed source root.
-/// Canonical paths must stay inside that root, including through symlinks.
-pub struct FileResolver {
-    root: std::path::PathBuf,
-}
-impl FileResolver {
-    pub fn new(root: impl AsRef<std::path::Path>) -> Result<Self, std::io::Error> {
-        Ok(Self {
-            root: root.as_ref().canonicalize()?,
-        })
-    }
-}
-impl SourceResolver for FileResolver {
-    fn source(&mut self, name: &str) -> Result<Option<String>, String> {
-        let mut relative = std::path::PathBuf::new();
-        for part in name.split('.') {
-            if part.is_empty() || !part.chars().all(|c| c == '_' || c.is_alphanumeric()) {
-                return Err("invalid checked module name".into());
-            }
-            relative.push(part);
-        }
-        let file = self.root.join(&relative).with_extension("py");
-        let package = self.root.join(relative).join("__init__.py");
-        let candidate = if file.is_file() {
-            file
-        } else if package.is_file() {
-            package
-        } else {
-            return Ok(None);
-        };
-        let path = candidate.canonicalize().map_err(|e| e.to_string())?;
-        if !path.starts_with(&self.root) {
-            return Err(format!("checked module escapes source root: {name}"));
-        }
-        if path.metadata().map_err(|e| e.to_string())?.len() > 1_000_000 {
-            return Err(format!("source exceeds frontend size limit: {name}"));
-        }
-        std::fs::read_to_string(path)
-            .map(Some)
-            .map_err(|e| e.to_string())
     }
 }

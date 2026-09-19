@@ -19,6 +19,11 @@ impl Plicity {
 /// Implicit binders are erased; explicit erased proof binders are not yet exposed.
 #[derive(Clone, Debug)]
 pub enum Expr {
+    UserHole(String),
+    Located {
+        location: crate::SourceLocation,
+        expression: Box<Expr>,
+    },
     /// Immutable local definition; the value is outside the new binding's scope.
     Let {
         name: String,
@@ -150,6 +155,19 @@ pub enum Expr {
     Hole,
 }
 impl Expr {
+    pub fn located(self, location: crate::SourceLocation) -> Self {
+        Self::Located {
+            location,
+            expression: Box::new(self),
+        }
+    }
+    pub fn unlocated(&self) -> &Self {
+        match self {
+            Self::Located { expression, .. } => expression.unlocated(),
+            other => other,
+        }
+    }
+
     pub fn field(self, name: impl Into<String>) -> Self {
         Self::Field {
             value: Box::new(self),

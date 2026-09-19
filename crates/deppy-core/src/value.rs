@@ -153,8 +153,8 @@ pub(crate) fn eval(term: &Tm, env: &Env, budget: &mut Budget) -> Result<Val, Err
                 .1
                 .get(id)
                 .ok_or(Error::UnknownDefinition(*id))?
-                .body
-                .clone();
+                .unfolding_body()
+                .cloned();
             if let Some(body) = body {
                 return eval(&body, &vec![], budget);
             }

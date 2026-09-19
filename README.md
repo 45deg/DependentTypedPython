@@ -55,7 +55,7 @@ DepPy2では`@dependent`を独立した証明支援系として発展させ、�
 
 公開APIは閉じた項を受け取ります。正規化・等価性判定も入力を型検査してから評価するため、未検査の自己適用を評価器へ直接渡せません。型の一致はuniverseの持ち上げを行いません。正規化はβ・ζ・ι正規形を返し、ηは等価性判定で扱います。
 
-`Kernel::erase` はkernel検査後に消去対象の変数の実行時使用を検査し、`RuntimeTerm` を生成します。参照するグローバル定義も検査します。このchecked projectionと`RuntimeType`・境界スキーマの導出は現在`deppy-core`にあります。型検査だけを行う`deppy-python`の`check_module`と、この結果を消費してPythonを生成する`deppy-runtime`の`compile_module`は別APIです。エラーはコア項を表示し、frontendは構文・名前解決のエラーを元のソース範囲に、elaborationのエラーを関数宣言の範囲に対応させます。
+`Kernel::erase` はkernel検査後に消去対象の変数の実行時使用を検査し、`RuntimeTerm` を生成します。参照するグローバル定義も検査します。このchecked projectionと`RuntimeType`・境界スキーマの導出は現在`deppy-core`にあります。型検査だけを行う`deppy-python`の`check_module`と、この結果を消費してPythonを生成する`deppy-runtime`の`compile_module`は別APIです。エラーはコア項を表示し、frontendは式のsource spanをelaborationへ保持します。import先の診断にもsourceと行・列を付けます。構造的分岐の検査など、式に対応づけられないエラーは宣言単位です。
 
 処理予算は計算回数を制限しますが、再帰的なRust実装に対するスタック・メモリの完全な保護ではありません。universe levelは`u32`で表現し、後続levelを表現できない場合は拒否します。
 
@@ -75,7 +75,7 @@ elaborator単体の入力はRustで組み立てるASTです。Pythonの解析は
 
 `Elaborator::define(name, optional_type, body)` は型と本体を検査し、名前と定義IDを登録します。後続の式と関数HIRから `Expr::name(name)` で参照でき、ローカル名が優先されます。コアには `Term::Global(id)` を残し、kernelの評価とelaboratorの単一化で本体を展開します。型の別名にも使えます。
 
-登録は成功時だけ反映され、同名・同IDの置換、自己参照、前方参照を拒否します。グローバル定義のuniverseは具体値で、通常の定義は透明です。公理は型を検査した本体なしの定数として宣言でき、依存する公理を追跡します。universe parameterと本体を隠す不透明な通常定義は未実装です。IDは環境内の識別子なので、得られた項は同じelaboratorの `kernel()` で検査・正規化してください。
+登録は成功時だけ反映され、同名・同IDの置換、自己参照、前方参照を拒否します。グローバル定義のuniverseは具体値で、通常の定義は透明です。公理は型を検査した本体なしの定数として宣言でき、依存する公理を追跡します。`@dependent(opaque=True)` は本体を検査して保持し、変換判定では展開しません。公理依存は本体も走査します。universe parameterは未実装です。IDは環境内の識別子なので、得られた項は同じelaboratorの `kernel()` で検査・正規化してください。
 
 ## Python frontend
 
@@ -308,4 +308,20 @@ uv run --no-project --offline --python 3.14 scripts/check_python_runtime.py
 
 Python 3.12.0・3.14.3で各244ケースが一致しました。比較するのはリポジトリの5fixtureです。ソース側にはテスト専用の `scripts/reference_deppy.py` を使います。この参照モデルは型検査器・証明検査器ではありません。
 
-残る拡張はuniverse polymorphism、CPython 3.13の実行検証、一般の帰納型、詳細なエラー位置などです。これらを既存例の実行MVPの完了条件には含めません。未対応の構文や未解決の穴を公理として受理する機能は設けません。
+残る拡張はuniverse polymorphism、CPython 3.13の実行検証、一般の帰納型、pattern単位のエラー位置などです。これらを既存例の実行MVPの完了条件には含めません。未対応の構文や未解決の穴を公理として受理する機能は設けません。
+
+
+## 証明の作成途中の解析
+
+`hole("名前")` は期待型のある位置で使えます。`analyze_module` はgoalの期待型、局所変数・局所定義、式のsource spanを返します。未完成の宣言は登録せず、依存する宣言はエラーになります。解析中に独立した通常の関数宣言の検査は続けます。構文エラーやrecord・公理の宣言エラーでは解析を終了します。
+
+```sh
+cargo run -p deppy-python --locked --offline -- --goals proof.py
+cargo run -p deppy-python --locked --offline -- --json proof.py
+```
+
+holeや診断が残る場合、CLIは非ゼロ終了し、`Analysis.checked` は `None` です。`check_module` は引き続き未完成のmoduleを拒否します。
+
+`FrontendOptions` でPython target、loweringとelaborationの処理予算を指定できます。`CheckedModule.interface` は公開名・型・宣言種別・record constructor・公理依存を、検査時のkernel snapshotとともに提供します。保存済みinterfaceの読み込みや検査省略は行いません。
+
+Phase 1全体の完成状況と残件は [実装状況](docs/dependent-phase1.md) を参照してください。

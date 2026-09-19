@@ -449,6 +449,30 @@ impl State {
         .arc())
     }
     pub(crate) fn finish(&mut self, term: T, ty: T, kernel: &Kernel) -> Result<Elaborated, Error> {
+        if !self.user_goals.is_empty() {
+            let mut goals = Vec::new();
+            for (id, name, location, context, expected) in self.user_goals.clone() {
+                let expected = self.zonk(&expected)?;
+                let mut locals = Vec::new();
+                for local in &context {
+                    let ty = self.zonk(&local.ty)?;
+                    let value = local.value.as_ref().map(|v| self.zonk(v)).transpose()?;
+                    locals.push(crate::GoalLocal {
+                        name: super::state::display_name(&local.name),
+                        ty: self.describe(&ty, &context),
+                        value: value.map(|v| self.describe(&v, &context)),
+                    });
+                }
+                goals.push(crate::Goal {
+                    id,
+                    name,
+                    location,
+                    context: locals,
+                    expected: self.describe(&expected, &context),
+                });
+            }
+            return Err(Error::Goals(goals));
+        }
         // Validate every meta, including ones removed by beta reduction.
         for id in 0..self.metas.len() {
             let meta = self.metas[id].clone();

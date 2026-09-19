@@ -21,6 +21,7 @@ pub fn compile_module_with_resolver(
 fn compile_checked(checked: deppy_python::CheckedModule) -> Result<String, Diagnostic> {
     let kernel = checked.elaborator.kernel();
     let definitions = kernel.erase_definitions().map_err(|e| Diagnostic {
+        details: Default::default(),
         span: Span { start: 0, end: 0 },
         message: e.to_string(),
     })?;
@@ -40,6 +41,7 @@ fn compile_checked(checked: deppy_python::CheckedModule) -> Result<String, Diagn
         if kernel
             .definition(id)
             .map_err(|e| Diagnostic {
+                details: Default::default(),
                 span,
                 message: e.to_string(),
             })?
@@ -47,6 +49,7 @@ fn compile_checked(checked: deppy_python::CheckedModule) -> Result<String, Diagn
             .is_none()
         {
             return Err(Diagnostic {
+                details: Default::default(),
                 span,
                 message: format!("axiom {name} has no runtime implementation"),
             });
@@ -54,6 +57,7 @@ fn compile_checked(checked: deppy_python::CheckedModule) -> Result<String, Diagn
         let signature = kernel
             .runtime_signature(&deppy_core::Term::Global(id).arc())
             .map_err(|e| Diagnostic {
+                details: Default::default(),
                 span,
                 message: format!("runtime boundary for {name}: {e}"),
             })?;

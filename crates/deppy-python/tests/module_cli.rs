@@ -38,7 +38,7 @@ def proof(n: Nat) -> Eq[Nat, n, n]:
         .output()
         .unwrap();
     assert!(!failed.status.success());
-    assert!(String::from_utf8_lossy(&failed.stderr).contains("in proofs"));
+    assert!(String::from_utf8_lossy(&failed.stderr).contains("proofs/__init__.py:7:12:"));
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -58,4 +58,33 @@ fn source_resolver_rejects_a_symlink_outside_its_root() {
     assert!(resolver.source("../outside").is_err());
     assert!(resolver.source("missing").unwrap().is_none());
     fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
+fn goal_cli_reports_unfinished_proofs_without_claiming_success() {
+    let root = std::env::temp_dir().join(format!("deppy-goals-cli-{}", std::process::id()));
+    fs::create_dir_all(&root).unwrap();
+    let path = root.join("goals.py");
+    fs::write(&path, "from __future__ import annotations\nfrom deppy import dependent, Nat, Eq, hole\n@dependent\ndef identity(n: Nat) -> Eq[Nat, n, n]:\n    return hole('identity')\n").unwrap();
+    let text = Command::new(env!("CARGO_BIN_EXE_deppy-python"))
+        .arg("--goals")
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(!text.status.success());
+    let stdout = String::from_utf8_lossy(&text.stdout);
+    assert!(stdout.contains("n: Nat"));
+    assert!(stdout.contains("⊢ Eq[Nat, n, n]"));
+    assert!(!stdout.contains("checked identity"));
+    let json = Command::new(env!("CARGO_BIN_EXE_deppy-python"))
+        .arg("--json")
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(!json.status.success());
+    let stdout = String::from_utf8_lossy(&json.stdout);
+    assert!(stdout.starts_with("{\"checked\":false,"));
+    assert!(stdout.contains("\"name\":\"identity\""));
+    assert!(stdout.contains("\"expected\":\"Eq[Nat, n, n]\""));
+    fs::remove_dir_all(root).unwrap();
 }

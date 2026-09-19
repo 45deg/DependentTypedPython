@@ -172,7 +172,7 @@ impl Lowerer {
     }
     fn bind(&mut self, env: &mut Env, name: &str) -> Result<String, Error> {
         Self::name(name)?;
-        let fresh = self.fresh();
+        let fresh = format!("{}:{name}", self.fresh());
         env.insert(name.into(), E::name(&fresh));
         Ok(fresh)
     }
@@ -203,7 +203,7 @@ impl Lowerer {
         let E::Name(scrutinee) = env[&f.decreases].clone() else {
             unreachable!()
         };
-        let kind = match &f.parameters[d].ty {
+        let kind = match f.parameters[d].ty.unlocated() {
             E::Nat => Kind::Nat,
             E::Vec { ty, len } => {
                 let index = self.index(f, d, len)?;
@@ -313,14 +313,14 @@ impl Lowerer {
         Ok(lambdas(&parameters, wrap_locals(checked, body)).ann(signature))
     }
     fn index(&mut self, f: &Function, d: usize, index: &E) -> Result<usize, Error> {
-        let E::Name(name) = index else {
+        let E::Name(name) = index.unlocated() else {
             return Err(Error::UnsupportedMatch(
                 "indexed scrutinee needs an earlier Nat parameter as its index".into(),
             ));
         };
         f.parameters[..d]
             .iter()
-            .position(|p| p.name == *name && matches!(p.ty, E::Nat))
+            .position(|p| p.name == *name && matches!(p.ty.unlocated(), E::Nat))
             .ok_or_else(|| {
                 Error::UnsupportedMatch("index must name an earlier Nat parameter".into())
             })

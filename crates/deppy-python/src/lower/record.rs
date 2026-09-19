@@ -154,6 +154,7 @@ impl Lowerer {
             .map(|(name, ty)| (field_binding(&name), ty))
             .collect();
         Ok(Declaration {
+            opaque: false,
             name,
             span: class.range.into(),
             ty,

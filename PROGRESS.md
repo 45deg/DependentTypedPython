@@ -103,7 +103,7 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 
 ## 現在の制約
 
-使用検査の拒否テストと、対象fixtureでのソース／生成コードの差分実行を実施しています。一般的な意味保存の形式証明はありません。外部Pythonからの証明入力は拒否し、消去した添字が境界検査に必要な関数・高階の境界・任意の型族はコード生成時に拒否します。型パラメータはopaqueな不変データとして扱い、任意のPythonクラスを検証する仕組みではありません。計算ステップの予算はRustのスタック・メモリを完全に保護するものではありません。型エラーの位置は関数宣言単位です。universe polymorphism、一般の高階単一化は未実装です。
+使用検査の拒否テストと、対象fixtureでのソース／生成コードの差分実行を実施しています。一般的な意味保存の形式証明はありません。外部Pythonからの証明入力は拒否し、消去した添字が境界検査に必要な関数・高階の境界・任意の型族はコード生成時に拒否します。型パラメータはopaqueな不変データとして扱い、任意のPythonクラスを検証する仕組みではありません。計算ステップの予算はRustのスタック・メモリを完全に保護するものではありません。式の位置をelaborationへ保持します。patternや構造的検査の一部は宣言単位の診断です。universe polymorphism、一般の高階単一化は未実装です。
 
 ## 検証記録（2026-09-19）
 
@@ -178,3 +178,28 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - `RuntimeTerm`・`RuntimeType`・`Kernel::erase`・`runtime_signature`は、kernel検査済みtermからruntime IRへのchecked projectionとして`deppy-core`に保持。
 - `deppy-python`のCLIは静的検査、`deppy-runtime`のCLIはPython生成を担当。runtime経路は型検査と証明の妥当性の成立条件にしない。
 - `@dependent`を独立した証明支援系として発展させ、別層の`@verified`が生成したVCをcore proofとして再利用するロードマップを`docs/deppy2.md`に記載。`@verified`、Verified HIR、WP/VC generation、`verified_spec`は未実装。
+
+
+### Phase 1の基盤実装（進行中）
+
+- `Expr::Located` と `SourceLocation` による式の位置保持。構造的loweringでも位置を保持し、import先の実ファイルの行・列を診断に表示。
+- 構造化診断に種別・関連位置・期待型・実際の型を追加。型の詳細は通常の期待型との照合で提供。
+- `FrontendOptions` にPython targetと処理予算を集約。resolver、builtin registry、module graph、dependent linkerを分離。
+- 利用者の `hole("name")` と推論metaを区別。期待型・局所文脈・局所定義・位置を保持し、未使用のholeも未完成として拒否。
+- `analyze_module` とCLIの `--goals` / `--json` を追加。独立した通常関数のgoalを収集し、不完全なmoduleを検査済みとして公開しない。
+- `@dependent(opaque=True)` とkernel/elaboratorの `define_opaque`。検査済み本体を保存し、変換判定では非展開、公理依存追跡では本体も走査。
+- `CheckedInterface` に検査時のkernel snapshotと公開名・型・宣言種別・record constructor・公理依存を格納。
+
+一般帰納型、一般のpattern matching、stdlib移行、専用core削除は未実装。Phase 1全体の完了を意味しない。詳細は [実装状況](docs/dependent-phase1.md) を参照。
+
+検証：workspaceの333テスト、全targetのClippy（警告をエラー化）、fmtが成功。CPython 3.12.0・3.14.3で各21ソースのcompile検証と各244件の既存runtime差分試験が成功。CLIのJSONをPythonのJSON parserで読み、Unicode・引用符・改行の扱いと未完成時の非ゼロ終了も確認。
+
+
+### 現在の基盤の仕上げ
+
+- 診断内と解析結果のgoal IDを統一し、hole式を診断の主位置にした。
+- source名・行・列をAPIの診断表示にも反映。root source名の設定をAPIにまとめ、CLIと診断内のgoalで一致させた。
+- resolver不要の`analyze_module_with_options`を追加。
+- goalの整合性、import先の位置保持、`ann`によるholeの型指定とUnicode列番号、diamond importでのopaque宣言ID共有の回帰を追加。
+- 一般帰納型・一般pattern lowering・interfaceを使うmodule linkingは次段階のまま。
+- 検証: workspace 337件、Clippy（警告をエラー化）、fmt、diff checkが成功。CPython 3.14.7で構文21件とruntime差分244件が成功。

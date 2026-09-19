@@ -125,3 +125,55 @@ fn opaque_types_are_distinct_and_dependencies_include_types() {
     assert!(k.declare_axiom(3, Term::Global(3).arc()).is_err());
     assert!(k.declare_axiom(3, Term::Universe(u32::MAX).arc()).is_err());
 }
+
+#[test]
+fn checked_opaque_bodies_are_not_conversion_rules_or_axioms() {
+    let mut k = Kernel::default();
+    assert!(k
+        .define_opaque(
+            0,
+            Definition {
+                ty: nat(),
+                body: Term::Universe(0).arc()
+            }
+        )
+        .is_err());
+    assert!(k.definition(0).is_err());
+    k.define_opaque(
+        0,
+        Definition {
+            ty: nat(),
+            body: zero(),
+        },
+    )
+    .unwrap();
+    let reference = Term::Global(0).arc();
+    assert_eq!(k.normalize(&reference).unwrap(), reference);
+    assert!(!k.equivalent(&reference, &zero(), &nat()).unwrap());
+    assert!(k.axiom_dependencies(&reference).unwrap().is_empty());
+    k.declare_axiom(1, nat()).unwrap();
+    k.define_opaque(
+        2,
+        Definition {
+            ty: nat(),
+            body: Term::Global(1).arc(),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        k.axiom_dependencies(&Term::Global(2).arc())
+            .unwrap()
+            .into_iter()
+            .collect::<Vec<_>>(),
+        vec![1]
+    );
+    assert!(k
+        .define_opaque(
+            3,
+            Definition {
+                ty: nat(),
+                body: Term::Global(3).arc()
+            }
+        )
+        .is_err());
+}

@@ -119,6 +119,24 @@ impl Kernel {
     /// Check against the existing environment before insertion. No replacement,
     /// forward references or recursive definitions are accepted.
     pub fn define(&mut self, id: crate::DefId, definition: crate::Definition) -> Result<(), Error> {
+        self.define_with_transparency(id, definition, crate::Transparency::Transparent)
+    }
+
+    /// Check a body before registering a constant opaque to conversion.
+    pub fn define_opaque(
+        &mut self,
+        id: crate::DefId,
+        definition: crate::Definition,
+    ) -> Result<(), Error> {
+        self.define_with_transparency(id, definition, crate::Transparency::Opaque)
+    }
+
+    fn define_with_transparency(
+        &mut self,
+        id: crate::DefId,
+        definition: crate::Definition,
+        transparency: crate::Transparency,
+    ) -> Result<(), Error> {
         if self.definitions.contains_key(&id) {
             return Err(Error::DuplicateDefinition(id));
         }
@@ -128,6 +146,7 @@ impl Kernel {
             crate::GlobalDeclaration {
                 ty: definition.ty,
                 body: Some(definition.body),
+                transparency,
             },
         );
         Ok(())
@@ -141,8 +160,14 @@ impl Kernel {
         }
         let mut budget = Budget(self.max_steps, self.definitions.clone());
         universe(&self.context(), &ty, &mut budget)?;
-        Arc::make_mut(&mut self.definitions)
-            .insert(id, crate::GlobalDeclaration { ty, body: None });
+        Arc::make_mut(&mut self.definitions).insert(
+            id,
+            crate::GlobalDeclaration {
+                ty,
+                body: None,
+                transparency: crate::Transparency::Opaque,
+            },
+        );
         Ok(())
     }
 

@@ -18,11 +18,29 @@ pub struct Definition {
 }
 
 /// A checked global declaration. A missing body is an explicitly declared axiom.
+/// Opaque definitions retain checked bodies for dependency tracking and extraction.
 /// The environment never mutates an axiom into a definition.
 #[derive(Clone, Debug)]
 pub struct GlobalDeclaration {
     pub ty: Tm,
     pub body: Option<Tm>,
+    pub transparency: Transparency,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Transparency {
+    Transparent,
+    Opaque,
+}
+
+impl GlobalDeclaration {
+    /// Only transparent definitions participate in conversion.
+    pub fn unfolding_body(&self) -> Option<&Tm> {
+        match self.transparency {
+            Transparency::Transparent => self.body.as_ref(),
+            Transparency::Opaque => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

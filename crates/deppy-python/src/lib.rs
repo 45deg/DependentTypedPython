@@ -1,7 +1,12 @@
 //! Static Python frontend using pinned Ruff components. No user code is executed.
+mod interface;
+mod linker;
 mod lower;
+use linker::check_lowered;
 mod modules;
+mod report;
 use deppy_elab::{Elaborator, Expr};
+pub use interface::{CheckedInterface, DeclarationKind, InterfaceEntry};
 pub use modules::{lower_module_with_resolver, FileResolver, SourceResolver};
 use ruff_python_ast::PythonVersion;
 use ruff_text_size::TextRange;
@@ -22,16 +27,54 @@ impl From<TextRange> for Span {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Diagnostic {
+    pub details: Box<DiagnosticDetails>,
     pub span: Span,
     pub message: String,
 }
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DiagnosticDetails {
+    pub goals: Vec<deppy_elab::Goal>,
+    pub source: Option<String>,
+    pub line: Option<usize>,
+    pub column: Option<usize>,
+    pub kind: DiagnosticKind,
+    pub related: Vec<deppy_elab::SourceLocation>,
+    pub expected: Option<String>,
+    pub actual: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum DiagnosticKind {
+    #[default]
+    Frontend,
+    Elaboration,
+    Kernel,
+}
+
+impl Diagnostic {
+    pub(crate) fn in_source(mut self, name: &str, source: &str) -> Self {
+        self.details.source = Some(name.into());
+        if let Some(prefix) = source.get(..self.span.start) {
+            self.details.line = Some(prefix.bytes().filter(|b| *b == b'\n').count() + 1);
+            self.details.column =
+                Some(prefix.rsplit('\n').next().unwrap_or("").chars().count() + 1);
+        }
+        self
+    }
+}
+
 impl std::fmt::Display for Diagnostic {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}..{}: {}",
-            self.span.start, self.span.end, self.message
-        )
+        match (&self.details.source, self.details.line, self.details.column) {
+            (Some(source), Some(line), Some(column)) if !source.is_empty() => {
+                write!(f, "{source}:{line}:{column}: {}", self.message)
+            }
+            _ => write!(
+                f,
+                "{}..{}: {}",
+                self.span.start, self.span.end, self.message
+            ),
+        }
     }
 }
 impl std::error::Error for Diagnostic {}
@@ -41,6 +84,22 @@ pub enum Target {
     Python313,
     Python314,
 }
+#[derive(Clone, Copy, Debug)]
+pub struct FrontendOptions {
+    pub target: Target,
+    pub elaboration_steps: usize,
+    pub lowering_steps: usize,
+}
+impl Default for FrontendOptions {
+    fn default() -> Self {
+        Self {
+            target: Target::Python314,
+            elaboration_steps: 1_000_000,
+            lowering_steps: 20_000,
+        }
+    }
+}
+
 impl Target {
     fn version(self) -> PythonVersion {
         match self {
@@ -52,6 +111,7 @@ impl Target {
 }
 #[derive(Clone, Debug)]
 pub struct Declaration {
+    pub opaque: bool,
     pub name: String,
     pub span: Span,
     pub ty: Expr,
@@ -69,11 +129,14 @@ pub enum DeclarationBody {
 }
 #[derive(Clone, Debug)]
 pub struct Module {
+    pub source_names: std::collections::HashMap<String, String>,
+    pub sources: std::collections::HashMap<String, String>,
     pub declarations: Vec<Declaration>,
     pub public_names: std::collections::HashSet<String>,
     pub origins: std::collections::HashMap<String, String>,
 }
 pub struct CheckedModule {
+    pub interface: CheckedInterface,
     pub elaborator: Elaborator,
     pub axiom_dependencies: std::collections::BTreeMap<String, Vec<String>>,
     pub definitions: Vec<(String, deppy_core::DefId, Span)>,
@@ -89,7 +152,13 @@ pub fn lower_module(source: &str, target: Target) -> Result<Module, Diagnostic> 
 
 /// A fresh environment makes checking a module atomic from the caller's perspective.
 pub fn check_module(source: &str, target: Target) -> Result<CheckedModule, Diagnostic> {
-    check_lowered(lower_module(source, target)?)
+    check_module_with_options(
+        source,
+        FrontendOptions {
+            target,
+            ..Default::default()
+        },
+    )
 }
 
 pub fn check_module_with_resolver(
@@ -97,99 +166,131 @@ pub fn check_module_with_resolver(
     target: Target,
     resolver: &mut impl SourceResolver,
 ) -> Result<CheckedModule, Diagnostic> {
-    check_lowered(lower_module_with_resolver(source, target, resolver)?)
+    check_module_with_options_and_resolver(
+        source,
+        FrontendOptions {
+            target,
+            ..Default::default()
+        },
+        resolver,
+    )
 }
 
-fn check_lowered(module: Module) -> Result<CheckedModule, Diagnostic> {
-    // Dependent Fin motives and composed equality proofs (e.g. reverse_get)
-    // exceed the small elaborator default. Keep checking explicitly bounded.
-    let mut elaborator = Elaborator::new(1_000_000);
-    let mut definitions = vec![];
-    let mut record_id = 0;
-    let mut constructors = vec![];
-    let mut axiom_names = std::collections::HashMap::new();
-    for d in module.declarations {
-        let diagnostic = |message: String| {
-            if let Some(origin) = module.origins.get(&d.name) {
-                Diagnostic {
-                    span: Span { start: 0, end: 0 },
-                    message: format!(
-                        "in {origin}, bytes {}..{}: {message}",
-                        d.span.start, d.span.end
-                    ),
-                }
-            } else {
-                Diagnostic {
-                    span: d.span,
-                    message,
-                }
+pub fn check_module_with_options(
+    source: &str,
+    options: FrontendOptions,
+) -> Result<CheckedModule, Diagnostic> {
+    check_module_with_options_and_resolver(source, options, &mut |_: &str| Ok(None))
+}
+
+pub fn check_module_with_options_and_resolver(
+    source: &str,
+    options: FrontendOptions,
+    resolver: &mut impl SourceResolver,
+) -> Result<CheckedModule, Diagnostic> {
+    let mut diagnostics = Vec::new();
+    let checked = check_lowered(
+        modules::lower_with_options(source, options, resolver)?,
+        options,
+        &mut diagnostics,
+    )?;
+    if diagnostics.is_empty() {
+        Ok(checked)
+    } else {
+        Err(diagnostics.remove(0))
+    }
+}
+
+/// Analysis never turns unfinished goals into checked declarations.
+pub struct Analysis {
+    pub checked: Option<CheckedModule>,
+    pub diagnostics: Vec<Diagnostic>,
+    pub goals: Vec<deppy_elab::Goal>,
+}
+
+impl Analysis {
+    /// Assign a display identity to the root source, preserving imported identities.
+    pub fn set_root_source_name(&mut self, name: &str) {
+        fn set_location(location: &mut deppy_elab::SourceLocation, name: &str) {
+            if location.source.is_empty() {
+                location.source = name.to_owned();
             }
-        };
-        if matches!(d.body, DeclarationBody::Axiom) {
-            let id = elaborator
-                .declare_axiom(&d.name, &d.ty)
-                .map_err(|e| diagnostic(e.to_string()))?;
-            axiom_names.insert(id, d.name.clone());
-            if module.public_names.contains(&d.name) {
-                definitions.push((d.name, id, d.span));
-            }
-            continue;
         }
-        if let DeclarationBody::Record {
-            declaration: decl, ..
-        } = &d.body
-        {
-            let mut register =
-                |elaborator: &mut Elaborator| -> Result<deppy_core::DefId, deppy_elab::Error> {
-                    let record = elaborator.declare_record(record_id, decl.clone())?;
-                    let id = elaborator.define(&d.name, Some(&d.ty), &record.ty())?;
-                    let constructor_id = elaborator.define(
-                        lower::constructor_name(&d.name),
-                        None,
-                        &record.constructor(),
-                    )?;
-                    constructors.push((d.name.clone(), constructor_id, d.span));
-                    Ok(id)
-                };
-            let id = register(&mut elaborator).map_err(|e| diagnostic(e.to_string()))?;
-            record_id += 1;
-            if module.public_names.contains(&d.name) {
-                definitions.push((d.name, id, d.span));
+        for diagnostic in &mut self.diagnostics {
+            if diagnostic
+                .details
+                .source
+                .as_deref()
+                .is_none_or(str::is_empty)
+            {
+                diagnostic.details.source = Some(name.to_owned());
             }
-            continue;
+            for location in &mut diagnostic.details.related {
+                set_location(location, name);
+            }
+            for goal in &mut diagnostic.details.goals {
+                if let Some(location) = &mut goal.location {
+                    set_location(location, name);
+                }
+            }
         }
-        let body = match &d.body {
-            DeclarationBody::Structural(function) => elaborator
-                .lower_function(function)
-                .map_err(|e| diagnostic(e.to_string()))?,
-            DeclarationBody::Expression(body) => body.clone(),
-            DeclarationBody::Record { .. } | DeclarationBody::Axiom => unreachable!(),
-        };
-        let id = elaborator
-            .define(&d.name, Some(&d.ty), &body)
-            .map_err(|e| diagnostic(e.to_string()))?;
-        if module.public_names.contains(&d.name) {
-            definitions.push((d.name, id, d.span));
+        for goal in &mut self.goals {
+            if let Some(location) = &mut goal.location {
+                set_location(location, name);
+            }
         }
     }
-    let mut axiom_dependencies = std::collections::BTreeMap::new();
-    for (name, id, span) in &definitions {
-        let ids = elaborator
-            .kernel()
-            .axiom_dependencies(&deppy_core::Term::Global(*id).arc())
-            .map_err(|e| Diagnostic {
-                span: *span,
-                message: e.to_string(),
-            })?;
-        axiom_dependencies.insert(
-            name.clone(),
-            ids.into_iter().map(|id| axiom_names[&id].clone()).collect(),
-        );
+}
+
+pub fn analyze_module(source: &str, target: Target) -> Analysis {
+    analyze_module_with_resolver(source, target, &mut |_: &str| Ok(None))
+}
+
+pub fn analyze_module_with_options(source: &str, options: FrontendOptions) -> Analysis {
+    analyze_module_with_options_and_resolver(source, options, &mut |_: &str| Ok(None))
+}
+
+pub fn analyze_module_with_resolver(
+    source: &str,
+    target: Target,
+    resolver: &mut impl SourceResolver,
+) -> Analysis {
+    analyze_module_with_options_and_resolver(
+        source,
+        FrontendOptions {
+            target,
+            ..Default::default()
+        },
+        resolver,
+    )
+}
+
+pub fn analyze_module_with_options_and_resolver(
+    source: &str,
+    options: FrontendOptions,
+    resolver: &mut impl SourceResolver,
+) -> Analysis {
+    let mut diagnostics = Vec::new();
+    let result = modules::lower_with_options(source, options, resolver)
+        .and_then(|module| check_lowered(module, options, &mut diagnostics));
+    let checked = match result {
+        Ok(checked) if diagnostics.is_empty() => Some(checked),
+        Ok(_) => None,
+        Err(error) => {
+            diagnostics.push(error);
+            None
+        }
+    };
+    let mut goals = Vec::new();
+    for diagnostic in &mut diagnostics {
+        for goal in &mut diagnostic.details.goals {
+            goal.id = goals.len();
+            goals.push(goal.clone());
+        }
     }
-    Ok(CheckedModule {
-        axiom_dependencies,
-        elaborator,
-        definitions,
-        constructors,
-    })
+    Analysis {
+        checked,
+        diagnostics,
+        goals,
+    }
 }

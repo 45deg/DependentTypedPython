@@ -14,8 +14,43 @@ use solve::{Context, State};
 use std::fmt;
 pub use syntax::{Expr, Plicity};
 
+pub type SourceId = String;
+
+/// Source identity and UTF-8 byte offsets; absent from trusted core terms.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceLocation {
+    pub source: SourceId,
+    pub start: usize,
+    pub end: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GoalLocal {
+    pub name: String,
+    pub ty: String,
+    pub value: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Goal {
+    pub id: usize,
+    pub name: String,
+    pub location: Option<SourceLocation>,
+    pub context: Vec<GoalLocal>,
+    pub expected: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
+    TypeMismatch {
+        expected: String,
+        actual: String,
+    },
+    Goals(Vec<Goal>),
+    Located {
+        location: SourceLocation,
+        error: Box<Error>,
+    },
     InvalidRecursion(String),
     InvalidPattern(String),
     UnsupportedMatch(String),
@@ -31,7 +66,9 @@ pub enum Error {
     OccursCheck,
     ScopeEscape,
     NonPattern,
-    UnsolvedMeta { id: usize },
+    UnsolvedMeta {
+        id: usize,
+    },
     UniverseOverflow,
     BudgetExceeded,
     Kernel(deppy_core::Error),
@@ -39,6 +76,11 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::TypeMismatch { expected, actual } => {
+                write!(f, "expected {expected}, got {actual}")
+            }
+            Self::Goals(goals) => write!(f, "{} unfinished proof goal(s)", goals.len()),
+            Self::Located { error, .. } => error.fmt(f),
             Self::InvalidRecursion(reason) => write!(f, "invalid structural recursion: {reason}"),
             Self::InvalidPattern(reason) => write!(f, "invalid pattern: {reason}"),
             Self::UnsupportedMatch(reason) => write!(f, "unsupported match: {reason}"),
@@ -70,6 +112,24 @@ impl fmt::Display for Error {
             Self::UniverseOverflow => write!(f, "universe level exceeds the supported range"),
             Self::BudgetExceeded => write!(f, "elaboration budget exhausted; result is unknown"),
             Self::Kernel(error) => write!(f, "kernel recheck failed: {error}"),
+        }
+    }
+}
+impl Error {
+    pub fn cause(&self) -> &Self {
+        match self {
+            Self::Located { error, .. } => error.cause(),
+            error => error,
+        }
+    }
+    pub fn at(self, location: &SourceLocation) -> Self {
+        if matches!(self, Self::Located { .. }) {
+            self
+        } else {
+            Self::Located {
+                location: location.clone(),
+                error: Box::new(self),
+            }
         }
     }
 }
@@ -119,6 +179,25 @@ impl Elaborator {
         ty: Option<&Expr>,
         body: &Expr,
     ) -> Result<deppy_core::DefId, Error> {
+        self.define_with_transparency(name, ty, body, false)
+    }
+
+    pub fn define_opaque(
+        &mut self,
+        name: impl Into<String>,
+        ty: Option<&Expr>,
+        body: &Expr,
+    ) -> Result<deppy_core::DefId, Error> {
+        self.define_with_transparency(name, ty, body, true)
+    }
+
+    fn define_with_transparency(
+        &mut self,
+        name: impl Into<String>,
+        ty: Option<&Expr>,
+        body: &Expr,
+        opaque: bool,
+    ) -> Result<deppy_core::DefId, Error> {
         let name = name.into();
         if name.is_empty() || name.contains('\0') || self.globals.contains_key(&name) {
             return Err(Error::InvalidDeclarationName(name));
@@ -133,13 +212,15 @@ impl Elaborator {
             self.infer(body)?
         };
         let id = self.next_definition;
-        self.kernel.define(
-            id,
-            deppy_core::Definition {
-                ty: out.ty,
-                body: out.term,
-            },
-        )?;
+        let definition = deppy_core::Definition {
+            ty: out.ty,
+            body: out.term,
+        };
+        if opaque {
+            self.kernel.define_opaque(id, definition)?;
+        } else {
+            self.kernel.define(id, definition)?;
+        }
         self.globals.insert(name, id);
         self.next_definition = next;
         Ok(id)

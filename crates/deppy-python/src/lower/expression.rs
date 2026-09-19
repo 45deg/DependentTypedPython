@@ -2,6 +2,14 @@ use super::*;
 impl Lowerer {
     pub(super) fn expr(&mut self, expr: &Expr, scope: &Scope) -> Result<E, Diagnostic> {
         self.tick(expr.range())?;
+        let location = deppy_elab::SourceLocation {
+            source: self.namespace.clone(),
+            start: expr.range().start().to_usize(),
+            end: expr.range().end().to_usize(),
+        };
+        self.expr_inner(expr, scope).map(|e| e.located(location))
+    }
+    fn expr_inner(&mut self, expr: &Expr, scope: &Scope) -> Result<E, Diagnostic> {
         Ok(match expr {
             Expr::Name(n) => {
                 let name = n.id.as_str();
@@ -119,6 +127,16 @@ impl Lowerer {
                 }
             }
             Expr::Call(call) => {
+                if self.builtin(&call.func, scope) == Some("hole") {
+                    if !call.arguments.keywords.is_empty() || call.arguments.args.len() != 1 {
+                        return Err(error(call, "hole requires one name string"));
+                    }
+                    let Expr::StringLiteral(name) = &call.arguments.args[0] else {
+                        return Err(error(call, "hole requires one name string"));
+                    };
+                    return Ok(E::UserHole(name.value.to_str().into()));
+                }
+
                 if !call.arguments.keywords.is_empty() {
                     return Err(error(call, "keyword arguments are unsupported"));
                 }

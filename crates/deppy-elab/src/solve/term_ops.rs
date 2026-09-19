@@ -221,7 +221,7 @@ impl State {
         self.tick()?;
         match term.as_ref() {
             Term::Global(id) => {
-                let Some(body) = self.kernel.definition(*id)?.body.clone() else {
+                let Some(body) = self.kernel.definition(*id)?.unfolding_body().cloned() else {
                     return Ok(term.clone());
                 };
                 let body = self.import_core(&body, &mut vec![])?;
