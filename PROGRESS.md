@@ -71,7 +71,7 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - [x] Pythonの`match`・構造的再帰を既存関数HIRへ接続。Nat・Vec・Finと暗黙型引数の補完。
 - [x] cong・空Fin消去のPython接続と、Fin boundのワイルドカード。
 - [x] 再帰分岐内のreturn前のlet。期待型・依存型・停止性検査を保持。
-- [ ] match前のローカル定義。
+- [x] match前のローカル定義。分岐前の検査を保持し、依存する値を各分岐で再展開。入れ子のFin分岐にも対応。
 - [x] Pythonの`@record`を既存record宣言へ接続。先行フィールド参照・型引数・コンストラクタ・射影。
 - [x] recordの同名フィールドを受け手の名目的な型から選択。連続する射影・型別名・let・関数HIRに対応。
 - [x] frontendのrecord level・再帰motive levelの具体値指定。
@@ -105,7 +105,7 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 
 ## 検証記録（2026-09-19）
 
-- `cargo test --workspace --offline`：271件成功（kernel 84件、meta内部19件、elaboration統合131件、Python frontend 37件）。
+- `cargo test --workspace --offline`：279件成功（kernel 84件、meta内部19件、elaboration統合133件、Python frontend 43件）。
 - `cargo clippy --workspace --all-targets --offline -- -D warnings`：成功。
 - `cargo fmt --all -- --check`：成功。
 - `cargo run -p deppy-elab --example implicit_identity --offline`：暗黙型引数を補ったコアの生成とkernel再検査が成功。
@@ -135,6 +135,7 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - 同名・異なる型のrecordフィールドを型から選び、依存する結果型・連続する射影・高いuniverse・失敗した再登録後の保持を検査。
 - `branch_fields.py` をPython frontendのCLIで静的検査し、生成コアでcount(2) = 2を確認。
 - Pythonの高いrecord／motive levelの検査と生成コアの計算、level不整合・不正リテラル・未知／重複オプションの拒否を検査。
+- match前letのNat・Vec・Finに対する絞り込み、入れ子のFin分岐、期待Sigma型、未使用の不正な値・名前の捕捉・再帰先の別名化の拒否を検査。
 - Pythonランタイム実行、消去、コード生成の検証は未実施。
 
-次はmatch前のローカル定義への対応を進めます。消去・Python実行の実装も残っています。
+次はVecコンストラクタ・cong・fin0_elimのuniverse指定が残っています。消去・Python実行も未実装です。

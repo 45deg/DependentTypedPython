@@ -142,6 +142,49 @@ impl Lowerer {
             }
             return Ok(Body::Return(result));
         }
+        if statements.len() > 1 && matches!(statements.last(), Some(Stmt::Match(_))) {
+            let (last, prefix) = statements.split_last().unwrap();
+            let mut inner = scope.clone();
+            let mut locals = vec![];
+            for stmt in prefix {
+                self.tick(stmt.range())?;
+                let (target, annotation, value) = match stmt {
+                    Stmt::Assign(s) if s.targets.len() == 1 => {
+                        (&s.targets[0], None, s.value.as_ref())
+                    }
+                    Stmt::AnnAssign(s) => (
+                        s.target.as_ref(),
+                        Some(s.annotation.as_ref()),
+                        s.value
+                            .as_deref()
+                            .ok_or_else(|| error(s, "local definition requires a value"))?,
+                    ),
+                    _ => {
+                        return Err(error(
+                            stmt,
+                            "expected immutable local definitions before match",
+                        ))
+                    }
+                };
+                let Expr::Name(name) = target else {
+                    return Err(error(target, "assignment requires a single local name"));
+                };
+                let ty = annotation.map(|ty| self.expr(ty, &inner)).transpose()?;
+                let value = self.expr(value, &inner)?;
+                self.bind(&mut inner, name.id.as_str(), name)?;
+                locals.push((name.id.to_string(), ty, value));
+            }
+            let body = self.structural_body(std::slice::from_ref(last), &inner)?;
+            return Ok(locals
+                .into_iter()
+                .rev()
+                .fold(body, |body, (name, ty, value)| Body::Let {
+                    name,
+                    ty,
+                    value,
+                    body: Box::new(body),
+                }));
+        }
         let [stmt] = statements else {
             return Err(Diagnostic {
                 span: statements

@@ -80,9 +80,9 @@ elaborator単体の入力はRustで組み立てるASTです。Pythonの解析は
 
 未検査の名前、対応外の自己参照・前方参照、再代入、可変長・デフォルト・キーワード引数、引数のない関数、任意の属性アクセス、文字列注釈、未対応の構文は拒否します。Pythonの関数スコープに合わせ、代入前のローカル名をグローバル名として解釈しません。外部モジュールの静的importは未対応です。
 
-`@dependent(decreases="parameter")` では、単一の `match`、または不変のローカル定義列に続く `return` を関数HIRへ変換します。Natの `Z()` / `S(k)`、Vecの `VNil()` / `VCons(k, head, tail)`、Finの `FZ(k)` / `FS(k, pred)` に対応します。網羅性・添字・直接の部分構造への再帰を既存HIRで検査し、kernelで再検査します。自己呼び出しは関数名による位置引数適用に限定し、暗黙型引数は現在の型引数を補います。例は `crates/deppy-python/examples/structural.py` のadd・appendです。
+`@dependent(decreases="parameter")` では、不変のローカル定義列に続く `match` または `return` を関数HIRへ変換します。Natの `Z()` / `S(k)`、Vecの `VNil()` / `VCons(k, head, tail)`、Finの `FZ(k)` / `FS(k, pred)` に対応します。網羅性・添字・直接の部分構造への再帰を既存HIRで検査し、kernelで再検査します。自己呼び出しは関数名による位置引数適用に限定し、暗黙型引数は現在の型引数を補います。例は `crates/deppy-python/examples/structural.py` のadd・appendです。
 
-再帰関数のmotive universeは省略時0で、`@dependent(decreases="n", motive_level=1)` のように具体値を指定できます。`match` の前に置くローカル定義、guard、Finのbound以外のワイルドカード、キーワードpattern、コンストラクタpatternの入れ子、自己呼び出しの明示的型引数は未対応です。入れ子のmatchは既存HIRの制限に従います。patternのcapture名にもPythonの関数全体のローカルスコープを適用します。`lower_module` の本体は `DeclarationBody::Expression` / `Structural` / `Record` で区別されます。
+再帰関数のmotive universeは省略時0で、`@dependent(decreases="n", motive_level=1)` のように具体値を指定できます。guard、Finのbound以外のワイルドカード、キーワードpattern、コンストラクタpatternの入れ子、自己呼び出しの明示的型引数は未対応です。入れ子のmatchは既存HIRの制限に従います。patternのcapture名にもPythonの関数全体のローカルスコープを適用します。`lower_module` の本体は `DeclarationBody::Expression` / `Structural` / `Record` で区別されます。
 
 `cong(f, proof)` はJから導いた定義を適用し、`fin0_elim(i)` は戻り値の期待型を使って空のFinを消去します。現在はType₀が対象です。Fin patternのboundは `FZ(_)` / `FS(_, j)` と省略でき、他の名前を捕捉しない内部名を生成します。`crates/deppy-python/examples/proofs.py` にChatlogのget・zero_right宣言があります。これらの静的検査と生成コアの計算をテストしています。
 
@@ -91,6 +91,8 @@ elaborator単体の入力はRustで組み立てるASTです。Pythonの解析は
 recordのuniverseは省略時0で、`@record(level=1)` のように具体値を指定できます。levelは非負のu32整数リテラルに限定し、型との整合性や後続levelのoverflowはkernelで検査します。`examples/universes.py` に型を保持するrecordと型を返す再帰関数の例があります。継承・メタクラス・メソッド・フィールドのデフォルト値・再帰recordは未対応で、`self`・`fst`・`snd` はフィールド名に使えません。同名フィールドを持つ複数のrecordに対応し、射影は受け手から推論した名目的な型で選びます。受け手の型が不明な場合は推測せず拒否します。`crates/deppy-python/examples/records.py` のSomeVecとΣ型の相互変換、依存する射影を検査・計算しています。Python runtimeのclass生成や不変性の保証は未実装です。
 
 再帰分岐の `return` 前では、`previous: Nat = count(k)` のように再帰結果を保持できます。既存のlet検査へ変換し、依存型と期待型を保ちます。未使用の不正な値も拒否します。再帰先を別名に置き換えることは認めず、直接の部分構造だけを許す停止性検査を維持します。`crates/deppy-python/examples/branch_fields.py` は分岐内letと同名フィールド・連続する射影の例です。
+
+`match` 前の代入・値付き型注釈にも対応します。定義を分岐前の文脈で検査し、分岐内では絞り込んだ引数に合わせて定義を再展開します。`saved: Vec[T, n] = xs` や等式の証拠を保持でき、既存の入れ子のFin分岐にも対応します。元の定義も検査対象に残すため、未使用の不正な定義は拒否します。例は `crates/deppy-python/examples/before_match.py` です。patternで既存のローカル名・グローバル名を隠すことはできません。この変換は計算の共有を保証せず、runtimeでの一度だけの評価や消去は今後の実装対象です。
 
 通常の未装飾関数とモジュール内のassertは解析のみで、型検査・実行・証明としての利用はしません。ユーザーモジュールや注釈を実行する経路はありません。Ruffの解析はCPythonのcompile検証とは別で、消去やPython実行時の意味保存も保証しません。
 
@@ -215,7 +217,7 @@ RecordDecl {
 
 ## 分岐と構造的再帰の変換
 
-`lower::Function`は、パラメータ列・戻り値型・`decreases`・具体的な`motive_level`・本体を持つ関数HIRです。`Body::Match`の各`Arm`に`Pattern`と本体を記述し、`Expr::Recur(arguments)`で自己呼び出しを表します。自己呼び出しの引数列には、暗黙パラメータを含む全引数を宣言順に渡します。
+`lower::Function`は、パラメータ列・戻り値型・`decreases`・具体的な`motive_level`・本体を持つ関数HIRです。`Body::Let { name, ty, value, body }`で不変のローカル定義を置き、`Body::Match`の各`Arm`に`Pattern`と本体を記述し、`Expr::Recur(arguments)`で自己呼び出しを表します。自己呼び出しの引数列には、暗黙パラメータを含む全引数を宣言順に渡します。
 
 `Elaborator::compile_function`はmotiveと帰納法の仮定を生成し、関数全体を元の型に照らしてelaborateした後、kernelで再検査します。`lower_function`は変換した注釈付きASTだけを返すため、それだけでは型検査済みではありません。例として`prelude::structural::{add, append, get, zero_right, fin_rank}`を用意しています。
 
@@ -224,7 +226,7 @@ RecordDecl {
 - 分解対象より前の引数は、添字以外を固定します。後続の引数はmotiveに一般化し、再帰時に変更できます。`get`では`Fin n → A`というmotiveを生成します。
 - 入れ子の分岐は、唯一の後続引数が`Fin (S k)`で、戻り値型がそのindex値に依存しないケースに対応します。`get`の`FZ`・`FS`分岐はこの範囲です。空の分岐では明示的な`fin0_elim`を使います。
 
-対応範囲外の型の別名や添字式、固定した前方引数の添字依存、pattern名による関数引数の隠蔽、さらに深い分岐は拒否します。`motive_level`は後続引数を含むmotiveの結果universeで、間違った値はkernel検査を通りません。全域性の検査を無効化する設定、一般再帰・相互再帰・Eqのpattern matchingはありません。
+対応範囲外の型の別名や添字式、固定した前方引数の添字依存、pattern名による既存のローカル名・グローバル名の隠蔽、さらに深い分岐は拒否します。`motive_level`は後続引数を含むmotiveの結果universeで、間違った値はkernel検査を通りません。全域性の検査を無効化する設定、一般再帰・相互再帰・Eqのpattern matchingはありません。
 
 このHIRはプログラムからの構築に加え、上記のPython frontendからも生成します。
 
