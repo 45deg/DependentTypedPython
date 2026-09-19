@@ -36,7 +36,24 @@ impl Lowerer {
         }
     }
 
-    pub(super) fn decorator(&self, f: &ast::StmtFunctionDef) -> Result<Option<String>, Diagnostic> {
+    pub(super) fn level(expr: &Expr) -> Result<u32, Diagnostic> {
+        if let Expr::NumberLiteral(n) = expr {
+            if let ast::Number::Int(value) = &n.value {
+                if let Some(level) = value.as_u64().and_then(|n| u32::try_from(n).ok()) {
+                    return Ok(level);
+                }
+            }
+        }
+        Err(error(
+            expr,
+            "universe level requires a nonnegative u32 integer literal",
+        ))
+    }
+
+    pub(super) fn decorator(
+        &self,
+        f: &ast::StmtFunctionDef,
+    ) -> Result<Option<(String, u32)>, Diagnostic> {
         if f.decorator_list.len() != 1 {
             return Err(error(f, "expected one @dependent decorator"));
         }
@@ -47,19 +64,34 @@ impl Lowerer {
         if let Expr::Call(call) = expr {
             if self.builtin(&call.func, &Scope::default()) == Some("dependent")
                 && call.arguments.args.is_empty()
-                && call.arguments.keywords.len() == 1
             {
-                let keyword = &call.arguments.keywords[0];
-                if keyword.arg.as_ref().map(|a| a.as_str()) == Some("decreases") {
-                    if let Expr::StringLiteral(value) = &keyword.value {
-                        return Ok(Some(value.value.to_str().to_owned()));
+                let mut decreases = None;
+                let mut level = None;
+                for keyword in &call.arguments.keywords {
+                    match keyword.arg.as_ref().map(|a| a.as_str()) {
+                        Some("decreases") if decreases.is_none() => {
+                            let Expr::StringLiteral(value) = &keyword.value else {
+                                return Err(error(
+                                    keyword,
+                                    "decreases requires a parameter name string",
+                                ));
+                            };
+                            decreases = Some(value.value.to_str().to_owned());
+                        }
+                        Some("motive_level") if level.is_none() => {
+                            level = Some(Self::level(&keyword.value)?);
+                        }
+                        _ => return Err(error(keyword, "unknown or duplicate dependent option")),
                     }
+                }
+                if let Some(name) = decreases {
+                    return Ok(Some((name, level.unwrap_or(0))));
                 }
             }
         }
         Err(error(
             expr,
-            "expected @dependent or @dependent(decreases=\"parameter\")",
+            "expected @dependent or @dependent(decreases=parameter, motive_level=level)",
         ))
     }
 

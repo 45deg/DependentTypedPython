@@ -52,7 +52,7 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - [x] 関数HIRのNat・Vec・Fin constructor pattern、網羅性検査、限定した入れ子のFin分岐。
 - [x] 関数HIRの指定引数に対する直接の構造的再帰、後続引数の一般化、recursorへの変換。
 - [x] append・get・zero_rightを、明示的なmotiveを持たない分岐と自己呼び出しから生成。
-- [x] Pythonのmatch・return・自己呼び出しから関数HIRへの変換（match、let列とreturn、motive universe 0）。
+- [x] Pythonのmatch・return・自己呼び出しから関数HIRへの変換（match、let列とreturn、motive universeの具体値指定）。
 - [x] Σ、期待型によるPairの検査、依存するfst・snd射影。
 - [x] 名前付きASTによるpackの一般形と射影の実行例。
 - [x] 非再帰dependent recordの名前付き宣言、名目的な単一コンストラクタ型と依存射影への変換。
@@ -74,7 +74,8 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - [ ] match前のローカル定義。
 - [x] Pythonの`@record`を既存record宣言へ接続。先行フィールド参照・型引数・コンストラクタ・射影。
 - [x] recordの同名フィールドを受け手の名目的な型から選択。連続する射影・型別名・let・関数HIRに対応。
-- [ ] frontendのuniverse指定。
+- [x] frontendのrecord level・再帰motive levelの具体値指定。
+- [ ] Vecコンストラクタ・cong・fin0_elimのuniverse指定（現在0）。
 - [ ] 静的importと検査済みインターフェース。
 - [ ] 消去対象の使用検査、消去、runtime IR。
 - [ ] ランタイムと境界データの検証・再構築。
@@ -104,7 +105,7 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 
 ## 検証記録（2026-09-19）
 
-- `cargo test --workspace --offline`：268件成功（kernel 84件、meta内部19件、elaboration統合131件、Python frontend 34件）。
+- `cargo test --workspace --offline`：271件成功（kernel 84件、meta内部19件、elaboration統合131件、Python frontend 37件）。
 - `cargo clippy --workspace --all-targets --offline -- -D warnings`：成功。
 - `cargo fmt --all -- --check`：成功。
 - `cargo run -p deppy-elab --example implicit_identity --offline`：暗黙型引数を補ったコアの生成とkernel再検査が成功。
@@ -133,6 +134,7 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - 再帰分岐内letによる帰納法仮定の保持、期待Sigma型の伝播、未使用の不正な値・scope違反・別名経由の再帰先の拒否を検査。
 - 同名・異なる型のrecordフィールドを型から選び、依存する結果型・連続する射影・高いuniverse・失敗した再登録後の保持を検査。
 - `branch_fields.py` をPython frontendのCLIで静的検査し、生成コアでcount(2) = 2を確認。
+- Pythonの高いrecord／motive levelの検査と生成コアの計算、level不整合・不正リテラル・未知／重複オプションの拒否を検査。
 - Pythonランタイム実行、消去、コード生成の検証は未実施。
 
-次はfrontendのuniverse指定とmatch前のローカル定義への対応を進めます。消去・Python実行の実装も残っています。
+次はmatch前のローカル定義への対応を進めます。消去・Python実行の実装も残っています。

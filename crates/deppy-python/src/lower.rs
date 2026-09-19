@@ -184,7 +184,7 @@ impl Lowerer {
     fn function(
         &mut self,
         f: &ast::StmtFunctionDef,
-        decreases: Option<String>,
+        decreases: Option<(String, u32)>,
     ) -> Result<Declaration, Diagnostic> {
         if f.is_async {
             return Err(error(f, "async dependent functions are unsupported"));
@@ -231,7 +231,7 @@ impl Lowerer {
                 .ok_or_else(|| error(f, "return annotation required"))?,
             &scope,
         )?;
-        if let Some(decreases) = decreases {
+        if let Some((decreases, motive_level)) = decreases {
             let implicit = parameters
                 .iter()
                 .filter(|(_, p, _)| *p == Plicity::Implicit)
@@ -255,7 +255,7 @@ impl Lowerer {
                     .collect(),
                 result: ty.clone(),
                 decreases,
-                motive_level: 0,
+                motive_level,
                 body,
             };
             for (name, plicity, domain) in parameters.into_iter().rev() {

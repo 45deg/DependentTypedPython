@@ -60,15 +60,24 @@ impl Lowerer {
     }
 
     pub(super) fn record(&mut self, class: &ast::StmtClassDef) -> Result<Declaration, Diagnostic> {
-        if class.decorator_list.len() != 1
-            || self.builtin(&class.decorator_list[0].expression, &Scope::default())
-                != Some("record")
-        {
-            return Err(error(
-                class,
-                "record class requires one bare @record decorator",
-            ));
+        if class.decorator_list.len() != 1 {
+            return Err(error(class, "expected one @record decorator"));
         }
+        let decorator = &class.decorator_list[0].expression;
+        let level = if self.builtin(decorator, &Scope::default()) == Some("record") {
+            0
+        } else if let Expr::Call(call) = decorator {
+            if self.builtin(&call.func, &Scope::default()) != Some("record")
+                || !call.arguments.args.is_empty()
+                || call.arguments.keywords.len() != 1
+                || call.arguments.keywords[0].arg.as_ref().map(|a| a.as_str()) != Some("level")
+            {
+                return Err(error(decorator, "expected @record or @record(level=level)"));
+            }
+            Self::level(&call.arguments.keywords[0].value)?
+        } else {
+            return Err(error(decorator, "expected @record or @record(level=level)"));
+        };
         if class
             .arguments
             .as_ref()
@@ -134,7 +143,7 @@ impl Lowerer {
         let ty = parameters
             .iter()
             .rev()
-            .fold(E::Universe(0), |result, (name, ty)| {
+            .fold(E::Universe(level), |result, (name, ty)| {
                 E::pi(name, Plicity::Implicit, ty.clone(), result)
             });
         self.records
@@ -152,7 +161,7 @@ impl Lowerer {
                 declaration: deppy_elab::RecordDecl {
                     parameters,
                     fields,
-                    level: 0,
+                    level,
                 },
                 field_names,
             },
