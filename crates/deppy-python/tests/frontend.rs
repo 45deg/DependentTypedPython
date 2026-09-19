@@ -328,3 +328,40 @@ fn python_proof_operations_reject_invalid_evidence() {
         .replace("cong(S,", "congruence(S,");
     check_module(&aliased, Target::Python314).unwrap();
 }
+
+#[test]
+fn recursive_branch_lets_keep_expected_types_and_compute() {
+    let fixture = include_str!("../examples/proofs.py")
+        .replace("return cong(S, zero_right(k))", "ih: Eq[Nat, k + 0, k] = zero_right(k)\n            result = cong(S, ih)\n            return result")
+        .replace("return get(k, rest, j)", "value: T = get(k, rest, j)\n                    return value");
+    let module = check_module(&fixture, Target::Python314).unwrap();
+    let e = module.elaborator;
+    let out = e
+        .infer(&E::name("zero_right").app(E::Zero.succ().succ()))
+        .unwrap();
+    let expected = e.infer(&E::Zero.succ().succ().refl()).unwrap();
+    assert_eq!(e.kernel().normalize(&out.term).unwrap(), expected.term);
+    accepted("@dependent(decreases='n')\ndef pair(n: Nat) -> Sigma[Nat, lambda k: Nat]:\n    match n:\n        case Z():\n            x = Z()\n            return Pair(x, x)\n        case S(k):\n            p = pair(k)\n            return Pair(S(p.fst), p.snd)");
+}
+
+#[test]
+fn recursive_branch_lets_reject_scope_errors_and_invalid_unused_values() {
+    let base = "@dependent(decreases='n')\ndef f(n: Nat) -> Nat:\n    match n:\n        case Z():\n            return Z()\n        case S(k):\n            BODY";
+    for body in [
+        "alias = k\n            return f(alias)",
+        "k = Z()\n            return f(k)",
+        "unused: Nat = Nat\n            return k",
+        "x = x\n            return x",
+        "x = S(k)\n            S = k\n            return x",
+        "x = k\n            x = Z()\n            return x",
+        "x: Nat\n            return k",
+        "x, y = k\n            return k",
+    ] {
+        rejected(&base.replace("BODY", body));
+    }
+    rejected(
+        &base
+            .replace("return Z()", "return x")
+            .replace("BODY", "x = k\n            return x"),
+    );
+}

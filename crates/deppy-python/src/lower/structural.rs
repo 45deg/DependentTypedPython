@@ -19,6 +19,14 @@ impl Lowerer {
             }
         }
         for stmt in statements {
+            let target = match stmt {
+                Stmt::Assign(s) if s.targets.len() == 1 => Some(&s.targets[0]),
+                Stmt::AnnAssign(s) => Some(s.target.as_ref()),
+                _ => None,
+            };
+            if let Some(Expr::Name(name)) = target {
+                names.insert(name.id.to_string());
+            }
             if let Stmt::Match(s) = stmt {
                 for case in &s.cases {
                     pattern(&case.pattern, names);
@@ -60,6 +68,48 @@ impl Lowerer {
         statements: &[Stmt],
         scope: &Scope,
     ) -> Result<Body, Diagnostic> {
+        if let Some((Stmt::Return(ret), prefix)) = statements.split_last() {
+            let mut scope = scope.clone();
+            let mut lets = vec![];
+            for stmt in prefix {
+                self.tick(stmt.range())?;
+                let (target, annotation, value) = match stmt {
+                    Stmt::Assign(s) if s.targets.len() == 1 => {
+                        (&s.targets[0], None, s.value.as_ref())
+                    }
+                    Stmt::AnnAssign(s) => (
+                        s.target.as_ref(),
+                        Some(s.annotation.as_ref()),
+                        s.value
+                            .as_deref()
+                            .ok_or_else(|| error(s, "local definition requires a value"))?,
+                    ),
+                    _ => {
+                        return Err(error(
+                            stmt,
+                            "expected immutable local definitions before return",
+                        ))
+                    }
+                };
+                let Expr::Name(name) = target else {
+                    return Err(error(target, "assignment requires a single local name"));
+                };
+                let ty = annotation.map(|ty| self.expr(ty, &scope)).transpose()?;
+                let value = self.expr(value, &scope)?;
+                self.bind(&mut scope, name.id.as_str(), name)?;
+                lets.push((name.id.to_string(), ty, value));
+            }
+            let mut result = self.expr(
+                ret.value
+                    .as_deref()
+                    .ok_or_else(|| error(ret, "return value required"))?,
+                &scope,
+            )?;
+            for (name, ty, value) in lets.into_iter().rev() {
+                result = E::let_in(name, ty, value, result);
+            }
+            return Ok(Body::Return(result));
+        }
         let [stmt] = statements else {
             return Err(Diagnostic {
                 span: statements
