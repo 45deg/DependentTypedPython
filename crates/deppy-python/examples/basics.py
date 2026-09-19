@@ -1,5 +1,5 @@
 from __future__ import annotations
-from deppy import dependent, Type, Nat, Z, S, Eq, refl, Vec, VNil, Sigma, Pair
+from deppy import dependent, Type, Nat, Z, S, Eq, refl, Sigma, Pair, Vec, VNil
 
 
 @dependent

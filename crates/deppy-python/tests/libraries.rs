@@ -12,6 +12,60 @@ fn nat(n: usize) -> E {
 }
 
 #[test]
+fn public_modules_group_builtins_and_checked_library_definitions() {
+    let source = r#"from __future__ import annotations
+from deppy.core import dependent, Type
+from deppy.nat import Nat, Z, S
+from deppy.equality import Eq, refl, sym
+from deppy.sigma import Sigma, Pair
+from deppy.fin import Fin, FZ
+from deppy.vectors import Vec, VNil
+from deppy.records import record
+
+@record
+class Box[A: Type]:
+    value: A
+
+@dependent
+def sample(n: Nat) -> Sigma[Nat, lambda k: Eq[Nat, k, k]]:
+    return Pair(n, sym(refl(n)))
+
+@dependent
+def empty() -> Vec[Nat, Z()]:
+    return VNil()
+
+@dependent
+def first() -> Fin[S(Z())]:
+    return FZ(Z())
+
+@dependent
+def boxed(n: Nat) -> Box[Nat]:
+    return Box[Nat](n)
+"#;
+    let checked = check_module(source, TARGET).unwrap();
+    assert_eq!(checked.definitions.len(), 5);
+    compile_module(source, TARGET).unwrap();
+}
+
+#[test]
+fn top_level_is_the_prelude_and_there_is_no_prelude_submodule() {
+    let source = r#"from __future__ import annotations
+from deppy import dependent, Nat, Eq, refl, sym
+
+@dependent
+def symmetric(n: Nat) -> Eq[Nat, n, n]:
+    return sym(refl(n))
+"#;
+    check_module(source, TARGET).unwrap();
+    compile_module(source, TARGET).unwrap();
+    assert!(check_module(
+        &source.replace("from deppy import", "from deppy.prelude import"),
+        TARGET
+    )
+    .is_err());
+}
+
+#[test]
 fn primitives_lambdas_and_higher_universes_compute() {
     let s = source(
         r#"

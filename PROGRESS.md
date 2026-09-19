@@ -65,7 +65,7 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - [x] Python 3.12・3.13・3.14のtarget指定、バージョンによる構文制限の拒否。
 - [x] Ruff ASTから名前付きExprへの変換、source range、ローカル名・検査済みグローバル名の解決。
 - [x] 裸の`@dependent`、型引数・型注釈・不変の代入・returnの検査。
-- [x] 固定deppy APIの静的importと別名。ユーザーコード・注釈は実行しない。
+- [x] トップレベルpreludeと責務別deppy APIの静的import・別名。ユーザーコード・注釈は実行しない。
 - [x] fixtureをCPython 3.12.0・3.14.3でcompile検証。
 - [ ] CPython 3.13のcompile検証。
 - [x] Pythonの`match`・構造的再帰を既存関数HIRへ接続。Nat・Vec・Finと暗黙型引数の補完。
@@ -156,6 +156,7 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - Pythonから型注釈付き／期待型によるλ、暗黙λとPi、J、Nat/Vec/Fin/record eliminator、明示的な高universeのVec構築、型付き定数を記述可能。
 - 等式補題を `stdlib/deppy/equality.py`、Finの依存分岐を `fin.py`、ベクタ操作と参照補題を `vectors.py` に実装。frontendのcong/trans専用変換を除去し、Rustのtrans定義を削除。
 - 静的なソースimport・alias・再export・名目的recordのimportに対応。CLIのファイル解決と、Rust APIからのSourceResolverを追加。循環・未検査名・名前の衝突を拒否。
+- Python APIを `core`・`nat`・`equality`・`sigma`・`fin`・`vectors`・`records` に分割。組み込みとPython製の派生定義を同じモジュールから公開し、トップレベル `deppy` をpreludeとして構成。
 - kernelに型検査済みの不透明な公理宣言を追加。等式反映や新しい簡約規則は追加せず、公理依存を型・定義・record経由で追跡。実行時の公理をダミー実装せず、コード生成時に拒否。
 - `reverse_explicit.py` で、構造的match変換を使わないPythonの明示的な証明を検査・正規化・実行。`axioms.py` は関数外延性を仮定する例。
 - 詳細な構文・ライブラリ・制約は `docs/proofs.md` に記載。一般の再帰帰納型やuniverse polymorphismは未対応のまま。

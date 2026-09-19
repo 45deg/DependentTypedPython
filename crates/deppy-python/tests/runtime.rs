@@ -159,7 +159,7 @@ fn reversed_vectors_and_mirrored_indices_execute() {
             "from deppy.vectors import get,",
             "from deppy.vectors import snoc, get,",
         )
-        .replace("Nat, Vec,", "Nat, S, Vec,")
+        .replace("Nat, Eq", "Nat, S, Eq")
         + r#"
 @dependent
 def run_reverse[T: Type](n: Nat, xs: Vec[T, n]) -> Vec[T, n]:

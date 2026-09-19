@@ -56,7 +56,7 @@ fn record_nominality_and_dependent_fields_are_checked() {
     for bad in [
         fixture
             .replace("SomeVec(p.fst, p.snd)", "SomeVec(S(p.fst), p.snd)")
-            .replace("Nat, Vec", "Nat, S, Vec"),
+            .replace("Nat,", "Nat, S,"),
         fixture.replace("SomeVec(p.fst, p.snd)", "p"),
         fixture.replace("r.value", "r.missing"),
         fixture.replace("self.n", "self.value"),

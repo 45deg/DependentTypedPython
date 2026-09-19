@@ -1,5 +1,5 @@
 from __future__ import annotations
-from deppy import dependent, Type, Nat, S, Fin, FZ, FS, Pi, nat_elim, fin_elim
+from deppy._builtins import dependent, Type, Nat, S, Fin, FZ, FS, Pi, nat_elim, fin_elim
 
 
 @dependent

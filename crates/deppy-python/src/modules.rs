@@ -6,10 +6,86 @@ use std::collections::{HashMap, HashSet};
 #[derive(Clone, Debug)]
 pub(crate) struct Binding {
     pub name: String,
+    pub builtin: Option<String>,
     pub record: Option<(usize, usize)>,
     pub nullary: bool,
 }
 type Exports = HashMap<String, Binding>;
+
+impl Binding {
+    fn builtin(name: &str) -> Self {
+        Self {
+            name: name.into(),
+            builtin: Some(name.into()),
+            record: None,
+            nullary: false,
+        }
+    }
+}
+
+const BUILTINS: &[&str] = &[
+    "dependent",
+    "axiom",
+    "record",
+    "Type",
+    "Nat",
+    "Z",
+    "S",
+    "Vec",
+    "VNil",
+    "VCons",
+    "Fin",
+    "FZ",
+    "FS",
+    "Eq",
+    "refl",
+    "J",
+    "nat_elim",
+    "vec_elim",
+    "fin_elim",
+    "record_elim",
+    "ann",
+    "lam",
+    "implicit_lam",
+    "ImplicitPi",
+    "vnil",
+    "vcons",
+    "pair",
+    "fin0_elim",
+    "Pi",
+    "Sigma",
+    "Pair",
+];
+
+fn builtin_names(module: &str) -> &'static [&'static str] {
+    match module {
+        "deppy._builtins" => BUILTINS,
+        "deppy.core" => &[
+            "dependent",
+            "axiom",
+            "Type",
+            "Pi",
+            "ImplicitPi",
+            "lam",
+            "implicit_lam",
+            "ann",
+        ],
+        "deppy.nat" => &["Nat", "Z", "S", "nat_elim"],
+        "deppy.equality" => &["Eq", "refl", "J"],
+        "deppy.sigma" => &["Sigma", "Pair", "pair"],
+        "deppy.fin" => &["Fin", "FZ", "FS", "fin_elim", "fin0_elim"],
+        "deppy.vectors" => &["Vec", "VNil", "VCons", "vnil", "vcons", "vec_elim"],
+        "deppy.records" => &["record", "record_elim"],
+        _ => &[],
+    }
+}
+
+fn builtin_exports(module: &str) -> Exports {
+    builtin_names(module)
+        .iter()
+        .map(|name| ((*name).into(), Binding::builtin(name)))
+        .collect()
+}
 
 /// Return source for a checked module name. None means the module is unavailable.
 /// The resolver supplies data, never executed Python objects.
@@ -29,14 +105,17 @@ fn error(message: impl Into<String>) -> Diagnostic {
 }
 fn standard(name: &str) -> Option<&'static str> {
     match name {
+        "deppy" => Some(include_str!("../stdlib/deppy/__init__.py")),
+        "deppy._builtins" => Some(include_str!("../stdlib/deppy/_builtins.py")),
+        "deppy.core" => Some(include_str!("../stdlib/deppy/core.py")),
+        "deppy.nat" => Some(include_str!("../stdlib/deppy/nat.py")),
         "deppy.vectors" => Some(include_str!("../stdlib/deppy/vectors.py")),
         "deppy.fin" => Some(include_str!("../stdlib/deppy/fin.py")),
         "deppy.equality" => Some(include_str!("../stdlib/deppy/equality.py")),
+        "deppy.sigma" => Some(include_str!("../stdlib/deppy/sigma.py")),
+        "deppy.records" => Some(include_str!("../stdlib/deppy/records.py")),
         _ => None,
     }
-}
-fn facade(name: &str) -> bool {
-    matches!(name, "cong" | "trans" | "sym" | "transport")
 }
 fn parse(source: &str, target: Target) -> Result<Vec<Stmt>, Diagnostic> {
     use ruff_python_parser::{Mode, ParseOptions};
@@ -136,7 +215,7 @@ impl<R: SourceResolver> Loader<'_, R> {
         }
         let body = parse(source, self.target)?;
         let mut libraries = HashMap::new();
-        let mut exports = Exports::new();
+        let mut exports = builtin_exports(name);
         for stmt in &body {
             if let Stmt::ImportFrom(import) = stmt {
                 if import.level != 0 || import.is_lazy {
@@ -146,15 +225,7 @@ impl<R: SourceResolver> Loader<'_, R> {
                 if module == "__future__" {
                     continue;
                 }
-                let available = if module == "deppy" {
-                    if import.names.iter().any(|a| facade(a.name.as_str())) {
-                        self.load("deppy.equality")?
-                    } else {
-                        Exports::new()
-                    }
-                } else {
-                    self.load(module)?
-                };
+                let available = self.load(module)?;
                 for alias in &import.names {
                     if let Some(binding) = available.get(alias.name.as_str()) {
                         exports.insert(
@@ -187,6 +258,7 @@ impl<R: SourceResolver> Loader<'_, R> {
                 local_name.into(),
                 Binding {
                     name: d.name.clone(),
+                    builtin: None,
                     record,
                     nullary,
                 },

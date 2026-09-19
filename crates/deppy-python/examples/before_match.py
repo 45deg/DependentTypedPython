@@ -1,5 +1,5 @@
 from __future__ import annotations
-from deppy import dependent, Type, Nat, Z, S, Vec, VNil, VCons, Eq, refl
+from deppy import dependent, Type, Nat, Z, S, Eq, refl, Vec, VNil, VCons
 
 
 @dependent(decreases="n")

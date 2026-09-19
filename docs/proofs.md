@@ -6,8 +6,7 @@ Python frontendから、既存kernelの依存関数・依存対・等式消去�
 
 ```python
 from __future__ import annotations
-from deppy import dependent, Nat, Eq, refl
-from deppy.equality import trans
+from deppy import dependent, Nat, Eq, refl, trans
 
 
 @dependent
@@ -19,11 +18,16 @@ def reflexive(n: Nat) -> Eq[Nat, n, n]:
 
 | モジュール | 定義 |
 | --- | --- |
-| `deppy.equality` | `sym`・`trans`・`cong`・`transport`。すべてPythonの `J` から定義 |
-| `deppy.fin` | `case_motive`・`fin_case`。添字に依存する型族を受け取る分岐をPythonのNat/Fin eliminatorから定義 |
-| `deppy.vectors` | `get`・`snoc`・`reverse`・`last`・`weaken`・`mirror`・参照補題 |
+| `deppy` | 通常利用する言語構文・基本型・コンストラクタ・消去子・等式補題をまとめたprelude |
+| `deppy.core` | `dependent`・`axiom`・`Type`・`Pi`・明示的なλと型注釈 |
+| `deppy.nat` | `Nat`・`Z`・`S`・`nat_elim` |
+| `deppy.equality` | `Eq`・`refl`・`J` と、Jから定義した `sym`・`trans`・`cong`・`transport` |
+| `deppy.sigma` | `Sigma`・`Pair`・型を明示する `pair` |
+| `deppy.fin` | `Fin`・`FZ`・`FS`・消去子と、依存分岐 `fin_case` |
+| `deppy.vectors` | `Vec`・コンストラクタ・消去子と、`get`・`reverse`・参照補題など |
+| `deppy.records` | `record`・`record_elim` |
 
-既存コードの `from deppy import cong, trans` も、同じPythonライブラリへの互換importとして残しています。Rust frontendに `cong`・`trans` の呼び出し専用変換はありません。Rust用のelaborator APIと例が使う `prelude::cong` などは別に残っています。また、`+` や構造的 `match` の構文変換は引き続きRustが担当します。
+通常のコードではトップレベルpreludeを使い、`get`・`reverse` のようなライブラリ操作は責務別モジュールからimportします。kernel primitiveとPythonで書いた派生定義は、利用者からは同じドメインモジュールに見えます。Rust frontendに `cong`・`trans` の呼び出し専用変換はありません。Rust用のelaborator APIと例が使う `prelude::cong` などは別に残っています。また、`+` や構造的 `match` の構文変換は引き続きRustが担当します。
 
 `examples/reverse.py` はライブラリを利用する構造的帰納法の証明です。`examples/reverse_explicit.py` は同じ型の証明を `@dependent`、`vec_elim`、Pythonライブラリの `fin_case` だけで書いています。どちらも公理なしで検査できます。
 

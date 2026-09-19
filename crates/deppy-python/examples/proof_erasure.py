@@ -1,6 +1,5 @@
 from __future__ import annotations
-from deppy import dependent, Nat, Eq, refl, J
-from deppy.equality import sym
+from deppy import dependent, Nat, Eq, refl, J, sym
 
 
 @dependent

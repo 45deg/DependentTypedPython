@@ -254,7 +254,7 @@ fn structural_recursion_and_coverage_are_checked() {
 fn structural_aliases_globals_and_local_scope() {
     accepted("@dependent\ndef step(n: Nat) -> Nat:\n    return S(n)\n@dependent(decreases='n')\ndef count(n: Nat) -> Nat:\n    match n:\n        case Z():\n            return Z()\n        case S(k):\n            return step(count(k))");
     let fixture = include_str!("../examples/structural.py")
-        .replace(" Z, S,", " Z as Zero, S as Succ,")
+        .replace("Nat, Z, S", "Nat, Z as Zero, S as Succ")
         .replace("Z()", "Zero()")
         .replace("S(", "Succ(");
     check_module(&fixture, Target::Python314).unwrap();
@@ -323,8 +323,8 @@ fn python_proof_operations_reject_invalid_evidence() {
         assert!(check_module(&bad, Target::Python314).is_err(), "{bad}");
     }
     let aliased = fixture
-        .replace("fin0_elim,", "fin0_elim as absurd,")
-        .replace("cong\n", "cong as congruence\n")
+        .replace("FS, fin0_elim", "FS, fin0_elim as absurd")
+        .replace("Eq, refl, cong", "Eq, refl, cong as congruence")
         .replace("fin0_elim(i)", "absurd(i)")
         .replace("cong(S,", "congruence(S,");
     check_module(&aliased, Target::Python314).unwrap();

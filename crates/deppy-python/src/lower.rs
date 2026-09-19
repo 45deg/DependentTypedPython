@@ -28,40 +28,6 @@ struct Lowerer {
     wildcard: usize,
     records: HashMap<String, (usize, usize)>,
 }
-const IMPORTS: &[&str] = &[
-    "dependent",
-    "axiom",
-    "record",
-    "Type",
-    "Nat",
-    "Z",
-    "S",
-    "Vec",
-    "VNil",
-    "VCons",
-    "Fin",
-    "FZ",
-    "FS",
-    "Eq",
-    "refl",
-    "J",
-    "nat_elim",
-    "vec_elim",
-    "fin_elim",
-    "record_elim",
-    "ann",
-    "lam",
-    "implicit_lam",
-    "ImplicitPi",
-    "vnil",
-    "vcons",
-    "pair",
-    "fin0_elim",
-    "Pi",
-    "Sigma",
-    "Pair",
-];
-
 pub(super) fn module(
     body: &[Stmt],
     namespace: &str,
@@ -109,15 +75,17 @@ pub(super) fn module(
                         if !names.insert(name.to_owned()) {
                             return Err(error(alias, "duplicate module binding"));
                         }
-                        if module == "deppy" && IMPORTS.contains(&original) {
-                            l.imports.insert(name.into(), original.into());
-                        } else if let Some(binding) = libraries
+                        if let Some(binding) = libraries
                             .get(module)
                             .and_then(|exports| exports.get(original))
                         {
-                            l.globals.insert(name.into(), binding.clone());
-                            if let Some(arity) = binding.record {
-                                l.records.insert(name.into(), arity);
+                            if let Some(builtin) = &binding.builtin {
+                                l.imports.insert(name.into(), builtin.clone());
+                            } else {
+                                l.globals.insert(name.into(), binding.clone());
+                                if let Some(arity) = binding.record {
+                                    l.records.insert(name.into(), arity);
+                                }
                             }
                         } else {
                             return Err(error(
@@ -154,6 +122,7 @@ pub(super) fn module(
                     f.name.to_string(),
                     crate::modules::Binding {
                         name: declaration.name.clone(),
+                        builtin: None,
                         record: None,
                         nullary: f.parameters.posonlyargs.is_empty()
                             && f.parameters.args.is_empty(),
@@ -178,6 +147,7 @@ pub(super) fn module(
                     class.name.to_string(),
                     crate::modules::Binding {
                         name: declaration.name.clone(),
+                        builtin: None,
                         record: l.records.get(class.name.as_str()).copied(),
                         nullary: false,
                     },

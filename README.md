@@ -76,7 +76,14 @@ elaborator単体の入力はRustで組み立てるASTです。Pythonの解析は
 - `check_module(source, Target)`：新しい環境で全宣言を型検査し、検査済みの定義とelaboratorを返します。失敗時に部分的な環境は返しません。
 - CLI：ファイルを読み込み、Python 3.14構文として静的検査します。エラーはファイル名・行・列付きで表示します。
 
-対応するのは裸の `@dependent`、注釈付き位置引数、`[A: Type]` などの暗黙引数、戻り値注釈、不変の単一ローカル代入、最後の `return` です。`from __future__ import annotations` と、対応APIの `from deppy import ...` を要求します。importの別名にも対応します。
+対応するのは裸の `@dependent`、注釈付き位置引数、`[A: Type]` などの暗黙引数、戻り値注釈、不変の単一ローカル代入、最後の `return` です。`from __future__ import annotations` と、対応する `deppy` モジュールからの静的importを要求します。importの別名にも対応します。
+
+トップレベルの `deppy` がpreludeです。通常のコードはここから言語構文、基本型、コンストラクタ、消去子、等式補題をimportします。APIは同時に責務別にも分かれており、`deppy.core` は宣言と関数型、`deppy.nat` は自然数、`deppy.equality` は等式、`deppy.sigma` は依存対、`deppy.fin` は有限添字、`deppy.vectors` はベクタ、`deppy.records` はrecordを公開します。各モジュールはkernel primitiveとPythonで記述した派生定義を区別せず同じ場所から公開します。
+
+```python
+from deppy import dependent, Type, Nat, Z, S, Eq, refl, cong, Vec, VNil, VCons
+from deppy.vectors import get
+```
 
 式は `Type`・`Type[level]`、Nat・Vec・Fin・Eq・Pi・Sigma、コンストラクタ、refl・cong・trans・fin0_elim、Pairとfst/snd、位置引数による適用、角括弧による暗黙引数指定、Natの加算と0〜1024の整数リテラルに対応します。`VNil()` と `VCons(k, head, tail)` の要素型のuniverseは現在Type₀です。`FZ(k)` と `FS(k, pred)` はboundを明示します。例は `crates/deppy-python/examples/basics.py` にあります。
 
@@ -86,7 +93,7 @@ elaborator単体の入力はRustで組み立てるASTです。Pythonの解析は
 
 再帰関数のmotive universeは省略時0で、`@dependent(decreases="n", motive_level=1)` のように具体値を指定できます。guard、Finのbound以外のワイルドカード、キーワードpattern、コンストラクタpatternの入れ子、自己呼び出しの明示的型引数は未対応です。入れ子のmatchは既存HIRの制限に従います。patternのcapture名にもPythonの関数全体のローカルスコープを適用します。`lower_module` の本体は `DeclarationBody::Expression` / `Structural` / `Record` / `Axiom` で区別されます。
 
-`cong(f, proof)` と等式の推移律 `trans(p, q)` はPythonライブラリ `deppy.equality` のJから導いた定義を適用し、`fin0_elim(i)` は戻り値の期待型を使って空のFinを消去します。現在はType₀が対象です。Fin patternのboundは `FZ(_)` / `FS(_, j)` と省略でき、他の名前を捕捉しない内部名を生成します。`crates/deppy-python/examples/proofs.py` にChatlogのget・zero_right宣言があります。これらの静的検査と生成コアの計算をテストしています。
+`cong(f, proof)` と等式の推移律 `trans(p, q)` はPythonライブラリ `deppy.equality` のJから導いた定義を適用し、`fin0_elim(i)` は戻り値の期待型を使って空のFinを消去します。現在はType₀が対象です。`Eq`・`refl`・`J` も同じ `deppy.equality` から、`Fin`・`FZ`・`FS`・各消去子も `deppy.fin` からimportできます。Fin patternのboundは `FZ(_)` / `FS(_, j)` と省略でき、他の名前を捕捉しない内部名を生成します。`crates/deppy-python/examples/proofs.py` にChatlogのget・zero_right宣言があります。これらの静的検査と生成コアの計算をテストしています。
 
 `@record class SomeVec[T: Type]` は名目的な非再帰recordを宣言します。フィールドには値のない型注釈を使い、先行フィールドは `self.n` のように参照します。`SomeVec[T]` は型、`SomeVec(n, xs)` / `SomeVec[T](n, xs)` はコンストラクタ、`r.n` / `r.value` は生成した射影へ変換します。型名と補助関数を同じelaborator環境に登録します。`CheckedModule.definitions` には関数とrecord型の公開名を返します。
 

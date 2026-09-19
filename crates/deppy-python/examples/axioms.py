@@ -1,6 +1,5 @@
 from __future__ import annotations
-from deppy import axiom, dependent, Type, Pi, Eq
-from deppy.equality import sym
+from deppy import axiom, dependent, Type, Pi, Eq, sym
 
 
 @axiom

@@ -1,5 +1,5 @@
 from __future__ import annotations
-from deppy import dependent, record, Type, Nat, Vec, Sigma, Pair
+from deppy import dependent, record, Type, Nat, Sigma, Pair, Vec
 
 
 @record
