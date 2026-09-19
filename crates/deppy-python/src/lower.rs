@@ -1,3 +1,4 @@
+mod data;
 mod expression;
 mod record;
 mod structural;
@@ -131,6 +132,7 @@ pub(super) fn module(
                         name: declaration.name.clone(),
                         builtin: None,
                         record: None,
+                        data: None,
                         nullary: f.parameters.posonlyargs.is_empty()
                             && f.parameters.args.is_empty(),
                     },
@@ -148,6 +150,15 @@ pub(super) fn module(
                         "from __future__ import annotations is required",
                     ));
                 }
+                let decorator = class.decorator_list.first().map(|d| match &d.expression {
+                    Expr::Call(c) => c.func.as_ref(),
+                    expr => expr,
+                });
+                if decorator.is_some_and(|d| l.builtin(d, &Scope::default()) == Some("inductive")) {
+                    let declaration = l.data(class, &mut names)?;
+                    declarations.push(declaration);
+                    continue;
+                }
                 let mut declaration = l.record(class)?;
                 declaration.name = l.qualified(class.name.as_str());
                 l.globals.insert(
@@ -156,6 +167,7 @@ pub(super) fn module(
                         name: declaration.name.clone(),
                         builtin: None,
                         record: l.records.get(class.name.as_str()).copied(),
+                        data: None,
                         nullary: false,
                     },
                 );
@@ -281,6 +293,16 @@ impl Lowerer {
                 body: DeclarationBody::Axiom,
             });
         }
+        let decreases = decreases.or_else(|| {
+            f.body.iter().find_map(|stmt| {
+                if let Stmt::Match(m) = stmt {
+                    if let Expr::Name(subject) = m.subject.as_ref() {
+                        return Some((subject.id.to_string(), 0));
+                    }
+                }
+                None
+            })
+        });
         if let Some((decreases, motive_level)) = decreases {
             let implicit = parameters
                 .iter()

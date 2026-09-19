@@ -40,6 +40,27 @@ impl Lowerer {
                     Expr::Tuple(t) => t.elts.iter().collect(),
                     e => vec![e],
                 };
+                if let Expr::Name(name) = s.value.as_ref() {
+                    if !scope.locals.contains(name.id.as_str()) {
+                        if let Some(binding) = self.globals.get(name.id.as_str()).cloned() {
+                            if let Some(data) = &binding.data {
+                                if args.len() != data.parameters + data.indices {
+                                    return Err(error(s, "wrong number of inductive arguments"));
+                                }
+                                let mut result = E::name(&binding.name);
+                                for (index, arg) in args.iter().enumerate() {
+                                    let arg = self.expr(arg, scope)?;
+                                    result = if index < data.parameters {
+                                        result.implicit(arg)
+                                    } else {
+                                        result.app(arg)
+                                    };
+                                }
+                                return Ok(result);
+                            }
+                        }
+                    }
+                }
                 if let Some(name) = self.record_name(&s.value, scope) {
                     if args.len() != self.records[&name].0 {
                         return Err(error(s, "wrong number of record type arguments"));
@@ -127,6 +148,59 @@ impl Lowerer {
                 }
             }
             Expr::Call(call) => {
+                if self.builtin(&call.func, scope) == Some("induct") {
+                    let args = &call.arguments.args;
+                    if args.len() < 3 || !call.arguments.keywords.is_empty() {
+                        return Err(error(
+                            call,
+                            "induct(level, value, motive, *branches) requires positional arguments",
+                        ));
+                    }
+                    return Ok(E::Induct {
+                        level: Self::level(&args[0])?,
+                        value: Box::new(self.expr(&args[1], scope)?),
+                        motive: Box::new(self.expr(&args[2], scope)?),
+                        branches: args[3..]
+                            .iter()
+                            .map(|b| self.expr(b, scope))
+                            .collect::<Result<_, _>>()?,
+                    });
+                }
+                if self.builtin(&call.func, scope) == Some("absurd") {
+                    let args = &call.arguments.args;
+                    if args.len() != 2 || !call.arguments.keywords.is_empty() {
+                        return Err(error(call, "absurd(type, value) requires two arguments"));
+                    }
+                    return Ok(E::Absurd {
+                        ty: Box::new(self.expr(&args[0], scope)?),
+                        value: Box::new(self.expr(&args[1], scope)?),
+                    });
+                }
+                if let Expr::Name(name) = call.func.as_ref() {
+                    if !scope.locals.contains(name.id.as_str()) {
+                        if let Some(binding) = self.globals.get(name.id.as_str()).cloned() {
+                            if let Some(data) = &binding.data {
+                                if data.constructor.is_some() {
+                                    if !call.arguments.keywords.is_empty() {
+                                        return Err(error(
+                                            call,
+                                            "constructor keywords are unsupported",
+                                        ));
+                                    }
+                                    let mut result = E::name(binding.name);
+                                    for _ in 0..data.parameters {
+                                        result = result.implicit(E::Hole);
+                                    }
+                                    for arg in &call.arguments.args {
+                                        result = result.app(self.expr(arg, scope)?);
+                                    }
+                                    return Ok(result);
+                                }
+                            }
+                        }
+                    }
+                }
+
                 if self.builtin(&call.func, scope) == Some("hole") {
                     if !call.arguments.keywords.is_empty() || call.arguments.args.len() != 1 {
                         return Err(error(call, "hole requires one name string"));
@@ -314,7 +388,7 @@ impl Lowerer {
                     }
                     (None, _) => {
                         if args.is_empty()
-                            && !matches!(call.func.as_ref(), Expr::Name(n) if !scope.locals.contains(n.id.as_str()) && !scope.assigned.contains(n.id.as_str()) && self.globals.get(n.id.as_str()).is_some_and(|b| b.nullary))
+                            && !matches!(match call.func.as_ref() { Expr::Subscript(s) => s.value.as_ref(), expr => expr }, Expr::Name(n) if !scope.locals.contains(n.id.as_str()) && !scope.assigned.contains(n.id.as_str()) && self.globals.get(n.id.as_str()).is_some_and(|b| b.nullary))
                         {
                             return Err(error(
                                 call,

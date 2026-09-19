@@ -3,14 +3,19 @@ use std::sync::Arc;
 
 pub(crate) type Val = Arc<Value>;
 pub(crate) type Env = Vec<Val>;
+type NativeClosure = Arc<dyn Fn(Val, &mut Budget) -> Result<Val, Error> + Send + Sync>;
 
 #[derive(Clone)]
-pub(crate) struct Closure {
-    env: Env,
-    body: Tm,
+pub(crate) enum Closure {
+    Syntax { env: Env, body: Tm },
+    Native(NativeClosure),
 }
 
 pub(crate) enum Value {
+    Data {
+        op: crate::DataOp,
+        arguments: Vec<Val>,
+    },
     Inductive {
         id: crate::InductiveId,
         parameters: Vec<Val>,
@@ -58,6 +63,10 @@ pub(crate) enum Value {
 }
 
 pub(crate) enum Neutral {
+    Data {
+        op: crate::DataOp,
+        arguments: Vec<Val>,
+    },
     Elim {
         id: crate::InductiveId,
         parameters: Vec<Val>,
@@ -116,6 +125,7 @@ pub(crate) enum Neutral {
 pub(crate) struct Budget(
     pub usize,
     pub Arc<std::collections::BTreeMap<crate::DefId, crate::GlobalDeclaration>>,
+    pub Arc<std::collections::BTreeMap<u64, crate::DataDecl>>,
 );
 impl Budget {
     pub fn tick(&mut self) -> Result<(), Error> {
@@ -130,9 +140,14 @@ pub(crate) fn fresh(level: usize) -> Val {
 
 impl Closure {
     pub fn apply(&self, arg: Val, budget: &mut Budget) -> Result<Val, Error> {
-        let mut env = self.env.clone();
-        env.push(arg);
-        eval(&self.body, &env, budget)
+        match self {
+            Self::Syntax { env, body } => {
+                let mut env = env.clone();
+                env.push(arg);
+                eval(body, &env, budget)
+            }
+            Self::Native(function) => function(arg, budget),
+        }
     }
 }
 
@@ -148,6 +163,13 @@ pub(crate) fn apply(fun: &Val, arg: Val, budget: &mut Budget) -> Result<Val, Err
 pub(crate) fn eval(term: &Tm, env: &Env, budget: &mut Budget) -> Result<Val, Error> {
     budget.tick()?;
     Ok(Arc::new(match term.as_ref() {
+        Term::Data { op, arguments } => {
+            let arguments = arguments
+                .iter()
+                .map(|a| eval(a, env, budget))
+                .collect::<Result<Vec<_>, _>>()?;
+            return crate::kernel::data::evaluate(*op, arguments, budget);
+        }
         Term::Global(id) => {
             let body = budget
                 .1
@@ -223,7 +245,7 @@ pub(crate) fn eval(term: &Tm, env: &Env, budget: &mut Budget) -> Result<Val, Err
         }
         Term::Sigma { domain, codomain } => Value::Sigma(
             eval(domain, env, budget)?,
-            Closure {
+            Closure::Syntax {
                 env: env.clone(),
                 body: codomain.clone(),
             },
@@ -377,7 +399,7 @@ pub(crate) fn eval(term: &Tm, env: &Env, budget: &mut Budget) -> Result<Val, Err
         } => Value::Pi(
             *relevance,
             eval(domain, env, budget)?,
-            Closure {
+            Closure::Syntax {
                 env: env.clone(),
                 body: codomain.clone(),
             },
@@ -389,7 +411,7 @@ pub(crate) fn eval(term: &Tm, env: &Env, budget: &mut Budget) -> Result<Val, Err
         } => Value::Lam(
             *relevance,
             eval(domain, env, budget)?,
-            Closure {
+            Closure::Syntax {
                 env: env.clone(),
                 body: body.clone(),
             },
@@ -413,6 +435,27 @@ pub(crate) fn eval(term: &Tm, env: &Env, budget: &mut Budget) -> Result<Val, Err
 pub(crate) fn equal(a: &Val, b: &Val, depth: usize, budget: &mut Budget) -> Result<bool, Error> {
     budget.tick()?;
     match (a.as_ref(), b.as_ref()) {
+        (
+            Value::Data { op, arguments } | Value::Neutral(Neutral::Data { op, arguments }),
+            Value::Data {
+                op: other,
+                arguments: right,
+            }
+            | Value::Neutral(Neutral::Data {
+                op: other,
+                arguments: right,
+            }),
+        ) => {
+            if op != other || arguments.len() != right.len() {
+                return Ok(false);
+            }
+            for (a, b) in arguments.iter().zip(right) {
+                if !equal(a, b, depth, budget)? {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
+        }
         (
             Value::Inductive { id, parameters },
             Value::Inductive {
@@ -691,6 +734,15 @@ pub(crate) fn equal_at(
 pub(crate) fn quote(value: &Val, depth: usize, budget: &mut Budget) -> Result<Tm, Error> {
     budget.tick()?;
     Ok(match value.as_ref() {
+        Value::Data { op, arguments } | Value::Neutral(Neutral::Data { op, arguments }) => {
+            Term::Data {
+                op: *op,
+                arguments: arguments
+                    .iter()
+                    .map(|a| quote(a, depth, budget))
+                    .collect::<Result<_, _>>()?,
+            }
+        }
         Value::Inductive { id, parameters } => Term::Inductive {
             id: *id,
             parameters: parameters

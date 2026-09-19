@@ -10,6 +10,18 @@ impl State {
         }
         match (a.as_ref(), b.as_ref()) {
             (
+                Term::Data { op, arguments },
+                Term::Data {
+                    op: other,
+                    arguments: right,
+                },
+            ) if op == other && arguments.len() == right.len() => {
+                for (a, b) in arguments.iter().zip(right) {
+                    self.unify(a, b)?;
+                }
+                Ok(())
+            }
+            (
                 Term::Sigma { id, domain, body },
                 Term::Sigma {
                     id: id2,
@@ -425,7 +437,11 @@ impl State {
     ) -> Result<(), Error> {
         self.tick()?;
         match term.as_ref() {
-            Term::Inductive { parameters, .. } => {
+            Term::Data {
+                arguments: parameters,
+                ..
+            }
+            | Term::Inductive { parameters, .. } => {
                 for child in parameters {
                     self.validate_solution(solving, child, allowed)?;
                 }

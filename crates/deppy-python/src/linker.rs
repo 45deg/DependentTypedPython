@@ -11,6 +11,8 @@ pub(crate) fn check_lowered(
     let mut elaborator = Elaborator::new(options.elaboration_steps);
     let mut definitions = vec![];
     let mut record_id = 0;
+    let mut data_id = 0;
+    let mut data_entries = std::collections::BTreeMap::new();
     let mut constructors = vec![];
     let mut axiom_names = std::collections::HashMap::new();
     for d in module.declarations {
@@ -75,9 +77,9 @@ pub(crate) fn check_lowered(
                     end: d.span.end,
                 });
             }
-            if let deppy_elab::Error::TypeMismatch { expected, actual } = error.cause() {
-                result.details.expected = Some(expected.clone());
-                result.details.actual = Some(actual.clone());
+            if let Some((expected, actual)) = error.type_details() {
+                result.details.expected = Some(expected.to_owned());
+                result.details.actual = Some(actual.to_owned());
             }
             if let deppy_elab::Error::Goals(goals) = error.cause() {
                 result.details.goals = goals.clone();
@@ -91,6 +93,21 @@ pub(crate) fn check_lowered(
             }
             result
         };
+        if let DeclarationBody::Data(decl) = &d.body {
+            let exports = elaborator
+                .declare_data(data_id, decl.clone())
+                .map_err(elab_diagnostic)?;
+            for (index, (name, _)) in exports.iter().enumerate() {
+                data_entries.insert(name.clone(), (data_id, index.checked_sub(1)));
+            }
+            data_id += 1;
+            for (name, id) in exports {
+                if module.public_names.contains(&name) {
+                    definitions.push((name, id, d.span));
+                }
+            }
+            continue;
+        }
         if matches!(d.body, DeclarationBody::Axiom) {
             let id = elaborator
                 .declare_axiom(&d.name, &d.ty)
@@ -133,7 +150,9 @@ pub(crate) fn check_lowered(
                 }
             },
             DeclarationBody::Expression(body) => body.clone(),
-            DeclarationBody::Record { .. } | DeclarationBody::Axiom => unreachable!(),
+            DeclarationBody::Record { .. } | DeclarationBody::Axiom | DeclarationBody::Data(_) => {
+                unreachable!()
+            }
         };
         let result = if d.opaque {
             elaborator.define_opaque(&d.name, Some(&d.ty), &body)
@@ -171,6 +190,7 @@ pub(crate) fn check_lowered(
         &definitions,
         &constructors,
         &axiom_dependencies,
+        &data_entries,
     );
     Ok(CheckedModule {
         interface,

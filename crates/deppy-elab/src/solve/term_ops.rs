@@ -5,6 +5,13 @@ impl State {
     pub(super) fn subst(&mut self, term: &T, map: &HashMap<Id, T>) -> Result<T, Error> {
         self.tick()?;
         Ok(match term.as_ref() {
+            Term::Data { op, arguments } => Term::Data {
+                op: *op,
+                arguments: arguments
+                    .iter()
+                    .map(|x| self.subst(x, map))
+                    .collect::<Result<_, _>>()?,
+            },
             Term::Inductive { id, parameters } => Term::Inductive {
                 id: *id,
                 parameters: parameters
@@ -220,6 +227,59 @@ impl State {
     pub(super) fn whnf(&mut self, term: &T) -> Result<T, Error> {
         self.tick()?;
         match term.as_ref() {
+            Term::Data {
+                op: deppy_core::DataOp::Eliminate(id, level),
+                arguments,
+            } => {
+                let decl = self.kernel.data_declaration(*id)?.clone();
+                let p = decl.parameters.len();
+                let i = decl.indices.len();
+                let scrutinee = self.whnf(arguments.last().ok_or(Error::CannotUnify)?)?;
+                if let Term::Data {
+                    op: deppy_core::DataOp::Constructor(other, c),
+                    arguments: fields,
+                } = scrutinee.as_ref()
+                {
+                    if other != id {
+                        return Err(Error::CannotUnify);
+                    }
+                    let ctor = decl.constructors.get(*c).ok_or(Error::CannotUnify)?;
+                    let motive = arguments[p + i].clone();
+                    let branches = arguments[p + i + 1..arguments.len() - 1].to_vec();
+                    let mut result = branches[*c].clone();
+                    for field in &fields[p..] {
+                        result = Term::App(result, field.clone()).arc();
+                    }
+                    for (f, ty) in ctor.fields.iter().enumerate() {
+                        let mut scope = (0..p + f).map(|_| self.fresh()).collect::<Vec<_>>();
+                        let imported = self.import_core(ty, &mut scope)?;
+                        let map = scope
+                            .into_iter()
+                            .zip(fields[..p + f].iter().cloned())
+                            .collect();
+                        let ty = self.subst(&imported, &map)?;
+                        if let Some(ih) = self.data_hypothesis(
+                            *id,
+                            *level,
+                            &ty,
+                            fields[p + f].clone(),
+                            &motive,
+                            &branches,
+                        )? {
+                            result = Term::App(result, ih).arc();
+                        }
+                    }
+                    self.whnf(&result)
+                } else {
+                    let mut arguments = arguments.clone();
+                    *arguments.last_mut().unwrap() = scrutinee;
+                    Ok(Term::Data {
+                        op: deppy_core::DataOp::Eliminate(*id, *level),
+                        arguments,
+                    }
+                    .arc())
+                }
+            }
             Term::Global(id) => {
                 let Some(body) = self.kernel.definition(*id)?.unfolding_body().cloned() else {
                     return Ok(term.clone());
@@ -430,9 +490,74 @@ impl State {
         }
     }
 
+    fn data_hypothesis(
+        &mut self,
+        family: u64,
+        level: u32,
+        ty: &T,
+        field: T,
+        motive: &T,
+        branches: &[T],
+    ) -> Result<Option<T>, Error> {
+        self.tick()?;
+        let ty = self.whnf(ty)?;
+        match ty.as_ref() {
+            Term::Data {
+                op: deppy_core::DataOp::Type(id),
+                arguments,
+            } if *id == family => {
+                let mut arguments = arguments.clone();
+                arguments.push(motive.clone());
+                arguments.extend_from_slice(branches);
+                arguments.push(field);
+                Ok(Some(
+                    Term::Data {
+                        op: deppy_core::DataOp::Eliminate(family, level),
+                        arguments,
+                    }
+                    .arc(),
+                ))
+            }
+            Term::Pi {
+                id,
+                plicity,
+                domain,
+                body,
+            } => {
+                let argument = Term::Local(*id).arc();
+                Ok(self
+                    .data_hypothesis(
+                        family,
+                        level,
+                        body,
+                        Term::App(field, argument).arc(),
+                        motive,
+                        branches,
+                    )?
+                    .map(|body| {
+                        Term::Lam {
+                            id: *id,
+                            plicity: *plicity,
+                            domain: domain.clone(),
+                            body,
+                        }
+                        .arc()
+                    }))
+            }
+            _ => Ok(None),
+        }
+    }
+
     pub(super) fn zonk(&mut self, term: &T) -> Result<T, Error> {
         let term = self.whnf(term)?;
         Ok(match term.as_ref() {
+            Term::Data { op, arguments } => Term::Data {
+                op: *op,
+                arguments: arguments
+                    .iter()
+                    .map(|x| self.zonk(x))
+                    .collect::<Result<_, _>>()?,
+            },
             Term::Inductive { id, parameters } => Term::Inductive {
                 id: *id,
                 parameters: parameters
@@ -628,6 +753,13 @@ impl State {
     pub(super) fn expand(&mut self, term: &T) -> Result<T, Error> {
         self.tick()?;
         Ok(match term.as_ref() {
+            Term::Data { op, arguments } => Term::Data {
+                op: *op,
+                arguments: arguments
+                    .iter()
+                    .map(|x| self.expand(x))
+                    .collect::<Result<_, _>>()?,
+            },
             Term::Inductive { id, parameters } => Term::Inductive {
                 id: *id,
                 parameters: parameters

@@ -8,11 +8,18 @@ use ruff_python_ast::{Mod, Stmt};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Debug)]
+pub(crate) struct DataBinding {
+    pub parameters: usize,
+    pub indices: usize,
+    pub constructor: Option<usize>,
+}
+#[derive(Clone, Debug)]
 pub(crate) struct Binding {
     pub name: String,
     pub builtin: Option<String>,
     pub record: Option<(usize, usize)>,
     pub nullary: bool,
+    pub data: Option<DataBinding>,
 }
 type Exports = HashMap<String, Binding>;
 
@@ -23,6 +30,7 @@ impl Binding {
             builtin: Some(name.into()),
             record: None,
             nullary: false,
+            data: None,
         }
     }
 }
@@ -213,10 +221,42 @@ impl<R: SourceResolver> Loader<'_, R> {
                     builtin: None,
                     record,
                     nullary,
+                    data: match &d.body {
+                        DeclarationBody::Data(decl) => Some(DataBinding {
+                            parameters: decl.parameters.len(),
+                            indices: decl.indices.len(),
+                            constructor: None,
+                        }),
+                        _ => None,
+                    },
                 },
             );
             if !name.is_empty() {
                 self.origins.insert(d.name.clone(), name.into());
+            }
+        }
+        for d in &declarations {
+            if let DeclarationBody::Data(decl) = &d.body {
+                for (c, ctor) in decl.constructors.iter().enumerate() {
+                    let local = ctor.name.rsplit('.').next().unwrap();
+                    exports.insert(
+                        local.into(),
+                        Binding {
+                            name: ctor.name.clone(),
+                            builtin: None,
+                            record: None,
+                            nullary: ctor.fields.is_empty(),
+                            data: Some(DataBinding {
+                                parameters: decl.parameters.len(),
+                                indices: 0,
+                                constructor: Some(c),
+                            }),
+                        },
+                    );
+                    if !name.is_empty() {
+                        self.origins.insert(ctor.name.clone(), name.into());
+                    }
+                }
             }
         }
         self.declarations.extend(declarations);

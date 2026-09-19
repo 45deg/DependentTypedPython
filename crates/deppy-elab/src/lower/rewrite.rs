@@ -8,6 +8,24 @@ impl Lowerer {
     ) -> Result<E, Error> {
         self.tick()?;
         Ok(match e {
+            E::Absurd { ty, value } => E::Absurd {
+                ty: Box::new(self.rewrite(ty, env, recursion)?),
+                value: Box::new(self.rewrite(value, env, recursion)?),
+            },
+            E::Induct {
+                level,
+                value,
+                motive,
+                branches,
+            } => E::Induct {
+                level: *level,
+                value: Box::new(self.rewrite(value, env, recursion)?),
+                motive: Box::new(self.rewrite(motive, env, recursion)?),
+                branches: branches
+                    .iter()
+                    .map(|b| self.rewrite(b, env, recursion))
+                    .collect::<Result<_, _>>()?,
+            },
             E::UserHole(name) => E::UserHole(name.clone()),
             E::Located {
                 location,
@@ -43,6 +61,21 @@ impl Lowerer {
             E::Zero => E::Zero,
             E::Hole => E::Hole,
             E::Recur(arguments) => {
+                if !self.alternatives.is_empty() {
+                    let alternatives = std::mem::take(&mut self.alternatives);
+                    let mut result = Err(Error::InvalidRecursion(
+                        "no matching structural child".into(),
+                    ));
+                    for candidate in &alternatives {
+                        result = self.rewrite(e, env, Some(candidate));
+                        if !matches!(&result, Err(error) if matches!(error.cause(), Error::InvalidRecursion(_)))
+                        {
+                            break;
+                        }
+                    }
+                    self.alternatives = alternatives;
+                    return result;
+                }
                 let rec = recursion.ok_or_else(|| {
                     Error::InvalidRecursion("no smaller recursive field in this branch".into())
                 })?;

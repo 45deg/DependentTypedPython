@@ -47,7 +47,7 @@ DepPy2では`@dependent`を独立した証明支援系として発展させ、�
 - Nat、Z、S、universe levelとmotiveを明示した依存eliminator。
 - Eq、refl、一般の等式消去J（証明にも依存するmotive）。
 - Σ、型注釈付きPair、依存するfst・snd射影。
-- 非再帰・単一コンストラクタの名目的帰納型、依存eliminator、そこから生成する射影。
+- 一般のindexed inductive、複数constructor、strict positivity、依存eliminatorとNbE。非再帰recordには依存射影を生成。
 - Vec・Fin、サイズのwitnessを持つコンストラクタ、依存eliminator、fin0_elim。
 - 環境を保持するclosureによるNbE、β・ζ・Nat・Vec・Fin eliminatorとJのι簡約、関数のη変換。
 - `Kernel::infer`、`check`、`normalize`、型を指定する`equivalent`。
@@ -194,7 +194,7 @@ get    : {A : Type[level]} → (n : Nat) → Vec A n → Fin n → A
 
 getのVec motiveは`P k xs = Fin k → A`です。空の分岐にはfin0_elimを使い、VConsの分岐ではFinElimから導いたcase splitで先頭と再帰呼び出しを選びます。型レベルのNat eliminatorで分岐関数の型を作るため、添字の強制変換は不要です。実行例は`[1] ++ [0] = [1, 0]`と、その2番目の値が0であることをkernelの正規化で確認します。
 
-これらは固定された型と明示的なeliminatorの実装です。一般のユーザー定義帰納型・positivity checking、対応範囲外のPython patternは未実装です。生成runtimeのVecは不変tupleで、境界で長さと既知の要素型を検査します。
+これらは固定された型と明示的なeliminatorの実装です。一般のユーザー定義帰納型とpositivity checkingは別途追加済みです。対応する構文と分岐の制約は[Phase 1の実装状況](docs/dependent-phase1.md)を参照してください。生成runtimeのVecは不変tupleで、境界で長さと既知の要素型を検査します。
 
 ## reverseとmirrorの参照等式
 
@@ -252,7 +252,7 @@ RecordDecl {
 
 名前付きASTの `expr.field("field_name")` は、受け手を一度型推論し、その名目的なrecord IDに登録された射影を選びます。推論済みの型引数と受け手を、既存の生成済み射影へ適用します。新しいコアprimitiveは追加せず、依存する結果型もkernelで再検査します。型の別名、let、連続する射影、関数HIRにも対応します。未知のフィールドや不明な受け手の型は拒否します。
 
-`Expr::Core`は閉じたコア項の埋め込みです。入力をkernelで検査してからelaboratorに取り込み、最終結果も再検査します。`records`実行例では、第17.5節の`pack`・`as_record`・`as_pair`を名前付きASTで検査し、値を正規化して確認します。Pythonの`@record`にも接続しています。runtimeはタグ付き不変tupleを使います。一般の帰納型や再帰record・positivity checkingは未実装です。
+`Expr::Core`は閉じたコア項の埋め込みです。入力をkernelで検査してからelaboratorに取り込み、最終結果も再検査します。`records`実行例では、第17.5節の`pack`・`as_record`・`as_pair`を名前付きASTで検査し、値を正規化して確認します。Pythonの`@record`にも接続しています。runtimeはタグ付き不変tupleを使います。再帰型は一般の`@inductive`で宣言できます。`@record`は非再帰のままです。
 
 ## 分岐と構造的再帰の変換
 
@@ -308,7 +308,7 @@ uv run --no-project --offline --python 3.14 scripts/check_python_runtime.py
 
 Python 3.12.0・3.14.3で各244ケースが一致しました。比較するのはリポジトリの5fixtureです。ソース側にはテスト専用の `scripts/reference_deppy.py` を使います。この参照モデルは型検査器・証明検査器ではありません。
 
-残る拡張はuniverse polymorphism、CPython 3.13の実行検証、一般の帰納型、pattern単位のエラー位置などです。これらを既存例の実行MVPの完了条件には含めません。未対応の構文や未解決の穴を公理として受理する機能は設けません。
+残る拡張はuniverse polymorphism、CPython 3.13の実行検証、一般のpattern matrix、検査済みinterfaceを使うlinking、一般帰納型のruntime移行などです。これらを既存例の実行MVPの完了条件には含めません。未対応の構文や未解決の穴を公理として受理する機能は設けません。
 
 
 ## 証明の作成途中の解析
@@ -325,3 +325,5 @@ holeや診断が残る場合、CLIは非ゼロ終了し、`Analysis.checked` は
 `FrontendOptions` でPython target、loweringとelaborationの処理予算を指定できます。`CheckedModule.interface` は公開名・型・宣言種別・record constructor・公理依存を、検査時のkernel snapshotとともに提供します。保存済みinterfaceの読み込みや検査省略は行いません。
 
 Phase 1全体の完成状況と残件は [実装状況](docs/dependent-phase1.md) を参照してください。
+
+一般帰納型の標準ライブラリとして`deppy.data`、`deppy.lists`、`deppy.naturals`、`deppy.indexed`を追加しています。Listの四定理と一般Natを添字にした安全なgetを、公理なしで検査できます。既存API・証明群・runtimeの移行は未完了であり、専用Nat・Vec・Fin coreは保持しています。構文と残件は[Phase 1の実装状況](docs/dependent-phase1.md)を参照してください。

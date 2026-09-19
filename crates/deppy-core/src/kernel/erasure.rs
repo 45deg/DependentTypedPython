@@ -31,7 +31,7 @@ impl Kernel {
     /// Kernel validation precedes usage checking, including discarded subterms.
     pub fn erase(&self, term: &Tm) -> Result<RuntimeTerm, Error> {
         self.infer(term)?;
-        let mut budget = Budget(self.max_steps, self.definitions.clone());
+        let mut budget = Budget(self.max_steps, self.definitions.clone(), self.data.clone());
         erase(&self.context(), term, &[], &mut budget, ProofDemand::Result)
     }
 
@@ -220,6 +220,7 @@ fn erase(
         Term::Pair { fst, snd, .. } => prim("pair", vec![sub(fst)?, sub(snd)?]),
         Term::Fst(p) => prim("fst", vec![sub(p)?]),
         Term::Snd(p) => prim("snd", vec![sub(p)?]),
+        Term::Data { op, .. } => Err(Error::UnsupportedInductiveRuntime(op.id())),
         Term::Constructor { id, fields, .. } => {
             let mut args = vec![];
             for f in fields {
@@ -273,7 +274,7 @@ pub struct RuntimeSignature {
 impl Kernel {
     pub fn runtime_signature(&self, term: &Tm) -> Result<RuntimeSignature, Error> {
         self.infer(term)?;
-        let mut budget = Budget(self.max_steps, self.definitions.clone());
+        let mut budget = Budget(self.max_steps, self.definitions.clone(), self.data.clone());
         let mut ctx = self.context();
         let mut ty = synth(&ctx, term, &mut budget)?;
         let mut kept = vec![];
@@ -306,6 +307,7 @@ fn schema(
         erase(ctx, &term, kept, budget, ProofDemand::Computational)
     };
     Ok(match ty.as_ref() {
+        Value::Data { op, .. } => return Err(Error::UnsupportedInductiveRuntime(op.id())),
         Value::Universe(_) => RuntimeType::Type,
         Value::Nat => RuntimeType::Nat,
         Value::Eq(..) => RuntimeType::Proof,

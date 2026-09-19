@@ -10,11 +10,22 @@ impl Kernel {
         let mut pending = vec![term.clone(), ty];
         let mut definitions = BTreeSet::new();
         let mut records = BTreeSet::new();
+        let mut families = BTreeSet::new();
         let mut axioms = BTreeSet::new();
         let mut remaining = self.max_steps;
         while let Some(term) = pending.pop() {
             remaining = remaining.checked_sub(1).ok_or(Error::BudgetExceeded)?;
             match term.as_ref() {
+                Term::Data { op, arguments } => {
+                    pending.extend(arguments.iter().cloned());
+                    if families.insert(op.id()) {
+                        let decl = self.data_declaration(op.id())?;
+                        pending.extend(decl.parameters.iter().chain(&decl.indices).cloned());
+                        for ctor in &decl.constructors {
+                            pending.extend(ctor.fields.iter().chain(&ctor.indices).cloned());
+                        }
+                    }
+                }
                 Term::Global(id) => {
                     if definitions.insert(*id) {
                         let declaration = self.definition(*id)?;

@@ -9,14 +9,23 @@ pub enum DeclarationKind {
     Opaque,
     Axiom,
     Record,
+    Inductive,
+    Constructor,
 }
 
+#[derive(Clone, Debug)]
+pub struct InductiveMetadata {
+    pub id: u64,
+    pub constructor_index: Option<usize>,
+    pub declaration: deppy_core::DataDecl,
+}
 #[derive(Clone, Debug)]
 pub struct InterfaceEntry {
     pub id: DefId,
     pub ty: Tm,
     pub kind: DeclarationKind,
     pub constructor: Option<DefId>,
+    pub inductive: Option<InductiveMetadata>,
     pub axiom_dependencies: Vec<String>,
 }
 
@@ -36,6 +45,7 @@ impl CheckedInterface {
         definitions: &[(String, DefId, Span)],
         constructors: &[(String, DefId, Span)],
         dependencies: &BTreeMap<String, Vec<String>>,
+        data_entries: &BTreeMap<String, (u64, Option<usize>)>,
     ) -> Self {
         let kernel = elaborator.kernel().clone();
         let exports = definitions
@@ -49,7 +59,24 @@ impl CheckedInterface {
                     .iter()
                     .find(|(n, _, _)| n == name)
                     .map(|(_, id, _)| *id);
-                let kind = if constructor.is_some() {
+                let inductive =
+                    data_entries
+                        .get(name)
+                        .map(|(id, constructor_index)| InductiveMetadata {
+                            id: *id,
+                            constructor_index: *constructor_index,
+                            declaration: kernel
+                                .data_declaration(*id)
+                                .expect("checked inductive family")
+                                .clone(),
+                        });
+                let kind = if let Some(data) = &inductive {
+                    if data.constructor_index.is_some() {
+                        DeclarationKind::Constructor
+                    } else {
+                        DeclarationKind::Inductive
+                    }
+                } else if constructor.is_some() {
                     DeclarationKind::Record
                 } else if definition.body.is_none() {
                     DeclarationKind::Axiom
@@ -65,6 +92,7 @@ impl CheckedInterface {
                         ty: definition.ty.clone(),
                         kind,
                         constructor,
+                        inductive,
                         axiom_dependencies: dependencies[name].clone(),
                     },
                 )

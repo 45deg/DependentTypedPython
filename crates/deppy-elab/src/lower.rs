@@ -1,4 +1,5 @@
 //! Conservative lowering of a programmatic function HIR. No Python parsing.
+mod data;
 mod nested;
 mod rewrite;
 use crate::{Elaborated, Elaborator, Error, Expr as E, Plicity};
@@ -23,6 +24,10 @@ pub struct Function {
 }
 #[derive(Clone, Debug)]
 pub enum Body {
+    Located {
+        location: crate::SourceLocation,
+        body: Box<Body>,
+    },
     Return(E),
     /// Immutable definition, checked before any following match.
     Let {
@@ -43,6 +48,14 @@ pub struct Arm {
 }
 #[derive(Clone, Debug)]
 pub enum Pattern {
+    Constructor {
+        name: String,
+        fields: Vec<String>,
+    },
+    Located {
+        location: crate::SourceLocation,
+        pattern: Box<Pattern>,
+    },
     Zero,
     Succ(String),
     VNil,
@@ -56,6 +69,46 @@ pub enum Pattern {
         bound: String,
         pred: String,
     },
+}
+impl Body {
+    pub fn located(self, location: crate::SourceLocation) -> Self {
+        Self::Located {
+            location,
+            body: Box::new(self),
+        }
+    }
+    fn unlocated(&self) -> &Self {
+        match self {
+            Self::Located { body, .. } => body.unlocated(),
+            body => body,
+        }
+    }
+    fn locate_error(&self, error: Error) -> Error {
+        match self {
+            Self::Located { location, .. } => error.at(location),
+            _ => error,
+        }
+    }
+}
+impl Pattern {
+    pub fn located(self, location: crate::SourceLocation) -> Self {
+        Self::Located {
+            location,
+            pattern: Box::new(self),
+        }
+    }
+    fn unlocated(&self) -> &Self {
+        match self {
+            Self::Located { pattern, .. } => pattern.unlocated(),
+            pattern => pattern,
+        }
+    }
+    fn locate_error(&self, error: Error) -> Error {
+        match self {
+            Self::Located { location, .. } => error.at(location),
+            _ => error,
+        }
+    }
 }
 #[derive(Clone)]
 struct Local {
@@ -72,6 +125,9 @@ struct Recursion {
     suffix: Vec<Plicity>,
 }
 struct Lowerer {
+    kernel: deppy_core::Kernel,
+    family: Option<data::Family>,
+    alternatives: Vec<Recursion>,
     remaining: usize,
     next: usize,
     globals: Env,
@@ -96,7 +152,55 @@ impl Elaborator {
     }
     /// Produce an annotated AST; `compile_function` additionally elaborates and kernel-checks it.
     pub fn lower_function(&self, function: &Function) -> Result<E, Error> {
+        let family = if let Some(d) = function
+            .parameters
+            .iter()
+            .position(|p| p.name == function.decreases)
+        {
+            if matches!(
+                function.parameters[d].ty.unlocated(),
+                E::Nat | E::Vec { .. } | E::Fin { .. }
+            ) {
+                None
+            } else {
+                let signature = self.infer(&pis(&function.parameters, E::Universe(0)))?;
+                let mut term = self.kernel.normalize(&signature.term)?;
+                let mut prefix = vec![];
+                for _ in 0..d {
+                    let deppy_core::Term::Pi {
+                        domain, codomain, ..
+                    } = term.as_ref()
+                    else {
+                        return Err(Error::ExpectedFunction);
+                    };
+                    prefix.push(domain.clone());
+                    term = codomain.clone();
+                }
+                if let deppy_core::Term::Pi { domain, .. } = term.as_ref() {
+                    if let deppy_core::Term::Data {
+                        op: deppy_core::DataOp::Type(id),
+                        arguments,
+                    } = domain.as_ref()
+                    {
+                        Some(data::Family {
+                            id: *id,
+                            arguments: arguments.clone(),
+                            prefix,
+                        })
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+        } else {
+            None
+        };
         Lowerer {
+            kernel: self.kernel.clone(),
+            family,
+            alternatives: vec![],
             remaining: self.max_steps,
             next: 0,
             globals: self
@@ -178,6 +282,9 @@ impl Lowerer {
     }
     fn function(&mut self, f: &Function) -> Result<E, Error> {
         self.tick()?;
+        if let Some(family) = self.family.take() {
+            return self.data_function(f, family);
+        }
         let d = f
             .parameters
             .iter()
@@ -240,7 +347,7 @@ impl Lowerer {
             ty,
             value,
             body,
-        } = source_body
+        } = source_body.unlocated()
         {
             let local = Local {
                 name: name.clone(),
@@ -251,65 +358,68 @@ impl Lowerer {
             locals.push(local);
             source_body = body;
         }
-        let body = match source_body {
-            Body::Let { .. } => unreachable!(),
-            Body::Return(value) => self.rewrite(value, &env, None)?,
-            Body::Match {
-                scrutinee: subject,
-                arms,
-            } => {
-                if subject != &f.decreases {
-                    return Err(Error::UnsupportedMatch(
-                        "outer match must inspect the decreases parameter".into(),
-                    ));
-                }
-                let (base, step) = coverage(&kind, arms)?;
-                let k = self.fresh();
-                let item = self.fresh();
-                let mut motive_env = env.clone();
-                self.clear_locals(&locals, &mut motive_env);
-                motive_env.insert(
-                    f.decreases.clone(),
-                    E::name(if matches!(kind, Kind::Nat) { &k } else { &item }),
-                );
-                if let Some(index) = kind.index() {
-                    motive_env.insert(f.parameters[index].name.clone(), E::name(&k));
-                }
-                let motive_result = self.generalized_type(f, d, &motive_env)?;
-                let motive = if matches!(kind, Kind::Nat) {
-                    lambda(&k, motive_result)
-                } else {
-                    lambda(&k, lambda(&item, motive_result))
-                };
-                let base = self.arm(f, d, &kind, base, (&env, &parameters, &locals))?;
-                let step = self.arm(f, d, &kind, step, (&env, &parameters, &locals))?;
-                let elim = match &kind {
-                    Kind::Nat => {
-                        E::nat_elim(f.motive_level, motive, base, step, E::name(&scrutinee))
+        let body = (|| -> Result<E, Error> {
+            Ok(match source_body.unlocated() {
+                Body::Let { .. } | Body::Located { .. } => unreachable!(),
+                Body::Return(value) => self.rewrite(value, &env, None)?,
+                Body::Match {
+                    scrutinee: subject,
+                    arms,
+                } => {
+                    if subject != &f.decreases {
+                        return Err(Error::UnsupportedMatch(
+                            "outer match must inspect the decreases parameter".into(),
+                        ));
                     }
-                    Kind::Vec { carrier, index } => E::vec_elim(
-                        f.motive_level,
-                        carrier.clone(),
-                        motive,
-                        base,
-                        step,
-                        E::name(&parameters[*index].name),
-                        E::name(&scrutinee),
-                    ),
-                    Kind::Fin { index } => E::fin_elim(
-                        f.motive_level,
-                        motive,
-                        base,
-                        step,
-                        E::name(&parameters[*index].name),
-                        E::name(&scrutinee),
-                    ),
-                };
-                parameters[d + 1..]
-                    .iter()
-                    .fold(elim, |fun, p| apply(fun, E::name(&p.name), p.plicity))
-            }
-        };
+                    let (base, step) = coverage(&kind, arms)?;
+                    let k = self.fresh();
+                    let item = self.fresh();
+                    let mut motive_env = env.clone();
+                    self.clear_locals(&locals, &mut motive_env);
+                    motive_env.insert(
+                        f.decreases.clone(),
+                        E::name(if matches!(kind, Kind::Nat) { &k } else { &item }),
+                    );
+                    if let Some(index) = kind.index() {
+                        motive_env.insert(f.parameters[index].name.clone(), E::name(&k));
+                    }
+                    let motive_result = self.generalized_type(f, d, &motive_env)?;
+                    let motive = if matches!(kind, Kind::Nat) {
+                        lambda(&k, motive_result)
+                    } else {
+                        lambda(&k, lambda(&item, motive_result))
+                    };
+                    let base = self.arm(f, d, &kind, base, (&env, &parameters, &locals))?;
+                    let step = self.arm(f, d, &kind, step, (&env, &parameters, &locals))?;
+                    let elim = match &kind {
+                        Kind::Nat => {
+                            E::nat_elim(f.motive_level, motive, base, step, E::name(&scrutinee))
+                        }
+                        Kind::Vec { carrier, index } => E::vec_elim(
+                            f.motive_level,
+                            carrier.clone(),
+                            motive,
+                            base,
+                            step,
+                            E::name(&parameters[*index].name),
+                            E::name(&scrutinee),
+                        ),
+                        Kind::Fin { index } => E::fin_elim(
+                            f.motive_level,
+                            motive,
+                            base,
+                            step,
+                            E::name(&parameters[*index].name),
+                            E::name(&scrutinee),
+                        ),
+                    };
+                    parameters[d + 1..]
+                        .iter()
+                        .fold(elim, |fun, p| apply(fun, E::name(&p.name), p.plicity))
+                }
+            })
+        })()
+        .map_err(|error| source_body.locate_error(error))?;
         Ok(lambdas(&parameters, wrap_locals(checked, body)).ann(signature))
     }
     fn index(&mut self, f: &Function, d: usize, index: &E) -> Result<usize, Error> {
@@ -355,20 +465,24 @@ impl Lowerer {
         let mut seen = HashSet::new();
         let mut bind = |this: &mut Self, name: &str| -> Result<String, Error> {
             if outer.contains_key(name) {
-                return Err(Error::InvalidPattern(
+                return Err(arm.pattern.locate_error(Error::InvalidPattern(
                     "pattern shadows an existing binding".into(),
-                ));
+                )));
             }
             if !seen.insert(name.to_owned()) {
-                return Err(Error::InvalidPattern("duplicate pattern binding".into()));
+                return Err(arm
+                    .pattern
+                    .locate_error(Error::InvalidPattern("duplicate pattern binding".into())));
             }
-            let fresh = this.bind(&mut env, name)?;
+            let fresh = this
+                .bind(&mut env, name)
+                .map_err(|error| arm.pattern.locate_error(error))?;
             bound.push(fresh.clone());
             Ok(fresh)
         };
         let mut child = None;
         let mut refined_index = None;
-        let constructor = match (&kind, &arm.pattern) {
+        let constructor = match (&kind, arm.pattern.unlocated()) {
             (Kind::Nat, Pattern::Zero) => E::Zero,
             (Kind::Nat, Pattern::Succ(name)) => {
                 let k = bind(self, name)?;
@@ -400,9 +514,9 @@ impl Lowerer {
                 E::fs(E::name(k), E::name(j))
             }
             _ => {
-                return Err(Error::InvalidPattern(
+                return Err(arm.pattern.locate_error(Error::InvalidPattern(
                     "constructor does not belong to the scrutinee type".into(),
-                ))
+                )))
             }
         };
         // Pattern bindings are fresh and cannot shadow function parameters.
@@ -483,7 +597,7 @@ fn coverage<'a>(kind: &Kind, arms: &'a [Arm]) -> Result<(&'a Arm, &'a Arm), Erro
     let mut base = None;
     let mut step = None;
     for arm in arms {
-        let slot = match (kind, &arm.pattern) {
+        let slot = match (kind, arm.pattern.unlocated()) {
             (Kind::Nat, Pattern::Zero)
             | (Kind::Vec { .. }, Pattern::VNil)
             | (Kind::Fin { .. }, Pattern::FZ(_)) => &mut base,
@@ -491,13 +605,15 @@ fn coverage<'a>(kind: &Kind, arms: &'a [Arm]) -> Result<(&'a Arm, &'a Arm), Erro
             | (Kind::Vec { .. }, Pattern::VCons { .. })
             | (Kind::Fin { .. }, Pattern::FS { .. }) => &mut step,
             _ => {
-                return Err(Error::InvalidPattern(
+                return Err(arm.pattern.locate_error(Error::InvalidPattern(
                     "constructor does not belong to the scrutinee type".into(),
-                ))
+                )))
             }
         };
         if slot.replace(arm).is_some() {
-            return Err(Error::InvalidPattern("duplicate constructor branch".into()));
+            return Err(arm
+                .pattern
+                .locate_error(Error::InvalidPattern("duplicate constructor branch".into())));
         }
     }
     match (base, step) {

@@ -234,7 +234,12 @@ impl Lowerer {
                 Ok(Body::Match {
                     scrutinee: subject.id.to_string(),
                     arms,
-                })
+                }
+                .located(deppy_elab::SourceLocation {
+                    source: self.namespace.clone(),
+                    start: s.range().start().to_usize(),
+                    end: s.range().end().to_usize(),
+                }))
             }
             _ => Err(error(stmt, "structural body requires match or return")),
         }
@@ -250,6 +255,14 @@ impl Lowerer {
             return Err(error(pattern, "expected a constructor pattern"));
         };
         let kind = self.builtin(&class.cls, scope).unwrap_or("").to_owned();
+        let constructor = if let Expr::Name(name) = class.cls.as_ref() {
+            self.globals
+                .get(name.id.as_str())
+                .filter(|b| b.data.as_ref().is_some_and(|d| d.constructor.is_some()))
+                .map(|b| b.name.clone())
+        } else {
+            None
+        };
         if !class.arguments.keywords.is_empty() {
             return Err(error(pattern, "keyword patterns are unsupported"));
         }
@@ -264,7 +277,9 @@ impl Lowerer {
             if let Some(name) = &capture.name {
                 self.bind(scope, name.as_str(), name)?;
                 names.push(name.to_string());
-            } else if matches!(kind.as_str(), "FZ" | "FS") && names.is_empty() {
+            } else if constructor.is_some()
+                || (matches!(kind.as_str(), "FZ" | "FS") && names.is_empty())
+            {
                 // '$' cannot occur in Python identifiers, but is a valid HIR name.
                 names.push(format!("$wild{}", self.wildcard));
                 self.wildcard += 1;
@@ -275,21 +290,33 @@ impl Lowerer {
                 ));
             }
         }
-        Ok(match (kind.as_str(), names.as_slice()) {
-            ("Z", []) => Pattern::Zero,
-            ("S", [n]) => Pattern::Succ(n.clone()),
-            ("VNil", []) => Pattern::VNil,
-            ("VCons", [len, head, tail]) => Pattern::VCons {
-                len: len.clone(),
-                head: head.clone(),
-                tail: tail.clone(),
-            },
-            ("FZ", [n]) => Pattern::FZ(n.clone()),
-            ("FS", [bound, pred]) => Pattern::FS {
-                bound: bound.clone(),
-                pred: pred.clone(),
-            },
-            _ => return Err(error(pattern, "unsupported constructor pattern or arity")),
-        })
+        let lowered = if let Some(name) = constructor {
+            Pattern::Constructor {
+                name,
+                fields: names,
+            }
+        } else {
+            match (kind.as_str(), names.as_slice()) {
+                ("Z", []) => Pattern::Zero,
+                ("S", [n]) => Pattern::Succ(n.clone()),
+                ("VNil", []) => Pattern::VNil,
+                ("VCons", [len, head, tail]) => Pattern::VCons {
+                    len: len.clone(),
+                    head: head.clone(),
+                    tail: tail.clone(),
+                },
+                ("FZ", [n]) => Pattern::FZ(n.clone()),
+                ("FS", [bound, pred]) => Pattern::FS {
+                    bound: bound.clone(),
+                    pred: pred.clone(),
+                },
+                _ => return Err(error(pattern, "unsupported constructor pattern or arity")),
+            }
+        };
+        Ok(lowered.located(deppy_elab::SourceLocation {
+            source: self.namespace.clone(),
+            start: pattern.range().start().to_usize(),
+            end: pattern.range().end().to_usize(),
+        }))
     }
 }

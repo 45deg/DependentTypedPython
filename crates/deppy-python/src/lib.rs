@@ -6,7 +6,7 @@ use linker::check_lowered;
 mod modules;
 mod report;
 use deppy_elab::{Elaborator, Expr};
-pub use interface::{CheckedInterface, DeclarationKind, InterfaceEntry};
+pub use interface::{CheckedInterface, DeclarationKind, InductiveMetadata, InterfaceEntry};
 pub use modules::{lower_module_with_resolver, FileResolver, SourceResolver};
 use ruff_python_ast::PythonVersion;
 use ruff_text_size::TextRange;
@@ -119,6 +119,7 @@ pub struct Declaration {
 }
 #[derive(Clone, Debug)]
 pub enum DeclarationBody {
+    Data(deppy_elab::NamedDataDecl),
     Axiom,
     Expression(Expr),
     Structural(deppy_elab::lower::Function),

@@ -1,5 +1,7 @@
 //! Fully explicit dependent core. No Python execution or metavariables; axioms are explicit opaque declarations.
 //! Type-directed erasure runs after independent kernel validation.
+mod data;
+pub use data::{ConstructorDecl, DataDecl, DataOp};
 mod inductive;
 mod kernel;
 pub use inductive::{InductiveDecl, InductiveId};
@@ -53,6 +55,10 @@ pub enum Relevance {
 /// Universe levels are concrete and non-cumulative.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Term {
+    Data {
+        op: DataOp,
+        arguments: Vec<Tm>,
+    },
     Global(DefId),
     Inductive {
         id: InductiveId,

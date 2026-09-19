@@ -48,7 +48,7 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - [x] Vec・Finの依存eliminator、ι簡約、fin0_elim。
 - [x] elaboratorへの接続、carrier・長さ・上限の暗黙引数推論。
 - [x] appendとgetの名前付きAST、一般形の型検査と実行例。
-- [ ] ユーザー定義帰納型の宣言検査・positivity checking。
+- [x] ユーザー定義帰納型の宣言検査・positivity checking（parameter/index telescope、複数constructor、直接再帰とΠ型の正位置）。
 - [x] 関数HIRのNat・Vec・Fin constructor pattern、網羅性検査、限定した入れ子のFin分岐。
 - [x] 関数HIRの指定引数に対する直接の構造的再帰、後続引数の一般化、recursorへの変換。
 - [x] append・get・zero_rightを、明示的なmotiveを持たない分岐と自己呼び出しから生成。
@@ -190,7 +190,7 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - `@dependent(opaque=True)` とkernel/elaboratorの `define_opaque`。検査済み本体を保存し、変換判定では非展開、公理依存追跡では本体も走査。
 - `CheckedInterface` に検査時のkernel snapshotと公開名・型・宣言種別・record constructor・公理依存を格納。
 
-一般帰納型、一般のpattern matching、stdlib移行、専用core削除は未実装。Phase 1全体の完了を意味しない。詳細は [実装状況](docs/dependent-phase1.md) を参照。
+基盤実装時点では一般帰納型、一般のpattern matching、stdlib移行、専用core削除は未実装だった。現在の追加分は末尾に記録する。Phase 1全体は未完了。詳細は [実装状況](docs/dependent-phase1.md) を参照。
 
 検証：workspaceの333テスト、全targetのClippy（警告をエラー化）、fmtが成功。CPython 3.12.0・3.14.3で各21ソースのcompile検証と各244件の既存runtime差分試験が成功。CLIのJSONをPythonのJSON parserで読み、Unicode・引用符・改行の扱いと未完成時の非ゼロ終了も確認。
 
@@ -203,3 +203,15 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - goalの整合性、import先の位置保持、`ann`によるholeの型指定とUnicode列番号、diamond importでのopaque宣言ID共有の回帰を追加。
 - 一般帰納型・一般pattern lowering・interfaceを使うmodule linkingは次段階のまま。
 - 検証: workspace 337件、Clippy（警告をエラー化）、fmt、diff checkが成功。CPython 3.14.7で構文21件とruntime差分244件が成功。
+
+
+### 2026-09-20：一般帰納型とListの四定理
+
+- kernelに一般indexed inductiveの宣言・positivity・eliminator・NbEを追加。elaboratorの単一化・置換・meta検査・簡約・再検査にも接続。
+- `@inductive`、`@constructor`、`Index`、`induct`、`absurd`。型名と全constructorを原子的に登録し、interfaceで宣言種別とtelescope metadataを公開。
+- 平坦なconstructor pattern、複数の直接再帰field、後続引数の一般化、先行parameter添字の精緻化、wildcard。patternとmatchの診断位置を保持。
+- Empty・Unit・Bool・Sum・Option・Not・Decidable、Listと四定理、一般Natとzero_right、一般Natを添字にするIVec・IFinとgetをPythonで定義。追加の公理・定理固有primitiveは使用しない。
+- Listの四定理の一般形と具体値、indexed getの参照結果、偽の等式・不正bound・不正再帰・不正positivity・不完全な分岐の拒否を回帰試験に追加。
+- 一般の入れ子pattern matrix、interfaceを再利用するlinking、既存Vec証明群・runtimeの移行、専用core削除は残件。Phase 1全体は未完了。[詳細](docs/dependent-phase1.md)。
+
+検証：`cargo test --workspace --locked --offline`で366件成功。全targetのClippy（警告をエラー化）、fmt、diff checkが成功。CPython 3.14.7で25ソースの構文compileと、既存runtimeの244件のソース／生成コード比較が成功。新しい一般帰納型のruntime projectionは明示的に拒否し、その回帰も追加した。

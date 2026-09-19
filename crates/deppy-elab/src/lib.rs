@@ -2,8 +2,10 @@
 //!
 //! This is not a Python parser. Each operation owns its metavariables; success
 //! returns only fully explicit terms independently rechecked by deppy-core.
+mod data;
 pub mod lower;
 pub mod prelude;
+pub use data::{NamedConstructor, NamedDataDecl};
 mod record;
 mod solve;
 pub use record::{Record, RecordDecl};
@@ -42,6 +44,12 @@ pub struct Goal {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
+    /// Context for a failed type-shape or unification check, retaining its cause.
+    WithTypes {
+        expected: String,
+        actual: String,
+        error: Box<Error>,
+    },
     TypeMismatch {
         expected: String,
         actual: String,
@@ -61,6 +69,7 @@ pub enum Error {
     ExpectedFunction,
     ExpectedSigma,
     ExpectedRecord,
+    ExpectedInductive,
     PlicityMismatch,
     CannotUnify,
     OccursCheck,
@@ -81,6 +90,11 @@ impl fmt::Display for Error {
             }
             Self::Goals(goals) => write!(f, "{} unfinished proof goal(s)", goals.len()),
             Self::Located { error, .. } => error.fmt(f),
+            Self::WithTypes {
+                expected,
+                actual,
+                error,
+            } => write!(f, "{error}: expected {expected}, got {actual}"),
             Self::InvalidRecursion(reason) => write!(f, "invalid structural recursion: {reason}"),
             Self::InvalidPattern(reason) => write!(f, "invalid pattern: {reason}"),
             Self::UnsupportedMatch(reason) => write!(f, "unsupported match: {reason}"),
@@ -92,6 +106,7 @@ impl fmt::Display for Error {
             Self::ExpectedUniverse => {
                 write!(f, "expected a concrete universe; add a type annotation")
             }
+            Self::ExpectedInductive => write!(f, "expected an inductive family"),
             Self::ExpectedRecord => write!(f, "expected a known nominal record type"),
             Self::ExpectedSigma => write!(f, "expected a known dependent pair type"),
             Self::ExpectedFunction => write!(f, "expected a known dependent function type"),
@@ -118,8 +133,18 @@ impl fmt::Display for Error {
 impl Error {
     pub fn cause(&self) -> &Self {
         match self {
-            Self::Located { error, .. } => error.cause(),
+            Self::Located { error, .. } | Self::WithTypes { error, .. } => error.cause(),
             error => error,
+        }
+    }
+    pub fn type_details(&self) -> Option<(&str, &str)> {
+        match self {
+            Self::Located { error, .. } => error.type_details(),
+            Self::WithTypes {
+                expected, actual, ..
+            }
+            | Self::TypeMismatch { expected, actual } => Some((expected, actual)),
+            _ => None,
         }
     }
     pub fn at(self, location: &SourceLocation) -> Self {
@@ -147,6 +172,7 @@ pub struct Elaborated {
 }
 
 /// No mutable inference state is retained between operations.
+#[derive(Clone)]
 pub struct Elaborator {
     kernel: Kernel,
     max_steps: usize,

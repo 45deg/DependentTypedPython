@@ -1,11 +1,46 @@
 use super::*;
 
 impl State {
+    fn type_error(&self, ctx: &Context, error: Error, expected: &str, actual: &T) -> Error {
+        if self.location.is_none() {
+            return error;
+        }
+        Error::WithTypes {
+            expected: expected.into(),
+            actual: self.describe(actual, ctx),
+            error: Box::new(error),
+        }
+    }
+    fn unify_types(&mut self, ctx: &Context, actual: &T, expected: &T) -> Result<(), Error> {
+        self.unify(actual, expected).map_err(|error| {
+            if self.location.is_some() && matches!(error, Error::CannotUnify) {
+                Error::TypeMismatch {
+                    expected: self.describe(expected, ctx),
+                    actual: self.describe(actual, ctx),
+                }
+            } else {
+                error
+            }
+        })
+    }
+
     pub(crate) fn type_expr(&mut self, ctx: &Context, expr: &Expr) -> Result<(T, u32), Error> {
+        if let Expr::Located {
+            location,
+            expression,
+        } = expr
+        {
+            let previous = self.location.replace(location.clone());
+            let result = self
+                .type_expr(ctx, expression)
+                .map_err(|error| error.at(location));
+            self.location = previous;
+            return result;
+        }
         let (term, ty) = self.synth(ctx, expr)?;
         match self.whnf(&ty)?.as_ref() {
             Term::Universe(level) => Ok((term, *level)),
-            _ => Err(Error::ExpectedUniverse),
+            _ => Err(self.type_error(ctx, Error::ExpectedUniverse, "a universe", &ty)),
         }
     }
 
@@ -52,10 +87,101 @@ impl State {
     pub(crate) fn synth(&mut self, ctx: &Context, expr: &Expr) -> Result<(T, T), Error> {
         self.tick()?;
         match expr {
+            Expr::Absurd { ty, value } => {
+                let (ty, _) = self.type_expr(ctx, ty)?;
+                let (value, receiver_ty) = self.synth(ctx, value)?;
+                let receiver_ty = self.whnf(&receiver_ty)?;
+                let Term::Data {
+                    op: deppy_core::DataOp::Type(id),
+                    arguments,
+                } = receiver_ty.as_ref()
+                else {
+                    return Err(self.type_error(
+                        ctx,
+                        Error::ExpectedInductive,
+                        "an empty inductive family",
+                        &receiver_ty,
+                    ));
+                };
+                let mut arguments = arguments.clone();
+                arguments.push(ty.clone());
+                arguments.push(value);
+                Ok((
+                    Term::Data {
+                        op: deppy_core::DataOp::Absurd(*id),
+                        arguments,
+                    }
+                    .arc(),
+                    ty,
+                ))
+            }
+            Expr::Induct {
+                level,
+                value,
+                motive,
+                branches,
+            } => {
+                let (value, receiver_ty) = self.synth(ctx, value)?;
+                let receiver_ty = self.whnf(&receiver_ty)?;
+                let Term::Data {
+                    op: deppy_core::DataOp::Type(id),
+                    arguments,
+                } = receiver_ty.as_ref()
+                else {
+                    return Err(self.type_error(
+                        ctx,
+                        Error::ExpectedInductive,
+                        "an inductive family",
+                        &receiver_ty,
+                    ));
+                };
+                if branches.len() != self.kernel.data_declaration(*id)?.constructors.len() {
+                    return Err(deppy_core::Error::ArityMismatch.into());
+                }
+                let function = Expr::Core(self.kernel.data_eliminator_function(*id, *level)?);
+                let (mut function, mut ty) = self.synth(ctx, &function)?;
+                for argument in arguments {
+                    let head = self.whnf(&ty)?;
+                    let Term::Pi { id, body, .. } = head.as_ref() else {
+                        return Err(Error::ExpectedFunction);
+                    };
+                    ty = self.replace(body, *id, argument.clone())?;
+                    function = Term::App(function, argument.clone()).arc();
+                }
+                for argument in std::iter::once(motive.as_ref()).chain(branches) {
+                    let head = self.whnf(&ty)?;
+                    let Term::Pi {
+                        id, domain, body, ..
+                    } = head.as_ref()
+                    else {
+                        return Err(Error::ExpectedFunction);
+                    };
+                    let argument = self.check(ctx, argument, domain)?;
+                    ty = self.replace(body, *id, argument.clone())?;
+                    function = Term::App(function, argument).arc();
+                }
+                let head = self.whnf(&ty)?;
+                let Term::Pi {
+                    id, domain, body, ..
+                } = head.as_ref()
+                else {
+                    return Err(Error::ExpectedFunction);
+                };
+                self.unify_types(ctx, &receiver_ty, domain)?;
+                Ok((
+                    Term::App(function, value.clone()).arc(),
+                    self.replace(body, *id, value)?,
+                ))
+            }
             Expr::Located {
                 location,
                 expression,
-            } => self.synth(ctx, expression).map_err(|e| e.at(location)),
+            } => {
+                let previous = self.location.replace(location.clone());
+                let result = self.synth(ctx, expression).map_err(|e| e.at(location));
+                self.location = previous;
+                result
+            }
             Expr::Let {
                 name,
                 ty,
@@ -94,14 +220,24 @@ impl State {
                 let (value, receiver_ty) = self.synth(ctx, value)?;
                 let receiver_ty = self.whnf(&receiver_ty)?;
                 let Term::Inductive { id, parameters } = receiver_ty.as_ref() else {
-                    return Err(Error::ExpectedRecord);
+                    return Err(self.type_error(
+                        ctx,
+                        Error::ExpectedRecord,
+                        "a nominal record type",
+                        &receiver_ty,
+                    ));
                 };
                 let function = Expr::Core(self.kernel.eliminator_function(*id, *level)?);
                 let (mut function, mut ty) = self.synth(ctx, &function)?;
                 for argument in parameters {
                     let head = self.whnf(&ty)?;
                     let Term::Pi { id, body, .. } = head.as_ref() else {
-                        return Err(Error::ExpectedFunction);
+                        return Err(self.type_error(
+                            ctx,
+                            Error::ExpectedFunction,
+                            "a dependent function type",
+                            &ty,
+                        ));
                     };
                     ty = self.replace(body, *id, argument.clone())?;
                     function = Term::App(function, argument.clone()).arc();
@@ -112,7 +248,12 @@ impl State {
                         id, domain, body, ..
                     } = head.as_ref()
                     else {
-                        return Err(Error::ExpectedFunction);
+                        return Err(self.type_error(
+                            ctx,
+                            Error::ExpectedFunction,
+                            "a dependent function type",
+                            &ty,
+                        ));
                     };
                     let argument = self.check(ctx, argument, domain)?;
                     ty = self.replace(body, *id, argument.clone())?;
@@ -123,9 +264,14 @@ impl State {
                     id, domain, body, ..
                 } = head.as_ref()
                 else {
-                    return Err(Error::ExpectedFunction);
+                    return Err(self.type_error(
+                        ctx,
+                        Error::ExpectedFunction,
+                        "a dependent function type",
+                        &ty,
+                    ));
                 };
-                self.unify(domain, &receiver_ty)?;
+                self.unify_types(ctx, &receiver_ty, domain)?;
                 let ty = self.replace(body, *id, value.clone())?;
                 Ok((Term::App(function, value).arc(), ty))
             }
@@ -133,7 +279,12 @@ impl State {
                 let (value, receiver_ty) = self.synth(ctx, value)?;
                 let receiver_ty = self.whnf(&receiver_ty)?;
                 let Term::Inductive { id, parameters } = receiver_ty.as_ref() else {
-                    return Err(Error::ExpectedRecord);
+                    return Err(self.type_error(
+                        ctx,
+                        Error::ExpectedRecord,
+                        "a nominal record type",
+                        &receiver_ty,
+                    ));
                 };
                 let projection = self
                     .records
@@ -154,7 +305,12 @@ impl State {
                         body,
                     } = head.as_ref()
                     else {
-                        return Err(Error::ExpectedFunction);
+                        return Err(self.type_error(
+                            ctx,
+                            Error::ExpectedFunction,
+                            "a dependent function type",
+                            &ty,
+                        ));
                     };
                     let expected = if index < parameters.len() {
                         Plicity::Implicit
@@ -162,10 +318,15 @@ impl State {
                         Plicity::Explicit
                     };
                     if *plicity != expected {
-                        return Err(Error::PlicityMismatch);
+                        return Err(self.type_error(
+                            ctx,
+                            Error::PlicityMismatch,
+                            "matching explicit/implicit binders",
+                            &ty,
+                        ));
                     }
                     if index == parameters.len() {
-                        self.unify(domain, &receiver_ty)?;
+                        self.unify_types(ctx, &receiver_ty, domain)?;
                     }
                     ty = self.replace(body, *id, argument.clone())?;
                     function = Term::App(function, argument.clone()).arc();
@@ -176,7 +337,12 @@ impl State {
                 let (p, ty) = self.synth(ctx, p)?;
                 let ty = self.whnf(&ty)?;
                 let Term::Sigma { id, domain, body } = ty.as_ref() else {
-                    return Err(Error::ExpectedSigma);
+                    return Err(self.type_error(
+                        ctx,
+                        Error::ExpectedSigma,
+                        "a dependent pair type",
+                        &ty,
+                    ));
                 };
                 if matches!(expr, Expr::Fst(_)) {
                     Ok((Term::Fst(p).arc(), domain.clone()))
@@ -666,7 +832,12 @@ impl State {
                         body,
                     } = head.as_ref()
                     else {
-                        return Err(Error::ExpectedFunction);
+                        return Err(self.type_error(
+                            ctx,
+                            Error::ExpectedFunction,
+                            "a dependent function type",
+                            &ty,
+                        ));
                     };
                     if *plicity == Plicity::Explicit && *mode == Plicity::Implicit {
                         let arg = self.meta(ctx, domain.clone());
@@ -675,7 +846,12 @@ impl State {
                         continue;
                     }
                     if plicity != mode {
-                        return Err(Error::PlicityMismatch);
+                        return Err(self.type_error(
+                            ctx,
+                            Error::PlicityMismatch,
+                            "matching explicit/implicit binders",
+                            &ty,
+                        ));
                     }
                     let arg = self.check(ctx, argument, domain)?;
                     let ty = self.replace(body, *id, arg.clone())?;
@@ -733,7 +909,12 @@ impl State {
         if let Expr::Pair { fst, snd } = expr {
             let ty = self.whnf(expected)?;
             let Term::Sigma { id, domain, body } = ty.as_ref() else {
-                return Err(Error::ExpectedSigma);
+                return Err(self.type_error(
+                    ctx,
+                    Error::ExpectedSigma,
+                    "a dependent pair type",
+                    &ty,
+                ));
             };
             let fst = self.check(ctx, fst, domain)?;
             let second_ty = self.replace(body, *id, fst.clone())?;
@@ -747,10 +928,15 @@ impl State {
         }
         if let Expr::Refl(value) = expr {
             let expected = self.whnf(expected)?;
-            if let Term::Eq { ty, left, right } = expected.as_ref() {
+            if let Term::Eq { ty, .. } = expected.as_ref() {
                 let value = self.check(ctx, value, ty)?;
-                self.unify(&value, left)?;
-                self.unify(&value, right)?;
+                let actual = Term::Eq {
+                    ty: ty.clone(),
+                    left: value.clone(),
+                    right: value.clone(),
+                }
+                .arc();
+                self.unify_types(ctx, &actual, &expected)?;
                 return Ok(Term::Refl {
                     ty: ty.clone(),
                     value,
@@ -773,14 +959,24 @@ impl State {
                 body: cod,
             } = ty.as_ref()
             else {
-                return Err(Error::ExpectedFunction);
+                return Err(self.type_error(
+                    ctx,
+                    Error::ExpectedFunction,
+                    "a dependent function type",
+                    &ty,
+                ));
             };
             if plicity != mode {
-                return Err(Error::PlicityMismatch);
+                return Err(self.type_error(
+                    ctx,
+                    Error::PlicityMismatch,
+                    "matching explicit/implicit binders",
+                    &ty,
+                ));
             }
             if let Some(annotation) = domain {
                 let (annotation, _) = self.type_expr(ctx, annotation)?;
-                self.unify(&annotation, dom)?;
+                self.unify_types(ctx, &annotation, dom)?;
             }
             let (ctx, id) = self.bind(ctx, name, dom.clone());
             let cod = self.replace(cod, *old_id, Term::Local(id).arc())?;
@@ -794,16 +990,7 @@ impl State {
             .arc());
         }
         let (term, ty) = self.synth(ctx, expr)?;
-        self.unify(&ty, expected).map_err(|error| {
-            if self.location.is_some() && matches!(error, Error::CannotUnify) {
-                Error::TypeMismatch {
-                    expected: self.describe(expected, ctx),
-                    actual: self.describe(&ty, ctx),
-                }
-            } else {
-                error
-            }
-        })?;
+        self.unify_types(ctx, &ty, expected)?;
         Ok(term)
     }
 }

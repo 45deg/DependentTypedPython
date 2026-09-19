@@ -156,3 +156,55 @@ fn annotated_hole_has_expected_type_and_unicode_source_coordinates() {
         "hole('名前')"
     );
 }
+
+#[test]
+fn structural_diagnostics_locate_duplicate_wrong_and_missing_patterns() {
+    let prefix = "from __future__ import annotations\nfrom deppy import dependent, Nat, Z, S, VNil\n@dependent(decreases='n')\ndef count(n: Nat) -> Nat:\n    ";
+    for (body, offending) in [
+        ("match n:\n        case Z():\n            return 0\n        case Z():\n            return 0\n", "Z()"),
+        ("match n:\n        case VNil():\n            return 0\n", "VNil()"),
+        ("match n:\n        case Z():\n            return 0\n", "match n:\n        case Z():\n            return 0"),
+    ] {
+        let source = format!("{prefix}{body}");
+        let analysis = analyze_module(&source, Target::Python314);
+        assert!(analysis.checked.is_none());
+        let error = &analysis.diagnostics[0];
+        assert_eq!(&source[error.span.start..error.span.end], offending);
+        assert_eq!(error.span.start, source.rfind(offending).unwrap());
+        assert_eq!(error.details.related.len(), 1);
+    }
+}
+
+#[test]
+fn nested_pattern_diagnostics_keep_import_source_and_inner_span() {
+    let source = "from __future__ import annotations\nfrom deppy import dependent, Nat, Z, S, Fin, FZ, FS\n@dependent(decreases='n')\ndef count(n: Nat, i: Fin[n]) -> Nat:\n    match n:\n        case Z():\n            return 0\n        case S(k):\n            match i:\n                case FZ(a):\n                    return 0\n                case FZ(b):\n                    return 0\n";
+    let mut resolver = |name: &str| Ok((name == "library").then(|| source.to_owned()));
+    let result = deppy_python::analyze_module_with_resolver(
+        "from __future__ import annotations\nfrom library import count\n",
+        Target::Python314,
+        &mut resolver,
+    );
+    assert!(result.checked.is_none());
+    let error = &result.diagnostics[0];
+    assert_eq!(&source[error.span.start..error.span.end], "FZ(b)");
+    assert_eq!(error.details.source.as_deref(), Some("library"));
+    assert_eq!(error.details.line, Some(12));
+}
+
+#[test]
+fn type_shape_and_reflexivity_errors_include_type_details() {
+    let prefix =
+        "from __future__ import annotations\nfrom deppy import dependent, Nat, Eq, refl, Pi\n";
+    for source in [
+        "@dependent\ndef bad(x: 0) -> Nat:\n    return 0\n",
+        "@dependent\ndef bad(x: Nat) -> Nat:\n    return x(0)\n",
+        "@dependent\ndef bad() -> Eq[Nat, 0, 1]:\n    return refl(0)\n",
+    ] {
+        let analysis = analyze_module(&format!("{prefix}{source}"), Target::Python314);
+        assert!(analysis.checked.is_none());
+        let error = &analysis.diagnostics[0];
+        assert!(error.details.expected.is_some(), "{error:?}");
+        assert!(error.details.actual.is_some(), "{error:?}");
+        assert!(error.details.line.is_some());
+    }
+}

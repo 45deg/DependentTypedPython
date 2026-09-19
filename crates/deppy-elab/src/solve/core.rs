@@ -4,6 +4,13 @@ impl State {
     fn core(&mut self, term: &T, scope: &mut Vec<Id>) -> Result<Tm, Error> {
         self.tick()?;
         Ok(match term.as_ref() {
+            Term::Data { op, arguments } => Core::Data {
+                op: *op,
+                arguments: arguments
+                    .iter()
+                    .map(|x| self.core(x, scope))
+                    .collect::<Result<_, _>>()?,
+            },
             Term::Global(id) => Core::Global(*id),
             Term::Inductive { id, parameters } => Core::Inductive {
                 id: *id,
@@ -297,6 +304,13 @@ impl State {
             Core::Succ(x) => Term::Succ(self.import_core(x, scope)?),
             Core::Fst(x) => Term::Fst(self.import_core(x, scope)?),
             Core::Snd(x) => Term::Snd(self.import_core(x, scope)?),
+            Core::Data { op, arguments } => Term::Data {
+                op: *op,
+                arguments: arguments
+                    .iter()
+                    .map(|x| self.import_core(x, scope))
+                    .collect::<Result<_, _>>()?,
+            },
             Core::Inductive { id, parameters } => Term::Inductive {
                 id: *id,
                 parameters: parameters

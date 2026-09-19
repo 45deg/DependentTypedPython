@@ -104,6 +104,22 @@ impl State {
     pub(super) fn describe(&self, term: &T, ctx: &Context) -> String {
         let show = |t: &T| self.describe(t, ctx);
         match term.as_ref() {
+            Term::Data { op, arguments } => {
+                let name = self.globals.iter().find_map(|(name, id)| {
+                    let mut body = self.kernel.definition(*id).ok()?.body.as_ref()?;
+                    while let deppy_core::Term::Lam { body: inner, .. } = body.as_ref() { body = inner; }
+                    matches!(body.as_ref(), deppy_core::Term::Data { op: other, .. } if op == other).then(|| name.clone())
+                }).unwrap_or_else(|| format!("{op:?}"));
+                if arguments.is_empty() {
+                    name
+                } else {
+                    format!(
+                        "{}[{}]",
+                        name,
+                        arguments.iter().map(show).collect::<Vec<_>>().join(", ")
+                    )
+                }
+            }
             Term::Local(id) => ctx
                 .iter()
                 .find(|l| l.id == *id)

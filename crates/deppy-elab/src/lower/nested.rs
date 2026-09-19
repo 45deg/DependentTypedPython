@@ -10,6 +10,11 @@ impl Lowerer {
         recursion: Option<&Recursion>,
         context: (&[Parameter], &[Local]),
     ) -> Result<E, Error> {
+        if let Body::Located { location, body } = body {
+            return self
+                .branch_body(f, body, env, recursion, context)
+                .map_err(|error| error.at(location));
+        }
         self.tick()?;
         let (suffix, locals) = context;
         if let Body::Let {
@@ -74,24 +79,27 @@ impl Lowerer {
             Some(E::fin(bound.as_ref().clone())),
             result,
         );
-        let Pattern::FZ(zero_bound) = &zero.pattern else {
+        let Pattern::FZ(zero_bound) = zero.pattern.unlocated() else {
             unreachable!()
         };
         let Pattern::FS {
             bound: step_bound,
             pred,
-        } = &step.pattern
+        } = step.pattern.unlocated()
         else {
             unreachable!()
         };
-        for names in [vec![zero_bound], vec![step_bound, pred]] {
+        for (pattern, names) in [
+            (&zero.pattern, vec![zero_bound]),
+            (&step.pattern, vec![step_bound, pred]),
+        ] {
             let mut seen = HashSet::new();
             for name in names {
-                Self::name(name)?;
+                Self::name(name).map_err(|error| pattern.locate_error(error))?;
                 if env.contains_key(name) || !seen.insert(name) {
-                    return Err(Error::InvalidPattern(
+                    return Err(pattern.locate_error(Error::InvalidPattern(
                         "nested pattern shadows an existing binding or repeats a name".into(),
-                    ));
+                    )));
                 }
             }
         }
@@ -136,6 +144,9 @@ impl Lowerer {
     ) -> Result<E, Error> {
         self.tick()?;
         match body {
+            Body::Located { location, body } => self
+                .terminal_body(body, env, recursion)
+                .map_err(|error| error.at(location)),
             Body::Return(value) => self.rewrite(value, env, recursion),
             Body::Let {
                 name,

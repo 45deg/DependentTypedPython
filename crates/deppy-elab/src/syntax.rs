@@ -19,6 +19,16 @@ impl Plicity {
 /// Implicit binders are erased; explicit erased proof binders are not yet exposed.
 #[derive(Clone, Debug)]
 pub enum Expr {
+    Absurd {
+        ty: Box<Expr>,
+        value: Box<Expr>,
+    },
+    Induct {
+        level: u32,
+        value: Box<Expr>,
+        motive: Box<Expr>,
+        branches: Vec<Expr>,
+    },
     UserHole(String),
     Located {
         location: crate::SourceLocation,
@@ -378,6 +388,10 @@ pub(crate) type T = Arc<Term>;
 /// explicitly instantiate the telescope captured when the meta was created.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Term {
+    Data {
+        op: deppy_core::DataOp,
+        arguments: Vec<T>,
+    },
     Global(deppy_core::DefId),
     Inductive {
         id: deppy_core::InductiveId,
