@@ -182,13 +182,13 @@ def identity_proof(n: Nat) -> Eq[Nat, n, n]:
 
 ```python
 from __future__ import annotations
-from deppy import dependent, Nat, Eq, refl
+from deppy import theorem, Nat, Eq, refl
 
-@dependent(opaque=True)
+@theorem
 def identity_proof(n: Nat) -> Eq[Nat, n, n]:
     return refl(n)
 ```
 
-本体は通常どおりkernelで検査しますが、正規化と変換判定では展開しません。後続の証明は公開された型を使ってこの定理を適用できます。`decreases`・`motive_level` と併用できます。`opaque=False` は透明定義です。
+`@theorem` は `@dependent(opaque=True)` の別名です。本体は通常どおりkernelで検査しますが、正規化と変換判定では展開しません。後続の証明は公開された型を使ってこの定理を適用できます。`@theorem(decreases="n")` のように `decreases`・`motive_level` と併用できます。`deppy` と `deppy.core` からimportできます。`theorem` に透明化オプションはありません。計算する透明な定義には従来どおり `@dependent` を使います。既存の `@dependent(opaque=True/False)` も引き続き利用できます。
 
 opaque定義は公理ではありません。本体が公理を使う場合、その依存はimport後も追跡します。明示的なunfold機能はありません。runtime extractionは変換判定とは別で、保持した検査済み本体を利用します。

@@ -29,6 +29,14 @@ fn run_generated(generated: &str, assertions: &str) {
     );
 }
 #[test]
+fn theorem_alias_retains_checked_runtime_bodies() {
+    run(
+        "from __future__ import annotations\nfrom deppy import theorem, Nat, Eq, refl\n@theorem\ndef hidden(n: Nat) -> Nat:\n    return n\n@theorem\ndef proof(n: Nat) -> Eq[Nat, n, n]:\n    return refl(n)\n",
+        "\nassert exports['hidden'](7) == 7\nassert exports['proof'](7) is None\n",
+    );
+}
+
+#[test]
 fn get_and_zero_right_execute() {
     run(include_str!("../../deppy-python/examples/proofs.py"), "\nfor n in range(1, 9):\n    xs = tuple(range(n))\n    for i in range(n):\n        assert exports['get'](n, xs, (n, i)) == i\nfor n in range(9):\n    assert exports['zero_right'](n) is None\n");
 }

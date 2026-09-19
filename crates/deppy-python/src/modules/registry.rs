@@ -7,6 +7,7 @@ const BUILTINS: &[&str] = &[
     "induct",
     "absurd",
     "dependent",
+    "theorem",
     "hole",
     "axiom",
     "record",
@@ -45,6 +46,7 @@ fn builtin_names(module: &str) -> &'static [&'static str] {
         "deppy._builtins" => BUILTINS,
         "deppy.core" => &[
             "dependent",
+            "theorem",
             "hole",
             "axiom",
             "Type",

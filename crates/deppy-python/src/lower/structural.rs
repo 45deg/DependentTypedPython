@@ -55,22 +55,26 @@ impl Lowerer {
         f: &ast::StmtFunctionDef,
     ) -> Result<(Option<(String, u32)>, bool), Diagnostic> {
         if f.decorator_list.len() != 1 {
-            return Err(error(f, "expected one @dependent decorator"));
+            return Err(error(f, "expected one @dependent or @theorem decorator"));
         }
         let expr = &f.decorator_list[0].expression;
         if self.builtin(expr, &Scope::default()) == Some("dependent") {
             return Ok((None, false));
         }
+        if self.builtin(expr, &Scope::default()) == Some("theorem") {
+            return Ok((None, true));
+        }
         if let Expr::Call(call) = expr {
-            if self.builtin(&call.func, &Scope::default()) == Some("dependent")
-                && call.arguments.args.is_empty()
+            let decorator = self.builtin(&call.func, &Scope::default());
+            let is_theorem = decorator == Some("theorem");
+            if matches!(decorator, Some("dependent" | "theorem")) && call.arguments.args.is_empty()
             {
                 let mut decreases = None;
                 let mut level = None;
                 let mut opaque = None;
                 for keyword in &call.arguments.keywords {
                     match keyword.arg.as_ref().map(|a| a.as_str()) {
-                        Some("opaque") if opaque.is_none() => {
+                        Some("opaque") if opaque.is_none() && !is_theorem => {
                             let Expr::BooleanLiteral(value) = &keyword.value else {
                                 return Err(error(keyword, "opaque requires a boolean literal"));
                             };
@@ -92,7 +96,13 @@ impl Lowerer {
                     }
                 }
                 if let Some(name) = decreases {
-                    return Ok((Some((name, level.unwrap_or(0))), opaque.unwrap_or(false)));
+                    return Ok((
+                        Some((name, level.unwrap_or(0))),
+                        opaque.unwrap_or(is_theorem),
+                    ));
+                }
+                if is_theorem && level.is_none() {
+                    return Ok((None, true));
                 }
                 if let (Some(opaque), None) = (opaque, level) {
                     return Ok((None, opaque));
@@ -101,7 +111,7 @@ impl Lowerer {
         }
         Err(error(
             expr,
-            "expected @dependent or @dependent(decreases=parameter, motive_level=level, opaque=boolean)",
+            "expected @dependent, @dependent(decreases=parameter, motive_level=level, opaque=boolean), or @theorem(decreases=parameter, motive_level=level)",
         ))
     }
 

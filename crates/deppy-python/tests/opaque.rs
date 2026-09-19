@@ -1,6 +1,80 @@
 use deppy_python::{check_module, check_module_with_resolver, Target};
 
 #[test]
+fn theorem_alias_checks_bodies_and_is_opaque_from_both_public_modules() {
+    for import in [
+        "from deppy import theorem as prove",
+        "from deppy.core import theorem as prove",
+    ] {
+        for decorator in ["@prove", "@prove()"] {
+            let source = format!(
+                "from __future__ import annotations\n{import}\nfrom deppy import dependent, Nat, Eq, refl\n{decorator}\ndef hidden() -> Nat:\n    return 0\n"
+            );
+            let checked = check_module(&source, Target::Python314).unwrap();
+            assert_eq!(
+                checked.interface.exports()["hidden"].kind,
+                deppy_python::DeclarationKind::Opaque
+            );
+            assert!(checked.axiom_dependencies["hidden"].is_empty());
+            assert!(
+                check_module(&source.replace("return 0", "return Nat"), Target::Python314).is_err()
+            );
+            let unfold = format!(
+                "{source}\n@dependent\ndef wrong() -> Eq[Nat, hidden(), 0]:\n    return refl(0)\n"
+            );
+            assert!(check_module(&unfold, Target::Python314).is_err());
+        }
+    }
+}
+
+#[test]
+fn recursive_theorem_supports_structural_options_without_transparency_options() {
+    let source = "from __future__ import annotations\nfrom deppy import theorem, Nat, Z, S, Eq, refl, cong\n@theorem(decreases=\"n\", motive_level=0)\ndef identity(n: Nat) -> Eq[Nat, n, n]:\n    match n:\n        case Z():\n            return refl(0)\n        case S(k):\n            return cong(lambda x: S(x), identity(k))\n";
+    let checked = check_module(source, Target::Python314).unwrap();
+    assert_eq!(
+        checked.interface.exports()["identity"].kind,
+        deppy_python::DeclarationKind::Opaque
+    );
+    for options in [
+        "opaque=False",
+        "opaque=True",
+        "transparent=True",
+        "motive_level=0",
+        "decreases=\"n\", decreases=\"n\"",
+    ] {
+        let invalid = source.replace("decreases=\"n\", motive_level=0", options);
+        assert!(
+            check_module(&invalid, Target::Python314).is_err(),
+            "{options}"
+        );
+    }
+    assert!(check_module(
+        &source.replace("identity(k)", "identity(n)"),
+        Target::Python314
+    )
+    .is_err());
+}
+
+#[test]
+fn theorem_alias_preserves_axiom_dependencies_through_reexport() {
+    let library = "from __future__ import annotations\nfrom deppy import theorem, axiom, Nat, Eq\n@axiom\ndef assumption() -> Eq[Nat, 0, 0]:\n    ...\n@theorem\ndef proof() -> Eq[Nat, 0, 0]:\n    return assumption()\n";
+    let bridge = "from deppy.core import theorem as prove\nfrom library import proof\n";
+    let source = "from __future__ import annotations\nfrom deppy import Nat, Eq\nfrom bridge import prove, proof\n@prove\ndef use() -> Eq[Nat, 0, 0]:\n    return proof()\n";
+    let mut resolver = |name: &str| {
+        Ok(match name {
+            "library" => Some(library.to_owned()),
+            "bridge" => Some(bridge.to_owned()),
+            _ => None,
+        })
+    };
+    let checked = check_module_with_resolver(source, Target::Python314, &mut resolver).unwrap();
+    assert_eq!(
+        checked.axiom_dependencies["use"],
+        vec!["library.assumption"]
+    );
+}
+
+#[test]
 fn opaque_theorems_check_bodies_and_preserve_dependencies_across_imports() {
     let library = "from __future__ import annotations\nfrom deppy import dependent, axiom, Nat, Eq, refl\n@axiom\ndef assumption() -> Eq[Nat, 0, 0]:\n    ...\n@dependent(opaque=True)\ndef theorem() -> Eq[Nat, 0, 0]:\n    return assumption()\n";
     let source = "from __future__ import annotations\nfrom deppy import dependent, Nat, Eq\nfrom library import theorem\n@dependent\ndef use() -> Eq[Nat, 0, 0]:\n    return theorem()\n";
