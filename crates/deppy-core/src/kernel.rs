@@ -1,5 +1,7 @@
+mod erasure;
 use crate::value::{self, Budget, Env, Val, Value};
 use crate::{Term, Tm};
+pub use erasure::RuntimeTerm;
 use std::{fmt, sync::Arc};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -12,6 +14,7 @@ pub enum Error {
     FieldUniverseTooLarge,
     UnboundVariable(usize),
     ExpectedUniverse,
+    ErasedVariableUsed(usize),
     ExpectedFunction,
     ExpectedSigma,
     ExpectedNat,
@@ -36,6 +39,9 @@ impl fmt::Display for Error {
                 write!(f, "field universe exceeds the declared inductive universe")
             }
             Self::UnboundVariable(i) => write!(f, "unbound core variable {i}"),
+            Self::ErasedVariableUsed(i) => {
+                write!(f, "erased variable {i} used in runtime computation")
+            }
             Self::ExpectedUniverse => write!(f, "expected a type (a term inhabiting a universe)"),
             Self::ExpectedEquality => write!(f, "expected an equality proof"),
             Self::ExpectedVec => write!(f, "expected a vector"),

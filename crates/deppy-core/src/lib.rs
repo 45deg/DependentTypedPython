@@ -1,11 +1,11 @@
 //! Fully explicit dependent core. No Python execution, metavariables or axioms.
-//! Erasure usage checking is a separate, not yet implemented phase.
+//! Type-directed erasure runs after independent kernel validation.
 mod inductive;
 mod kernel;
 pub use inductive::{InductiveDecl, InductiveId};
 mod value;
 
-pub use kernel::{Error, Kernel};
+pub use kernel::{Error, Kernel, RuntimeTerm};
 use std::sync::Arc;
 
 pub type Tm = Arc<Term>;
