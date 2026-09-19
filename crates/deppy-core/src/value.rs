@@ -71,6 +71,7 @@ pub(crate) enum Neutral {
     Fst(Val),
     Snd(Val),
     Var(usize),
+    Global(crate::DefId),
     App(Val, Val),
     J {
         level: u32,
@@ -114,7 +115,7 @@ pub(crate) enum Neutral {
 /// Shared across checking, evaluation and conversion. Exhaustion is an error.
 pub(crate) struct Budget(
     pub usize,
-    pub Arc<std::collections::BTreeMap<crate::DefId, crate::Definition>>,
+    pub Arc<std::collections::BTreeMap<crate::DefId, crate::GlobalDeclaration>>,
 );
 impl Budget {
     pub fn tick(&mut self) -> Result<(), Error> {
@@ -154,7 +155,10 @@ pub(crate) fn eval(term: &Tm, env: &Env, budget: &mut Budget) -> Result<Val, Err
                 .ok_or(Error::UnknownDefinition(*id))?
                 .body
                 .clone();
-            return eval(&body, &vec![], budget);
+            if let Some(body) = body {
+                return eval(&body, &vec![], budget);
+            }
+            Value::Neutral(Neutral::Global(*id))
         }
         Term::Inductive { id, parameters } => Value::Inductive {
             id: *id,
@@ -631,6 +635,7 @@ pub(crate) fn equal(a: &Val, b: &Val, depth: usize, budget: &mut Budget) -> Resu
             )
         }
         (Value::Neutral(_), Value::Lam(_, _, _)) => equal(b, a, depth, budget),
+        (Value::Neutral(Neutral::Global(x)), Value::Neutral(Neutral::Global(y))) => Ok(x == y),
         (Value::Neutral(Neutral::Var(x)), Value::Neutral(Neutral::Var(y))) => Ok(x == y),
         (Value::Neutral(Neutral::App(f, x)), Value::Neutral(Neutral::App(g, y))) => {
             Ok(equal(f, g, depth, budget)? && equal(x, y, depth, budget)?)
@@ -854,6 +859,7 @@ pub(crate) fn quote(value: &Val, depth: usize, budget: &mut Budget) -> Result<Tm
             step: quote(step, depth, budget)?,
             scrutinee: quote(scrutinee, depth, budget)?,
         },
+        Value::Neutral(Neutral::Global(id)) => Term::Global(*id),
         Value::Neutral(Neutral::Var(level)) => Term::Var(
             depth
                 .checked_sub(level + 1)

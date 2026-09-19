@@ -4,6 +4,8 @@ Pythonの構文で記述する依存型言語の実装です。[Chatlog.md](Chat
 
 Rust製kernel、名前付きASTのelaborator、Ruffを使ったPython frontend、使用検査・消去、Pythonコード生成を実装しています。identity・append・get・zero_right・SomeVecの例について、型検査から生成コードの実行まで通ります。対応範囲と残る制約は下記の実行MVPの節に記載しています。
 
+Pythonでの証明項・公理・ライブラリ利用は [証明言語のガイド](docs/proofs.md) を参照してください。`examples/reverse_explicit.py` はRustに補題を追加せず、Pythonのeliminatorとライブラリだけで証明する例です。
+
 ## 実行
 
 RustのCargoを使用します。kernelとelaboratorに外部crate依存はありません。Python frontendはRuffのparser・AST・text size crateを `=0.0.12` に固定し、推移的な依存はCargo.lockで固定しています。初回は `cargo fetch --locked` で依存を取得してください。検証環境はRust 1.97.1です。
@@ -64,7 +66,7 @@ elaborator単体の入力はRustで組み立てるASTです。Pythonの解析は
 
 `Elaborator::define(name, optional_type, body)` は型と本体を検査し、名前と定義IDを登録します。後続の式と関数HIRから `Expr::name(name)` で参照でき、ローカル名が優先されます。コアには `Term::Global(id)` を残し、kernelの評価とelaboratorの単一化で本体を展開します。型の別名にも使えます。
 
-登録は成功時だけ反映され、同名・同IDの置換、自己参照、前方参照を拒否します。グローバル定義のuniverseは具体値で、現在は透明な定義のみ対応します。不透明な定義・公理・universe parameter・モジュール間インターフェースは未実装です。IDは環境内の識別子なので、得られた項は同じelaboratorの `kernel()` で検査・正規化してください。
+登録は成功時だけ反映され、同名・同IDの置換、自己参照、前方参照を拒否します。グローバル定義のuniverseは具体値で、通常の定義は透明です。公理は型を検査した本体なしの定数として宣言でき、依存する公理を追跡します。universe parameterと本体を隠す不透明な通常定義は未実装です。IDは環境内の識別子なので、得られた項は同じelaboratorの `kernel()` で検査・正規化してください。
 
 ## Python frontend
 
@@ -78,13 +80,13 @@ elaborator単体の入力はRustで組み立てるASTです。Pythonの解析は
 
 式は `Type`・`Type[level]`、Nat・Vec・Fin・Eq・Pi・Sigma、コンストラクタ、refl・cong・trans・fin0_elim、Pairとfst/snd、位置引数による適用、角括弧による暗黙引数指定、Natの加算と0〜1024の整数リテラルに対応します。`VNil()` と `VCons(k, head, tail)` の要素型のuniverseは現在Type₀です。`FZ(k)` と `FS(k, pred)` はboundを明示します。例は `crates/deppy-python/examples/basics.py` にあります。
 
-未検査の名前、対応外の自己参照・前方参照、再代入、可変長・デフォルト・キーワード引数、引数のない関数、任意の属性アクセス、文字列注釈、未対応の構文は拒否します。Pythonの関数スコープに合わせ、代入前のローカル名をグローバル名として解釈しません。外部モジュールの静的importは未対応です。
+未検査の名前、対応外の自己参照・前方参照、再代入、可変長・デフォルト・キーワード引数、任意の属性アクセス、文字列注釈、未対応の構文は拒否します。Pythonの関数スコープに合わせ、代入前のローカル名をグローバル名として解釈しません。静的なライブラリimportに対応し、ソースを実行せず検査します。引数のない `@dependent` 宣言は型付き定数として扱います。
 
 `@dependent(decreases="parameter")` では、不変のローカル定義列に続く `match` または `return` を関数HIRへ変換します。Natの `Z()` / `S(k)`、Vecの `VNil()` / `VCons(k, head, tail)`、Finの `FZ(k)` / `FS(k, pred)` に対応します。網羅性・添字・直接の部分構造への再帰を既存HIRで検査し、kernelで再検査します。自己呼び出しは関数名による位置引数適用に限定し、暗黙型引数は現在の型引数を補います。例は `crates/deppy-python/examples/structural.py` のadd・appendです。
 
-再帰関数のmotive universeは省略時0で、`@dependent(decreases="n", motive_level=1)` のように具体値を指定できます。guard、Finのbound以外のワイルドカード、キーワードpattern、コンストラクタpatternの入れ子、自己呼び出しの明示的型引数は未対応です。入れ子のmatchは既存HIRの制限に従います。patternのcapture名にもPythonの関数全体のローカルスコープを適用します。`lower_module` の本体は `DeclarationBody::Expression` / `Structural` / `Record` で区別されます。
+再帰関数のmotive universeは省略時0で、`@dependent(decreases="n", motive_level=1)` のように具体値を指定できます。guard、Finのbound以外のワイルドカード、キーワードpattern、コンストラクタpatternの入れ子、自己呼び出しの明示的型引数は未対応です。入れ子のmatchは既存HIRの制限に従います。patternのcapture名にもPythonの関数全体のローカルスコープを適用します。`lower_module` の本体は `DeclarationBody::Expression` / `Structural` / `Record` / `Axiom` で区別されます。
 
-`cong(f, proof)` と等式の推移律 `trans(p, q)` はJから導いた定義を適用し、`fin0_elim(i)` は戻り値の期待型を使って空のFinを消去します。現在はType₀が対象です。Fin patternのboundは `FZ(_)` / `FS(_, j)` と省略でき、他の名前を捕捉しない内部名を生成します。`crates/deppy-python/examples/proofs.py` にChatlogのget・zero_right宣言があります。これらの静的検査と生成コアの計算をテストしています。
+`cong(f, proof)` と等式の推移律 `trans(p, q)` はPythonライブラリ `deppy.equality` のJから導いた定義を適用し、`fin0_elim(i)` は戻り値の期待型を使って空のFinを消去します。現在はType₀が対象です。Fin patternのboundは `FZ(_)` / `FS(_, j)` と省略でき、他の名前を捕捉しない内部名を生成します。`crates/deppy-python/examples/proofs.py` にChatlogのget・zero_right宣言があります。これらの静的検査と生成コアの計算をテストしています。
 
 `@record class SomeVec[T: Type]` は名目的な非再帰recordを宣言します。フィールドには値のない型注釈を使い、先行フィールドは `self.n` のように参照します。`SomeVec[T]` は型、`SomeVec(n, xs)` / `SomeVec[T](n, xs)` はコンストラクタ、`r.n` / `r.value` は生成した射影へ変換します。型名と補助関数を同じelaborator環境に登録します。`CheckedModule.definitions` には関数とrecord型の公開名を返します。
 
@@ -180,7 +182,7 @@ getのVec motiveは`P k xs = Fin k → A`です。空の分岐にはfin0_elimを
 
 ## reverseとmirrorの参照等式
 
-`crates/deppy-python/examples/reverse.py` に、末尾追加 `snoc`、`reverse`、`mirror` と次の証明があります。
+`crates/deppy-python/stdlib/deppy/vectors.py` に末尾追加 `snoc`、`reverse`、`mirror` と参照補題があります。`crates/deppy-python/examples/reverse.py` はこれらをimportして次の証明を定義します。
 
 ```python
 @dependent(decreases="xs")
@@ -278,7 +280,7 @@ uv run --no-project --offline --python 3.12 python -c "import runpy; f = runpy.r
 
 - 外部Pythonからの証明入力。内部の証明トークンを渡しても拒否します。`Proof[...]` の構文と、証明計算全体を除去する最適化は未実装です。
 - 高階関数・任意の型族を公開境界で検証すること。消去した値添字が境界のサイズ検査に必要な場合も、コンパイル時に拒否します。
-- 一般Pythonとの混在コンパイル、ソース互換のruntime class、モジュール間の検査済みインターフェース。
+- 一般Pythonとの混在コンパイル、ソース互換のruntime class。検査済みモジュールはソースを静的に読み込み、同じkernel環境で再検査します。
 - 深い項や大きな再帰に対するスタック・メモリ保証。recursor自体はループを使いますが、生成closureの呼び出しにはPythonのスタック上限があります。Rustの再帰的な検査にもスタック制約があります。
 
 検証は `cargo test --workspace --locked --offline` と、次の差分実行で再現できます。Rustのruntime統合テストには `python3` が必要です。
@@ -290,4 +292,4 @@ uv run --no-project --offline --python 3.14 scripts/check_python_runtime.py
 
 Python 3.12.0・3.14.3で各244ケースが一致しました。比較するのはリポジトリの5fixtureです。ソース側にはテスト専用の `scripts/reference_deppy.py` を使います。この参照モデルは型検査器・証明検査器ではありません。
 
-残る拡張はuniverse指定の追加、CPython 3.13の検証、モジュール間インターフェース、詳細なエラー位置などです。これらを既存例の実行MVPの完了条件には含めません。未対応の構文や未解決の穴を公理として受理する機能は設けません。
+残る拡張はuniverse polymorphism、CPython 3.13の実行検証、一般の帰納型、詳細なエラー位置などです。これらを既存例の実行MVPの完了条件には含めません。未対応の構文や未解決の穴を公理として受理する機能は設けません。

@@ -132,3 +132,74 @@ impl Kernel {
         Ok(projections)
     }
 }
+
+impl Kernel {
+    /// Fully explicit dependent eliminator for an existing nominal record.
+    /// This constructs ordinary core syntax and independently kernel-checks it.
+    pub fn eliminator_function(&self, id: InductiveId, level: u32) -> Result<Tm, Error> {
+        let d = self.declaration(id)?;
+        let count = d.parameters.len();
+        let nominal = |offset| {
+            Term::Inductive {
+                id,
+                parameters: params(count, offset),
+            }
+            .arc()
+        };
+        let motive_ty = Term::Pi {
+            relevance: Relevance::Runtime,
+            domain: nominal(0),
+            codomain: Term::Universe(level).arc(),
+        }
+        .arc();
+        // Each field domain is instantiated from a closed telescope, avoiding
+        // capture when the motive binder is inserted between parameters and fields.
+        let mut domains = vec![];
+        for (index, ty) in d.fields.iter().enumerate() {
+            let family = bind(
+                &d.parameters,
+                bind(&d.fields[..index], ty.clone(), Relevance::Runtime),
+                Relevance::Erased,
+            );
+            domains.push(apply(
+                family,
+                params(count, index + 1).into_iter().chain(params(index, 0)),
+            ));
+        }
+        let constructor = Term::Constructor {
+            id,
+            parameters: params(count, d.fields.len() + 1),
+            fields: params(d.fields.len(), 0),
+        }
+        .arc();
+        let mut branch_ty = apply(var(d.fields.len()), [constructor]);
+        for domain in domains.into_iter().rev() {
+            branch_ty = Term::Pi {
+                relevance: Relevance::Runtime,
+                domain,
+                codomain: branch_ty,
+            }
+            .arc();
+        }
+        let body = Term::Elim {
+            id,
+            parameters: params(count, 3),
+            level,
+            motive: var(2),
+            branch: var(1),
+            scrutinee: var(0),
+        }
+        .arc();
+        let function = bind(
+            &d.parameters,
+            bind(
+                &[motive_ty, branch_ty, nominal(2)],
+                body,
+                Relevance::Runtime,
+            ),
+            Relevance::Erased,
+        );
+        self.infer(&function)?;
+        Ok(function)
+    }
+}

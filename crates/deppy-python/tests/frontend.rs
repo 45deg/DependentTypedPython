@@ -191,8 +191,9 @@ fn errors_in_discarded_values_and_non_cumulative_universes() {
 }
 
 #[test]
-fn zero_argument_functions_are_rejected_instead_of_becoming_values() {
-    rejected("@dependent\ndef zero() -> Nat:\n    return Z()");
+fn zero_parameter_constants_and_empty_call_validation() {
+    accepted("@dependent\ndef zero() -> Nat:\n    return Z()\n@dependent\ndef use(n: Nat) -> Nat:\n    return zero()");
+    rejected("@dependent\ndef identity(n: Nat) -> Nat:\n    return n\n@dependent\ndef bad(n: Nat) -> Nat:\n    return identity()");
 }
 
 #[test]

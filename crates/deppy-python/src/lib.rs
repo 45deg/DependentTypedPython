@@ -1,8 +1,10 @@
 //! Static Python frontend using pinned Ruff components. No user code is executed.
 mod codegen;
 mod lower;
-pub use codegen::compile_module;
+mod modules;
+pub use codegen::{compile_module, compile_module_with_resolver};
 use deppy_elab::{Elaborator, Expr};
+pub use modules::{lower_module_with_resolver, FileResolver, SourceResolver};
 use ruff_python_ast::PythonVersion;
 use ruff_text_size::TextRange;
 
@@ -59,6 +61,7 @@ pub struct Declaration {
 }
 #[derive(Clone, Debug)]
 pub enum DeclarationBody {
+    Axiom,
     Expression(Expr),
     Structural(deppy_elab::lower::Function),
     Record {
@@ -69,9 +72,12 @@ pub enum DeclarationBody {
 #[derive(Clone, Debug)]
 pub struct Module {
     pub declarations: Vec<Declaration>,
+    pub public_names: std::collections::HashSet<String>,
+    pub origins: std::collections::HashMap<String, String>,
 }
 pub struct CheckedModule {
     pub elaborator: Elaborator,
+    pub axiom_dependencies: std::collections::BTreeMap<String, Vec<String>>,
     pub definitions: Vec<(String, deppy_core::DefId, Span)>,
     pub constructors: Vec<(String, deppy_core::DefId, Span)>,
 }
@@ -80,43 +86,57 @@ pub struct CheckedModule {
 /// Ordinary undecorated functions and module assertions are left unchecked.
 /// This is not CPython compilation, erasure checking, or runtime code generation.
 pub fn lower_module(source: &str, target: Target) -> Result<Module, Diagnostic> {
-    use ruff_python_parser::{Mode, ParseOptions};
-    if source.len() > 1_000_000 {
-        return Err(Diagnostic {
-            span: Span { start: 0, end: 0 },
-            message: "source exceeds frontend size limit".into(),
-        });
-    }
-    let parsed = ruff_python_parser::parse(
-        source,
-        ParseOptions::from(Mode::Module).with_target_version(target.version()),
-    )
-    .map_err(|e| Diagnostic {
-        span: e.location.into(),
-        message: e.to_string(),
-    })?;
-    if let Some(e) = parsed.unsupported_syntax_errors().first() {
-        return Err(Diagnostic {
-            span: e.range.into(),
-            message: format!("unsupported target-version syntax: {:?}", e.kind),
-        });
-    }
-    let ruff_python_ast::Mod::Module(module) = parsed.syntax() else {
-        unreachable!()
-    };
-    lower::module(&module.body)
+    lower_module_with_resolver(source, target, &mut |_: &str| Ok(None))
 }
 
 /// A fresh environment makes checking a module atomic from the caller's perspective.
 pub fn check_module(source: &str, target: Target) -> Result<CheckedModule, Diagnostic> {
-    let module = lower_module(source, target)?;
+    check_lowered(lower_module(source, target)?)
+}
+
+pub fn check_module_with_resolver(
+    source: &str,
+    target: Target,
+    resolver: &mut impl SourceResolver,
+) -> Result<CheckedModule, Diagnostic> {
+    check_lowered(lower_module_with_resolver(source, target, resolver)?)
+}
+
+fn check_lowered(module: Module) -> Result<CheckedModule, Diagnostic> {
     // Dependent Fin motives and composed equality proofs (e.g. reverse_get)
     // exceed the small elaborator default. Keep checking explicitly bounded.
     let mut elaborator = Elaborator::new(1_000_000);
     let mut definitions = vec![];
     let mut record_id = 0;
     let mut constructors = vec![];
+    let mut axiom_names = std::collections::HashMap::new();
     for d in module.declarations {
+        let diagnostic = |message: String| {
+            if let Some(origin) = module.origins.get(&d.name) {
+                Diagnostic {
+                    span: Span { start: 0, end: 0 },
+                    message: format!(
+                        "in {origin}, bytes {}..{}: {message}",
+                        d.span.start, d.span.end
+                    ),
+                }
+            } else {
+                Diagnostic {
+                    span: d.span,
+                    message,
+                }
+            }
+        };
+        if matches!(d.body, DeclarationBody::Axiom) {
+            let id = elaborator
+                .declare_axiom(&d.name, &d.ty)
+                .map_err(|e| diagnostic(e.to_string()))?;
+            axiom_names.insert(id, d.name.clone());
+            if module.public_names.contains(&d.name) {
+                definitions.push((d.name, id, d.span));
+            }
+            continue;
+        }
         if let DeclarationBody::Record {
             declaration: decl, ..
         } = &d.body
@@ -133,34 +153,43 @@ pub fn check_module(source: &str, target: Target) -> Result<CheckedModule, Diagn
                     constructors.push((d.name.clone(), constructor_id, d.span));
                     Ok(id)
                 };
-            let id = register(&mut elaborator).map_err(|e| Diagnostic {
-                span: d.span,
-                message: e.to_string(),
-            })?;
+            let id = register(&mut elaborator).map_err(|e| diagnostic(e.to_string()))?;
             record_id += 1;
-            definitions.push((d.name, id, d.span));
+            if module.public_names.contains(&d.name) {
+                definitions.push((d.name, id, d.span));
+            }
             continue;
         }
-        let body =
-            match &d.body {
-                DeclarationBody::Structural(function) => elaborator
-                    .lower_function(function)
-                    .map_err(|e| Diagnostic {
-                        span: d.span,
-                        message: e.to_string(),
-                    })?,
-                DeclarationBody::Expression(body) => body.clone(),
-                DeclarationBody::Record { .. } => unreachable!(),
-            };
+        let body = match &d.body {
+            DeclarationBody::Structural(function) => elaborator
+                .lower_function(function)
+                .map_err(|e| diagnostic(e.to_string()))?,
+            DeclarationBody::Expression(body) => body.clone(),
+            DeclarationBody::Record { .. } | DeclarationBody::Axiom => unreachable!(),
+        };
         let id = elaborator
             .define(&d.name, Some(&d.ty), &body)
+            .map_err(|e| diagnostic(e.to_string()))?;
+        if module.public_names.contains(&d.name) {
+            definitions.push((d.name, id, d.span));
+        }
+    }
+    let mut axiom_dependencies = std::collections::BTreeMap::new();
+    for (name, id, span) in &definitions {
+        let ids = elaborator
+            .kernel()
+            .axiom_dependencies(&deppy_core::Term::Global(*id).arc())
             .map_err(|e| Diagnostic {
-                span: d.span,
+                span: *span,
                 message: e.to_string(),
             })?;
-        definitions.push((d.name, id, d.span));
+        axiom_dependencies.insert(
+            name.clone(),
+            ids.into_iter().map(|id| axiom_names[&id].clone()).collect(),
+        );
     }
     Ok(CheckedModule {
+        axiom_dependencies,
         elaborator,
         definitions,
         constructors,

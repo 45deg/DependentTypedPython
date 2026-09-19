@@ -1,7 +1,7 @@
 mod expression;
 mod record;
 mod structural;
-use crate::{Declaration, DeclarationBody, Diagnostic, Module};
+use crate::{Declaration, DeclarationBody, Diagnostic};
 use deppy_elab::{Expr as E, Plicity};
 pub(crate) use record::constructor_name;
 use ruff_python_ast::{self as ast, Expr, Stmt};
@@ -22,13 +22,15 @@ struct Scope {
 }
 struct Lowerer {
     imports: HashMap<String, String>,
-    globals: HashSet<String>,
+    globals: HashMap<String, crate::modules::Binding>,
+    namespace: String,
     remaining: usize,
     wildcard: usize,
     records: HashMap<String, (usize, usize)>,
 }
 const IMPORTS: &[&str] = &[
     "dependent",
+    "axiom",
     "record",
     "Type",
     "Nat",
@@ -42,18 +44,33 @@ const IMPORTS: &[&str] = &[
     "FS",
     "Eq",
     "refl",
-    "cong",
-    "trans",
+    "J",
+    "nat_elim",
+    "vec_elim",
+    "fin_elim",
+    "record_elim",
+    "ann",
+    "lam",
+    "implicit_lam",
+    "ImplicitPi",
+    "vnil",
+    "vcons",
+    "pair",
     "fin0_elim",
     "Pi",
     "Sigma",
     "Pair",
 ];
 
-pub(super) fn module(body: &[Stmt]) -> Result<Module, Diagnostic> {
+pub(super) fn module(
+    body: &[Stmt],
+    namespace: &str,
+    libraries: &HashMap<String, HashMap<String, crate::modules::Binding>>,
+) -> Result<Vec<Declaration>, Diagnostic> {
     let mut l = Lowerer {
         imports: HashMap::new(),
-        globals: HashSet::new(),
+        globals: HashMap::new(),
+        namespace: namespace.into(),
         remaining: 20_000,
         wildcard: 0,
         records: HashMap::new(),
@@ -84,24 +101,36 @@ pub(super) fn module(body: &[Stmt]) -> Result<Module, Diagnostic> {
                         ));
                     }
                     future = true;
-                } else if module == "deppy" {
+                } else if module == "deppy" || libraries.contains_key(module) {
                     future_done = true;
                     for alias in &import.names {
                         let original = alias.name.as_str();
                         let name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
-                        if !IMPORTS.contains(&original) {
-                            return Err(error(
-                                alias,
-                                format!("unsupported deppy import: {original}"),
-                            ));
-                        }
                         if !names.insert(name.to_owned()) {
                             return Err(error(alias, "duplicate module binding"));
                         }
-                        l.imports.insert(name.into(), original.into());
+                        if module == "deppy" && IMPORTS.contains(&original) {
+                            l.imports.insert(name.into(), original.into());
+                        } else if let Some(binding) = libraries
+                            .get(module)
+                            .and_then(|exports| exports.get(original))
+                        {
+                            l.globals.insert(name.into(), binding.clone());
+                            if let Some(arity) = binding.record {
+                                l.records.insert(name.into(), arity);
+                            }
+                        } else {
+                            return Err(error(
+                                alias,
+                                format!("unknown checked import: {module}.{original}"),
+                            ));
+                        }
                     }
                 } else {
-                    return Err(error(stmt, "only static deppy imports are supported"));
+                    return Err(error(
+                        stmt,
+                        "only statically resolved imports are supported",
+                    ));
                 }
             }
             Stmt::FunctionDef(f) => {
@@ -115,9 +144,21 @@ pub(super) fn module(body: &[Stmt]) -> Result<Module, Diagnostic> {
                 if !future {
                     return Err(error(f, "from __future__ import annotations is required"));
                 }
-                let decreases = l.decorator(f)?;
-                let declaration = l.function(f, decreases)?;
-                l.globals.insert(f.name.to_string());
+                let is_axiom = f.decorator_list.len() == 1
+                    && l.builtin(&f.decorator_list[0].expression, &Scope::default())
+                        == Some("axiom");
+                let decreases = if is_axiom { None } else { l.decorator(f)? };
+                let mut declaration = l.function(f, decreases)?;
+                declaration.name = l.qualified(f.name.as_str());
+                l.globals.insert(
+                    f.name.to_string(),
+                    crate::modules::Binding {
+                        name: declaration.name.clone(),
+                        record: None,
+                        nullary: f.parameters.posonlyargs.is_empty()
+                            && f.parameters.args.is_empty(),
+                    },
+                );
                 declarations.push(declaration);
             }
             Stmt::ClassDef(class) => {
@@ -131,7 +172,17 @@ pub(super) fn module(body: &[Stmt]) -> Result<Module, Diagnostic> {
                         "from __future__ import annotations is required",
                     ));
                 }
-                declarations.push(l.record(class)?);
+                let mut declaration = l.record(class)?;
+                declaration.name = l.qualified(class.name.as_str());
+                l.globals.insert(
+                    class.name.to_string(),
+                    crate::modules::Binding {
+                        name: declaration.name.clone(),
+                        record: l.records.get(class.name.as_str()).copied(),
+                        nullary: false,
+                    },
+                );
+                declarations.push(declaration);
             }
             Stmt::Assert(_) => {
                 imports_done = true;
@@ -139,9 +190,16 @@ pub(super) fn module(body: &[Stmt]) -> Result<Module, Diagnostic> {
             _ => return Err(error(stmt, "unsupported module statement")),
         }
     }
-    Ok(Module { declarations })
+    Ok(declarations)
 }
 impl Lowerer {
+    fn qualified(&self, name: &str) -> String {
+        if self.namespace.is_empty() {
+            name.into()
+        } else {
+            format!("{}.{name}", self.namespace)
+        }
+    }
     fn tick(&mut self, range: TextRange) -> Result<(), Diagnostic> {
         self.remaining = self.remaining.checked_sub(1).ok_or_else(|| Diagnostic {
             span: range.into(),
@@ -191,12 +249,6 @@ impl Lowerer {
             return Err(error(f, "async dependent functions are unsupported"));
         }
         self.parameters(&f.parameters)?;
-        if f.parameters.posonlyargs.is_empty() && f.parameters.args.is_empty() {
-            return Err(error(
-                f,
-                "at least one explicit parameter is required in this frontend subset",
-            ));
-        }
         let mut scope = Scope::default();
         let mut parameters = vec![];
         if let Some(params) = &f.type_params {
@@ -232,6 +284,24 @@ impl Lowerer {
                 .ok_or_else(|| error(f, "return annotation required"))?,
             &scope,
         )?;
+        if f.decorator_list.len() == 1
+            && self.builtin(&f.decorator_list[0].expression, &Scope::default()) == Some("axiom")
+        {
+            if f.body.len() != 1
+                || !matches!(&f.body[0], Stmt::Expr(e) if matches!(e.value.as_ref(), Expr::EllipsisLiteral(_)))
+            {
+                return Err(error(f, "axiom body must be exactly ..."));
+            }
+            for (name, plicity, domain) in parameters.into_iter().rev() {
+                ty = E::pi(name, plicity, domain, ty);
+            }
+            return Ok(Declaration {
+                name: f.name.to_string(),
+                span: f.range.into(),
+                ty,
+                body: DeclarationBody::Axiom,
+            });
+        }
         if let Some((decreases, motive_level)) = decreases {
             let implicit = parameters
                 .iter()

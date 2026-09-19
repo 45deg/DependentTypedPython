@@ -43,6 +43,12 @@ pub enum Expr {
         snd: Box<Expr>,
     },
     /// Resolve a named record projection from the inferred nominal receiver type.
+    RecordElim {
+        level: u32,
+        motive: Box<Expr>,
+        branch: Box<Expr>,
+        value: Box<Expr>,
+    },
     Field {
         value: Box<Expr>,
         name: String,

@@ -36,7 +36,7 @@ impl Lowerer {
         if call.arguments.args.len() != fields {
             return Err(error(call, "wrong number of record fields"));
         }
-        let mut constructor = E::name(constructor_name(&name));
+        let mut constructor = E::name(constructor_name(&self.globals[&name].name));
         if let Some(explicit) = explicit {
             let args: Vec<&Expr> = match explicit {
                 Expr::Tuple(t) => t.elts.iter().collect(),

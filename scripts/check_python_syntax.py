@@ -7,6 +7,7 @@ if sys.implementation.name != "cpython" or not (3, 12) <= sys.version_info[:2] <
 
 root = pathlib.Path(__file__).resolve().parent.parent
 paths = list((root / "crates/deppy-python/examples").glob("*.py"))
+paths += list((root / "crates/deppy-python/stdlib").rglob("*.py"))
 for path in paths:
     compile(path.read_text(encoding="utf-8"), str(path), "exec", dont_inherit=True)
     print(f"compiled (not executed): {path.relative_to(root)}")

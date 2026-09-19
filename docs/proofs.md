@@ -1,0 +1,130 @@
+# Pythonで書く証明とライブラリ
+
+Python frontendから、既存kernelの依存関数・依存対・等式消去・Nat/Vec/Fin/recordの消去を明示できます。型推論や `match` の自動変換が扱えない場合は、型・引数・motiveを明示して証明項を書けます。`@dependent` の本体は検査対象の純粋な部分言語です。CPythonを実行して証明を取り出す仕組みではありません。
+
+## ライブラリの利用
+
+```python
+from __future__ import annotations
+from deppy import dependent, Nat, Eq, refl
+from deppy.equality import trans
+
+
+@dependent
+def reflexive(n: Nat) -> Eq[Nat, n, n]:
+    return trans(refl(n), refl(n))
+```
+
+標準ライブラリのソースは `crates/deppy-python/stdlib/deppy/` にあります。Rustのバイナリに同梱し、利用時に通常の宣言としてelaborateし、kernelで再検査します。
+
+| モジュール | 定義 |
+| --- | --- |
+| `deppy.equality` | `sym`・`trans`・`cong`・`transport`。すべてPythonの `J` から定義 |
+| `deppy.fin` | `case_motive`・`fin_case`。添字に依存する型族を受け取る分岐をPythonのNat/Fin eliminatorから定義 |
+| `deppy.vectors` | `get`・`snoc`・`reverse`・`last`・`weaken`・`mirror`・参照補題 |
+
+既存コードの `from deppy import cong, trans` も、同じPythonライブラリへの互換importとして残しています。Rust frontendに `cong`・`trans` の呼び出し専用変換はありません。Rust用のelaborator APIと例が使う `prelude::cong` などは別に残っています。また、`+` や構造的 `match` の構文変換は引き続きRustが担当します。
+
+`examples/reverse.py` はライブラリを利用する構造的帰納法の証明です。`examples/reverse_explicit.py` は同じ型の証明を `@dependent`、`vec_elim`、Pythonライブラリの `fin_case` だけで書いています。どちらも公理なしで検査できます。
+
+## 自分のライブラリを別ファイルにする
+
+例えば、同じディレクトリの `lemmas.py` に上の `reflexive` を置き、`main.py` で次のように使えます。
+
+```python
+from __future__ import annotations
+from deppy import dependent, Nat, Eq
+from lemmas import reflexive as lemma
+
+
+@dependent
+def result(n: Nat) -> Eq[Nat, n, n]:
+    return lemma(n)
+```
+
+```sh
+cargo run -p deppy-python --locked --offline -- path/to/main.py
+cargo run -p deppy-python --locked --offline -- --emit-python path/to/main.py
+```
+
+CLIの検索ルートは入力ファイルの親ディレクトリです。`from proofs.lemmas import lemma` は、そのルートの `proofs/lemmas.py`、または `proofs/lemmas/__init__.py` を読みます。ルート外へ出るsymlinkは拒否します。Pythonのimport機構、site-packages、`sys.path`、パッケージ初期化コードは実行しません。
+
+対応するのは絶対指定の `from module import name`、alias、検査済み宣言の再exportです。recordと公理もimportできます。循環import、相対import、ワイルドカードimport、動的import、通常の未装飾Python関数の利用は拒否します。モジュール名で定義を分離するため、異なるライブラリの同名関数やrecordは混同しません。宣言順・前方参照禁止は各モジュール内でも維持します。
+
+読み込むソースは1ファイル1 MB、グラフ全体8 MB、import深さ32に制限し、モジュール数にも上限を設けています。各宣言のelaborationとkernel検査には有限のステップ予算があります。
+
+Rust APIでは `check_module_with_resolver`・`compile_module_with_resolver` に `SourceResolver` を渡せます。`FileResolver` はCLIと同じファイル解決を提供します。従来の `check_module`・`compile_module` は標準ライブラリだけを解決し、カレントディレクトリを暗黙には読みません。
+
+生成Pythonの `exports` に載るのは入力モジュール自身の宣言です。importした関数を外部から実行したい場合は、入力モジュールでラッパーを定義してください。ライブラリの高階関数は検査済み内部呼び出しとして利用でき、外部Pythonとの高階関数の境界検査は引き続き未対応です。
+
+## 型とλを明示する
+
+通常の `lambda x: ...`、`lambda x, y: ...` は期待される依存関数型で検査します。期待型が得られない位置では次を使えます。
+
+```python
+helper = lam(Nat, lambda x: x)
+helper2 = ann(lambda x: x, Pi[Nat, lambda x: Nat])
+```
+
+| 構文 | 意味 |
+| --- | --- |
+| `Pi[A, lambda x: B]` | 明示引数の依存関数型 |
+| `ImplicitPi[A, lambda x: B]` | 暗黙・実行時消去引数の依存関数型 |
+| `lam(A, lambda x: body)` | 引数型を指定したλ |
+| `implicit_lam(A, lambda x: body)` | 暗黙引数のλ |
+| `ann(value, A)` | 値を型 `A` と照合する注釈 |
+| `f[a, b]` | 暗黙引数を明示的に適用 |
+| `Sigma[A, lambda x: B]`・`Pair(a, b)` | 依存対。値は期待型で検査 |
+| `pair(SigmaType, a, b)` | 依存対の型を明示する構築 |
+| `vnil(A)`・`vcons(A, n, head, tail)` | 要素型を明示するVec構築。高いuniverseにも対応 |
+
+`def name() -> A` は型付きの定数宣言として使用できます。`name()` と `name` はその定数を参照します。引数が必要な関数への空の呼び出しは拒否します。局所補助関数は型注釈付きのλを不変のローカル変数に束縛して記述できます。任意のPython文や副作用は受け付けません。
+
+## Eliminatorを直接使う
+
+`level` は戻り値のmotiveのuniverseを指定する具体的な非負整数です。universeは非累積的であり、型が合わなければ拒否します。motiveは「対象とともに、証明する性質がどう変わるか」を記述する型族です。
+
+| 呼び出し | motiveと分岐 |
+| --- | --- |
+| `J(level, A, x, C, base, y, proof)` | `C : (z : A) → Eq[A,x,z] → Type[level]`、`base : C(x,refl(x))`、`proof : Eq[A,x,y]` |
+| `nat_elim(level, P, zero, step, n)` | `P : Nat → Type[level]`、`zero : P(0)`、`step : (k : Nat) → P(k) → P(S(k))` |
+| `vec_elim(level, A, P, nil, cons, n, xs)` | `P : (k : Nat) → Vec[A,k] → Type[level]`、consの引数は `k, head, tail, ih` |
+| `fin_elim(level, P, zero, step, n, i)` | `P : (k : Nat) → Fin[k] → Type[level]`、zeroの引数は `k`、stepは `k, pred, ih` |
+| `record_elim(level, P, branch, value)` | recordをvalueから推論。branchは宣言順のフィールドを受け取り、`P(そのコンストラクタ値)` を返す |
+| `fin0_elim(A, impossible)` | `Fin[0]` の値から任意の型 `A` を得る。`fin0_elim(impossible)` は従来のType₀の期待型推論版 |
+
+例えば `trans` のライブラリ実装は次のとおりです。
+
+```python
+@dependent
+def trans[A: Type, x: A, y: A, z: A](
+    p: Eq[A, x, y], q: Eq[A, y, z],
+) -> Eq[A, x, z]:
+    return J(0, A, y, lambda end, proof: Eq[A, x, end], p, z, q)
+```
+
+標準の等式補題はType₀用です。より高いuniverse用の補題も、`Type[level]` と `J` の具体的levelを指定してPythonで定義できます。universe polymorphismは未実装です。
+
+## 公理
+
+公理は専用の `@axiom` 宣言にし、本体は単独の `...` に限定します。例として関数外延性を宣言する `examples/axioms.py` を用意しています。
+
+```python
+@axiom
+def assumed[A: Type](x: A, y: A) -> Eq[A, x, y]:
+    ...
+```
+
+これは例示用の強い仮定であり、この宣言から導いた結果はその仮定に依存します。kernelは公理の型の整合性を検査しますが、公理自体を証明したとは扱いません。
+
+公理は本体を持たない不透明な定数です。正規化で `refl` に置き換えたり、`Eq[A,x,y]` を仮定しただけで `x` と `y` を定義的に等しいと扱ったりしません。未解決meta、`@dependent` の `...`、不正な証明を公理として受理することもありません。
+
+CLIは各公開宣言を `[axiom-free]` または `[axioms: ...]` と表示します。Rust APIの `CheckedModule.axiom_dependencies` からも確認できます。追跡には宣言の型、型注釈、参照先の定義・recordも含みます。これは構文上の依存関係であり、必要な公理の最小集合を探索する処理ではありません。
+
+公理には実行実装がありません。公開した公理そのものや、実行時に公理の値・証明トークンを必要とするコードは `--emit-python` で拒否します。ダミーの証明や実装は生成しません。現在のコード生成は読み込んだ透明な定義全体を消去検査するため、未使用のライブラリ関数でも実行時に公理を必要とすれば生成を拒否する場合があります。
+
+## 到達範囲
+
+現在のkernelの型・定数・公理・eliminatorを組み合わせる証明は、Rustに補題を追加せずPythonで記述できます。必要な注釈を省略したときの型推論や、すべてのPythonパターンマッチの自動変換を保証するものではありません。明示的な証明でも有限の計算・スタック制限には従います。
+
+一般のユーザー定義再帰帰納型、添字付き帰納型の宣言、universe polymorphism、自動証明探索、任意のPythonとの混在実行は今回の範囲には含みません。既存の `@record` は非再帰・単一コンストラクタのままです。

@@ -1,4 +1,4 @@
-//! Fully explicit dependent core. No Python execution, metavariables or axioms.
+//! Fully explicit dependent core. No Python execution or metavariables; axioms are explicit opaque declarations.
 //! Type-directed erasure runs after independent kernel validation.
 mod inductive;
 mod kernel;
@@ -15,6 +15,14 @@ pub type DefId = u64;
 pub struct Definition {
     pub ty: Tm,
     pub body: Tm,
+}
+
+/// A checked global declaration. A missing body is an explicitly declared axiom.
+/// The environment never mutates an axiom into a definition.
+#[derive(Clone, Debug)]
+pub struct GlobalDeclaration {
+    pub ty: Tm,
+    pub body: Option<Tm>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

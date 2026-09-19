@@ -145,6 +145,28 @@ impl Elaborator {
         Ok(id)
     }
 
+    /// Declare an opaque assumption; this never treats an unsolved meta as evidence.
+    pub fn declare_axiom(
+        &mut self,
+        name: impl Into<String>,
+        ty: &Expr,
+    ) -> Result<deppy_core::DefId, Error> {
+        let name = name.into();
+        if name.is_empty() || name.contains('\0') || self.globals.contains_key(&name) {
+            return Err(Error::InvalidDeclarationName(name));
+        }
+        let next = self
+            .next_definition
+            .checked_add(1)
+            .ok_or(Error::BudgetExceeded)?;
+        let out = self.infer(ty)?;
+        let id = self.next_definition;
+        self.kernel.declare_axiom(id, out.term)?;
+        self.globals.insert(name, id);
+        self.next_definition = next;
+        Ok(id)
+    }
+
     pub fn kernel(&self) -> &Kernel {
         &self.kernel
     }

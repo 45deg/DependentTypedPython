@@ -141,27 +141,3 @@ fn bind_lambdas(binders: Vec<(&str, crate::Plicity, E)>, mut body: E) -> E {
     }
     body
 }
-
-/// Transitivity derived from J: {A x y z} -> Eq A x y -> Eq A y z -> Eq A x z.
-pub fn trans(level: u32) -> E {
-    use crate::Plicity::Implicit;
-    let n = E::name;
-    let motive = E::lam(
-        "end",
-        Explicit,
-        None,
-        E::lam("evidence", Explicit, None, E::eq(n("A"), n("x"), n("end"))),
-    );
-    let body = E::j(level, n("A"), n("y"), motive, n("p"), n("z"), n("q"));
-    bind_lambdas(
-        vec![
-            ("A", Implicit, E::Universe(level)),
-            ("x", Implicit, n("A")),
-            ("y", Implicit, n("A")),
-            ("z", Implicit, n("A")),
-            ("p", Explicit, E::eq(n("A"), n("x"), n("y"))),
-            ("q", Explicit, E::eq(n("A"), n("y"), n("z"))),
-        ],
-        body,
-    )
-}

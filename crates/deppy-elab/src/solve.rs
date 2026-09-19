@@ -301,7 +301,9 @@ impl State {
         self.tick()?;
         match term.as_ref() {
             Term::Global(id) => {
-                let body = self.kernel.definition(*id)?.body.clone();
+                let Some(body) = self.kernel.definition(*id)?.body.clone() else {
+                    return Ok(term.clone());
+                };
                 let body = self.import_core(&body, &mut vec![])?;
                 self.whnf(&body)
             }
@@ -984,6 +986,50 @@ impl State {
                 ))
             }
             Expr::Pair { .. } => Err(Error::AnnotationRequired),
+            Expr::RecordElim {
+                level,
+                motive,
+                branch,
+                value,
+            } => {
+                let (value, receiver_ty) = self.synth(ctx, value)?;
+                let receiver_ty = self.whnf(&receiver_ty)?;
+                let Term::Inductive { id, parameters } = receiver_ty.as_ref() else {
+                    return Err(Error::ExpectedRecord);
+                };
+                let function = Expr::Core(self.kernel.eliminator_function(*id, *level)?);
+                let (mut function, mut ty) = self.synth(ctx, &function)?;
+                for argument in parameters {
+                    let head = self.whnf(&ty)?;
+                    let Term::Pi { id, body, .. } = head.as_ref() else {
+                        return Err(Error::ExpectedFunction);
+                    };
+                    ty = self.replace(body, *id, argument.clone())?;
+                    function = Term::App(function, argument.clone()).arc();
+                }
+                for argument in [motive.as_ref(), branch.as_ref()] {
+                    let head = self.whnf(&ty)?;
+                    let Term::Pi {
+                        id, domain, body, ..
+                    } = head.as_ref()
+                    else {
+                        return Err(Error::ExpectedFunction);
+                    };
+                    let argument = self.check(ctx, argument, domain)?;
+                    ty = self.replace(body, *id, argument.clone())?;
+                    function = Term::App(function, argument).arc();
+                }
+                let head = self.whnf(&ty)?;
+                let Term::Pi {
+                    id, domain, body, ..
+                } = head.as_ref()
+                else {
+                    return Err(Error::ExpectedFunction);
+                };
+                self.unify(domain, &receiver_ty)?;
+                let ty = self.replace(body, *id, value.clone())?;
+                Ok((Term::App(function, value).arc(), ty))
+            }
             Expr::Field { value, name } => {
                 let (value, receiver_ty) = self.synth(ctx, value)?;
                 let receiver_ty = self.whnf(&receiver_ty)?;

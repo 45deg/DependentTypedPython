@@ -149,3 +149,14 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - 添字値に依存する戻り値型を持つ入れ子のFin分岐と、Jから導く `trans` に対応。kernelの規則・公理は追加せず、Python frontendの検査予算を1,000,000に拡大。
 - Python 3.12・3.13・3.14を対象とするfrontendで一般の証明を検査。長さ1〜4の全位置で証明の正規形が `refl` になること、誤った証明・添字・つながらない等式を拒否することを検証。
 - 生成Pythonで長さ0〜6の反転、全位置のmirrorと参照結果、証明の実行、Fin[0]入力の拒否を検証。
+
+## 汎用的な証明項とPythonライブラリ（2026-09-20）
+
+- Pythonから型注釈付き／期待型によるλ、暗黙λとPi、J、Nat/Vec/Fin/record eliminator、明示的な高universeのVec構築、型付き定数を記述可能。
+- 等式補題を `stdlib/deppy/equality.py`、Finの依存分岐を `fin.py`、ベクタ操作と参照補題を `vectors.py` に実装。frontendのcong/trans専用変換を除去し、Rustのtrans定義を削除。
+- 静的なソースimport・alias・再export・名目的recordのimportに対応。CLIのファイル解決と、Rust APIからのSourceResolverを追加。循環・未検査名・名前の衝突を拒否。
+- kernelに型検査済みの不透明な公理宣言を追加。等式反映や新しい簡約規則は追加せず、公理依存を型・定義・record経由で追跡。実行時の公理をダミー実装せず、コード生成時に拒否。
+- `reverse_explicit.py` で、構造的match変換を使わないPythonの明示的な証明を検査・正規化・実行。`axioms.py` は関数外延性を仮定する例。
+- 詳細な構文・ライブラリ・制約は `docs/proofs.md` に記載。一般の再帰帰納型やuniverse polymorphismは未対応のまま。
+
+検証：workspace全テスト、追加のCLI・生成Python実行テスト、Clippy（警告をエラー化）、fmtが成功。CPython 3.12.0・3.14.3で標準ライブラリを含む14ソースの構文検証、既存5fixtureの各244ケースの差分実行が成功。

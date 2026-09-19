@@ -21,8 +21,8 @@ impl Lowerer {
                             ))
                         }
                     }
-                } else if self.records.contains_key(name) || self.globals.contains(name) {
-                    E::name(name)
+                } else if let Some(binding) = self.globals.get(name) {
+                    E::name(&binding.name)
                 } else {
                     return Err(error(n, format!("unknown or unchecked name: {name}")));
                 }
@@ -60,7 +60,7 @@ impl Lowerer {
                         self.expr(args[1], scope)?,
                         self.expr(args[2], scope)?,
                     ),
-                    Some(kind @ ("Pi" | "Sigma")) if args.len() == 2 => {
+                    Some(kind @ ("Pi" | "ImplicitPi" | "Sigma")) if args.len() == 2 => {
                         let kind = kind.to_owned();
                         let domain = self.expr(args[0], scope)?;
                         let Expr::Lambda(lambda) = args[1] else {
@@ -85,8 +85,17 @@ impl Lowerer {
                         let mut inner = scope.clone();
                         inner.locals.insert(name.into()); // lambda scope may shadow
                         let codomain = self.expr(&lambda.body, &inner)?;
-                        if kind == "Pi" {
-                            E::pi(name, Plicity::Explicit, domain, codomain)
+                        if kind != "Sigma" {
+                            E::pi(
+                                name,
+                                if kind == "ImplicitPi" {
+                                    Plicity::Implicit
+                                } else {
+                                    Plicity::Explicit
+                                },
+                                domain,
+                                codomain,
+                            )
                         } else {
                             E::sigma(name, domain, codomain)
                         }
@@ -137,6 +146,88 @@ impl Lowerer {
                     return Ok(value);
                 }
                 let builtin = self.builtin(&call.func, scope).map(str::to_owned);
+                if let Some(name @ ("J" | "nat_elim" | "vec_elim" | "fin_elim" | "record_elim")) =
+                    builtin.as_deref()
+                {
+                    let raw = &call.arguments.args;
+                    let count = match name {
+                        "J" | "vec_elim" => 7,
+                        "fin_elim" => 6,
+                        "record_elim" => 4,
+                        _ => 5,
+                    };
+                    if raw.len() != count {
+                        return Err(error(call, "wrong number of eliminator arguments"));
+                    }
+                    let level = Self::level(&raw[0])?;
+                    let args = raw[1..]
+                        .iter()
+                        .map(|a| self.expr(a, scope))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    return Ok(match name {
+                        "record_elim" => E::RecordElim {
+                            level,
+                            motive: Box::new(args[0].clone()),
+                            branch: Box::new(args[1].clone()),
+                            value: Box::new(args[2].clone()),
+                        },
+                        "J" => E::j(
+                            level,
+                            args[0].clone(),
+                            args[1].clone(),
+                            args[2].clone(),
+                            args[3].clone(),
+                            args[4].clone(),
+                            args[5].clone(),
+                        ),
+                        "nat_elim" => E::nat_elim(
+                            level,
+                            args[0].clone(),
+                            args[1].clone(),
+                            args[2].clone(),
+                            args[3].clone(),
+                        ),
+                        "vec_elim" => E::vec_elim(
+                            level,
+                            args[0].clone(),
+                            args[1].clone(),
+                            args[2].clone(),
+                            args[3].clone(),
+                            args[4].clone(),
+                            args[5].clone(),
+                        ),
+                        _ => E::fin_elim(
+                            level,
+                            args[0].clone(),
+                            args[1].clone(),
+                            args[2].clone(),
+                            args[3].clone(),
+                            args[4].clone(),
+                        ),
+                    });
+                }
+                if let Some(name @ ("lam" | "implicit_lam")) = builtin.as_deref() {
+                    if call.arguments.args.len() != 2 {
+                        return Err(error(
+                            call,
+                            "lam expects a domain and a one-parameter lambda",
+                        ));
+                    }
+                    let domain = self.expr(&call.arguments.args[0], scope)?;
+                    let Expr::Lambda(lambda) = &call.arguments.args[1] else {
+                        return Err(error(call, "lam expects a lambda"));
+                    };
+                    return self.lambda(
+                        lambda,
+                        scope,
+                        Some(domain),
+                        if name == "lam" {
+                            Plicity::Explicit
+                        } else {
+                            Plicity::Implicit
+                        },
+                    );
+                }
                 let args = call
                     .arguments
                     .args
@@ -147,12 +238,15 @@ impl Lowerer {
                     (Some("Z"), []) => E::Zero,
                     (Some("S"), [n]) => n.clone().succ(),
                     (Some("refl"), [n]) => n.clone().refl(),
-                    (Some("cong"), [f, proof]) => deppy_elab::prelude::cong(0, 0)
-                        .app(f.clone())
-                        .app(proof.clone()),
-                    (Some("trans"), [first, second]) => deppy_elab::prelude::trans(0)
-                        .app(first.clone())
-                        .app(second.clone()),
+                    (Some("ann"), [value, ty]) => value.clone().ann(ty.clone()),
+                    (Some("vnil"), [ty]) => E::vnil(ty.clone()),
+                    (Some("vcons"), [ty, len, head, tail]) => {
+                        E::vcons(ty.clone(), len.clone(), head.clone(), tail.clone())
+                    }
+                    (Some("pair"), [ty, first, second]) => {
+                        E::pair(first.clone(), second.clone()).ann(ty.clone())
+                    }
+                    (Some("fin0_elim"), [ty, absurd]) => E::fin0_elim(ty.clone(), absurd.clone()),
                     (Some("fin0_elim"), [absurd]) => {
                         E::fin0_elim(E::Hole.ann(E::Universe(0)), absurd.clone())
                     }
@@ -201,8 +295,13 @@ impl Lowerer {
                         ))
                     }
                     (None, _) => {
-                        if args.is_empty() {
-                            return Err(error(call, "zero-argument user calls are not supported"));
+                        if args.is_empty()
+                            && !matches!(call.func.as_ref(), Expr::Name(n) if !scope.locals.contains(n.id.as_str()) && !scope.assigned.contains(n.id.as_str()) && self.globals.get(n.id.as_str()).is_some_and(|b| b.nullary))
+                        {
+                            return Err(error(
+                                call,
+                                "empty call requires a declared zero-parameter constant",
+                            ));
                         }
                         let mut f = self.expr(&call.func, scope)?;
                         for arg in args {
@@ -212,6 +311,7 @@ impl Lowerer {
                     }
                 }
             }
+            Expr::Lambda(lambda) => self.lambda(lambda, scope, None, Plicity::Explicit)?,
             Expr::Attribute(a) => {
                 if matches!(a.value.as_ref(), Expr::Name(n) if n.id.as_str() == "self")
                     && !scope.fields.is_empty()
@@ -244,5 +344,37 @@ impl Lowerer {
             }
             _ => return Err(error(expr, "unsupported dependent expression")),
         })
+    }
+}
+
+impl Lowerer {
+    fn lambda(
+        &mut self,
+        lambda: &ast::ExprLambda,
+        scope: &Scope,
+        domain: Option<E>,
+        plicity: Plicity,
+    ) -> Result<E, Diagnostic> {
+        let params = lambda
+            .parameters
+            .as_deref()
+            .ok_or_else(|| error(lambda, "lambda needs at least one parameter"))?;
+        self.parameters(params)?;
+        let params: Vec<_> = params.posonlyargs.iter().chain(&params.args).collect();
+        if params.is_empty() || (domain.is_some() && params.len() != 1) {
+            return Err(error(
+                lambda,
+                "annotated lambda needs exactly one parameter",
+            ));
+        }
+        let mut inner = scope.clone();
+        for p in &params {
+            inner.locals.insert(p.parameter.name.to_string());
+        }
+        let mut body = self.expr(&lambda.body, &inner)?;
+        for p in params.into_iter().rev() {
+            body = E::lam(p.parameter.name.to_string(), plicity, domain.clone(), body);
+        }
+        Ok(body)
     }
 }

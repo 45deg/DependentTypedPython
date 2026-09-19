@@ -5,7 +5,18 @@ use deppy_core::RuntimeTerm;
 /// The generated declarations are curried internally and exposed as ordinary
 /// positional functions. Ordinary source Python is deliberately excluded.
 pub fn compile_module(source: &str, target: Target) -> Result<String, Diagnostic> {
-    let checked = check_module(source, target)?;
+    compile_checked(check_module(source, target)?)
+}
+
+pub fn compile_module_with_resolver(
+    source: &str,
+    target: Target,
+    resolver: &mut impl crate::SourceResolver,
+) -> Result<String, Diagnostic> {
+    compile_checked(crate::check_module_with_resolver(source, target, resolver)?)
+}
+
+fn compile_checked(checked: crate::CheckedModule) -> Result<String, Diagnostic> {
     let kernel = checked.elaborator.kernel();
     let definitions = kernel.erase_definitions().map_err(|e| Diagnostic {
         span: Span { start: 0, end: 0 },
@@ -24,6 +35,20 @@ pub fn compile_module(source: &str, target: Target) -> Result<String, Diagnostic
             .iter()
             .find(|(n, _, _)| n == &name)
             .map_or(public_id, |(_, id, _)| *id);
+        if kernel
+            .definition(id)
+            .map_err(|e| Diagnostic {
+                span,
+                message: e.to_string(),
+            })?
+            .body
+            .is_none()
+        {
+            return Err(Diagnostic {
+                span,
+                message: format!("axiom {name} has no runtime implementation"),
+            });
+        }
         let signature = kernel
             .runtime_signature(&deppy_core::Term::Global(id).arc())
             .map_err(|e| Diagnostic {

@@ -30,7 +30,7 @@ impl Kernel {
     pub fn erase_definitions(&self) -> Result<Vec<(crate::DefId, RuntimeTerm)>, Error> {
         self.definitions
             .iter()
-            .map(|(id, d)| Ok((*id, self.erase(&d.body)?)))
+            .filter_map(|(id, d)| d.body.as_ref().map(|body| Ok((*id, self.erase(body)?))))
             .collect()
     }
 }
@@ -65,7 +65,8 @@ fn erase(
                 .get(id)
                 .ok_or(Error::UnknownDefinition(*id))?
                 .body
-                .clone();
+                .clone()
+                .ok_or(Error::AxiomHasNoRuntimeValue(*id))?;
             let closed = Context {
                 globals: ctx.globals.clone(),
                 ..Context::default()

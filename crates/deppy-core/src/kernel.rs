@@ -1,3 +1,4 @@
+mod dependencies;
 mod erasure;
 use crate::value::{self, Budget, Env, Val, Value};
 use crate::{Term, Tm};
@@ -7,6 +8,7 @@ use std::{fmt, sync::Arc};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
     UnknownDefinition(crate::DefId),
+    AxiomHasNoRuntimeValue(crate::DefId),
     DuplicateDefinition(crate::DefId),
     UnknownInductive(crate::InductiveId),
     DuplicateInductive(crate::InductiveId),
@@ -31,6 +33,9 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::AxiomHasNoRuntimeValue(id) => {
+                write!(f, "axiom {id} has no runtime implementation")
+            }
             Self::UnknownDefinition(id) => write!(f, "unknown definition {id}"),
             Self::DuplicateDefinition(id) => write!(f, "definition {id} already exists"),
             Self::UnknownInductive(id) => write!(f, "unknown inductive declaration {id}"),
@@ -88,7 +93,7 @@ impl Context {
 /// A fresh shared operation budget is used for each call.
 #[derive(Clone)]
 pub struct Kernel {
-    definitions: Arc<std::collections::BTreeMap<crate::DefId, crate::Definition>>,
+    definitions: Arc<std::collections::BTreeMap<crate::DefId, crate::GlobalDeclaration>>,
     globals: Arc<std::collections::BTreeMap<crate::InductiveId, crate::InductiveDecl>>,
     max_steps: usize,
 }
@@ -106,19 +111,38 @@ impl Kernel {
         }
     }
 
-    pub fn definition(&self, id: crate::DefId) -> Result<&crate::Definition, Error> {
+    pub fn definition(&self, id: crate::DefId) -> Result<&crate::GlobalDeclaration, Error> {
         self.definitions
             .get(&id)
             .ok_or(Error::UnknownDefinition(id))
     }
-    /// Check against the existing environment before insertion. No axioms,
-    /// replacement, forward references or recursive definitions are accepted.
+    /// Check against the existing environment before insertion. No replacement,
+    /// forward references or recursive definitions are accepted.
     pub fn define(&mut self, id: crate::DefId, definition: crate::Definition) -> Result<(), Error> {
         if self.definitions.contains_key(&id) {
             return Err(Error::DuplicateDefinition(id));
         }
         self.check(&definition.body, &definition.ty)?;
-        Arc::make_mut(&mut self.definitions).insert(id, definition);
+        Arc::make_mut(&mut self.definitions).insert(
+            id,
+            crate::GlobalDeclaration {
+                ty: definition.ty,
+                body: Some(definition.body),
+            },
+        );
+        Ok(())
+    }
+
+    /// Register an explicitly assumed, well-formed type without a proof body.
+    /// Axioms are neutral during reduction and do not add equality reflection.
+    pub fn declare_axiom(&mut self, id: crate::DefId, ty: Tm) -> Result<(), Error> {
+        if self.definitions.contains_key(&id) {
+            return Err(Error::DuplicateDefinition(id));
+        }
+        let mut budget = Budget(self.max_steps, self.definitions.clone());
+        universe(&self.context(), &ty, &mut budget)?;
+        Arc::make_mut(&mut self.definitions)
+            .insert(id, crate::GlobalDeclaration { ty, body: None });
         Ok(())
     }
 

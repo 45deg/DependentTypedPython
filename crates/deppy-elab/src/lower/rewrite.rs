@@ -97,6 +97,17 @@ impl Lowerer {
                 let name = self.bind(&mut env, name)?;
                 E::lam(name, *plicity, domain, self.rewrite(body, &env, recursion)?)
             }
+            E::RecordElim {
+                level,
+                motive,
+                branch,
+                value,
+            } => E::RecordElim {
+                level: *level,
+                motive: Box::new(self.rewrite(motive, env, recursion)?),
+                branch: Box::new(self.rewrite(branch, env, recursion)?),
+                value: Box::new(self.rewrite(value, env, recursion)?),
+            },
             E::Field { value, name } => self.rewrite(value, env, recursion)?.field(name),
             E::Fst(x) => E::Fst(Box::new(self.rewrite(x, env, recursion)?)),
             E::Snd(x) => E::Snd(Box::new(self.rewrite(x, env, recursion)?)),

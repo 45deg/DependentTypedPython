@@ -154,20 +154,39 @@ for xs in [(-1,), (True,), ('x',)]:
 
 #[test]
 fn reversed_vectors_and_mirrored_indices_execute() {
+    let source = include_str!("../examples/reverse.py")
+        .replace(
+            "from deppy.vectors import get,",
+            "from deppy.vectors import snoc, get,",
+        )
+        .replace("Nat, Vec,", "Nat, S, Vec,")
+        + r#"
+@dependent
+def run_reverse[T: Type](n: Nat, xs: Vec[T, n]) -> Vec[T, n]:
+    return reverse(n, xs)
+@dependent
+def run_mirror(n: Nat, i: Fin[n]) -> Fin[n]:
+    return mirror(n, i)
+@dependent
+def run_get[T: Type](n: Nat, xs: Vec[T, n], i: Fin[n]) -> T:
+    return get(n, xs, i)
+@dependent
+def run_snoc[T: Type](n: Nat, x: T, xs: Vec[T, n]) -> Vec[T, S(n)]:
+    return snoc(n, x, xs)
+"#;
     run(
-        include_str!("../examples/reverse.py"),
+        &source,
         r#"
 for n in range(7):
     xs = tuple(10 + 3 * i for i in range(n))
-    ys = exports['reverse'](n, xs)
+    ys = exports['run_reverse'](n, xs)
     assert ys == xs[::-1]
-    assert exports['snoc'](n, 99, xs) == xs + (99,)
-    assert exports['get_snoc_last'](n, 99, xs) is None
+    assert exports['run_snoc'](n, 99, xs) == xs + (99,)
     for index in range(n):
         i = (n, index)
-        j = exports['mirror'](n, i)
+        j = exports['run_mirror'](n, i)
         assert j == (n, n - 1 - index)
-        assert exports['get'](n, ys, j) == xs[index]
+        assert exports['run_get'](n, ys, j) == xs[index]
         assert exports['reverse_get'](n, xs, i) is None
 try:
     exports['reverse_get'](0, (), (0, 0))
@@ -175,6 +194,47 @@ except TypeError:
     pass
 else:
     raise AssertionError('Fin[0] must have no inhabitants')
+"#,
+    );
+}
+
+#[test]
+fn explicit_eliminators_and_python_proof_library_execute() {
+    run(
+        include_str!("../examples/reverse_explicit.py"),
+        r#"
+for n in range(1, 5):
+    xs = tuple(range(n))
+    for i in range(n):
+        assert exports['reverse_get'](n, xs, (n, i)) is None
+"#,
+    );
+    run(
+        r#"from __future__ import annotations
+from deppy import dependent, record, Type, Nat, S, Vec, vnil, vcons, Eq, refl, Pi, nat_elim, record_elim
+from deppy.equality import sym, trans, cong, transport
+@record
+class Box:
+    value: Nat
+@dependent
+def double(n: Nat) -> Nat:
+    return nat_elim(0, lambda k: Nat, 0, lambda k, ih: S(S(ih)), n)
+@dependent
+def unpack(n: Nat) -> Nat:
+    return record_elim(0, lambda box: Nat, lambda value: value, Box(n))
+@dependent
+def rewritten(n: Nat, xs: Vec[Nat, n]) -> Vec[Nat, n]:
+    return transport(lambda size: Vec[Nat, size], refl(n), xs)
+@dependent
+def proof(n: Nat) -> Eq[Nat, S(n), S(n)]:
+    return trans(cong(S, refl(n)), sym(refl(S(n))))
+"#,
+        r#"
+for n in range(6):
+    assert exports['double'](n) == 2 * n
+    assert exports['unpack'](n) == n
+    assert exports['rewritten'](n, tuple(range(n))) == tuple(range(n))
+    assert exports['proof'](n) is None
 "#,
     );
 }
