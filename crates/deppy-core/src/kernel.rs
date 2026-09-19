@@ -1,7 +1,7 @@
 mod erasure;
 use crate::value::{self, Budget, Env, Val, Value};
 use crate::{Term, Tm};
-pub use erasure::RuntimeTerm;
+pub use erasure::{RuntimeSignature, RuntimeTerm, RuntimeType};
 use std::{fmt, sync::Arc};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -15,6 +15,7 @@ pub enum Error {
     UnboundVariable(usize),
     ExpectedUniverse,
     ErasedVariableUsed(usize),
+    UnsupportedRuntimeBoundary,
     ExpectedFunction,
     ExpectedSigma,
     ExpectedNat,
@@ -39,6 +40,10 @@ impl fmt::Display for Error {
                 write!(f, "field universe exceeds the declared inductive universe")
             }
             Self::UnboundVariable(i) => write!(f, "unbound core variable {i}"),
+            Self::UnsupportedRuntimeBoundary => write!(
+                f,
+                "unsupported higher-order or type-family runtime boundary"
+            ),
             Self::ErasedVariableUsed(i) => {
                 write!(f, "erased variable {i} used in runtime computation")
             }

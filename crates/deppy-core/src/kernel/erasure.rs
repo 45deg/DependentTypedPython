@@ -59,7 +59,20 @@ fn erase(
                 kept[pos + 1..].iter().filter(|x| **x).count(),
             ))
         }
-        Term::Global(id) => Ok(RuntimeTerm::Global(*id)),
+        Term::Global(id) => {
+            let body = budget
+                .1
+                .get(id)
+                .ok_or(Error::UnknownDefinition(*id))?
+                .body
+                .clone();
+            let closed = Context {
+                globals: ctx.globals.clone(),
+                ..Context::default()
+            };
+            erase(&closed, &body, &[], budget)?;
+            Ok(RuntimeTerm::Global(*id))
+        }
         Term::Lam {
             relevance,
             domain,
@@ -161,4 +174,97 @@ fn erase(
         | Term::Fin { .. }
         | Term::Inductive { .. } => Ok(RuntimeTerm::Unit),
     }
+}
+
+/// Runtime boundary schemas. Dependent sizes are checked using retained values.
+/// Unknown type parameters accept only canonical immutable opaque data. Higher
+/// order boundaries and sizes requiring erased indices are deliberately rejected.
+#[derive(Clone, Debug)]
+pub enum RuntimeType {
+    Opaque,
+    Type,
+    Nat,
+    Proof,
+    Vec(Box<Self>, RuntimeTerm),
+    Fin(RuntimeTerm),
+    Pair(Box<Self>, Box<Self>),
+    Record(crate::InductiveId, Vec<Self>),
+}
+#[derive(Clone, Debug)]
+pub struct RuntimeSignature {
+    pub arguments: Vec<RuntimeType>,
+    pub result: RuntimeType,
+}
+impl Kernel {
+    pub fn runtime_signature(&self, term: &Tm) -> Result<RuntimeSignature, Error> {
+        self.infer(term)?;
+        let mut budget = Budget(self.max_steps, self.definitions.clone());
+        let mut ctx = self.context();
+        let mut ty = synth(&ctx, term, &mut budget)?;
+        let mut kept = vec![];
+        let mut arguments = vec![];
+        while let Value::Pi(relevance, domain, codomain) = ty.as_ref() {
+            let retain = *relevance == Relevance::Runtime;
+            if retain {
+                arguments.push(schema(&ctx, domain, &kept, &mut budget)?);
+            }
+            let next = codomain.apply(value::fresh(ctx.env.len()), &mut budget)?;
+            ctx = ctx.bind(domain.clone());
+            kept.push(retain);
+            ty = next;
+        }
+        Ok(RuntimeSignature {
+            arguments,
+            result: schema(&ctx, &ty, &kept, &mut budget)?,
+        })
+    }
+}
+fn schema(
+    ctx: &Context,
+    ty: &Val,
+    kept: &[bool],
+    budget: &mut Budget,
+) -> Result<RuntimeType, Error> {
+    budget.tick()?;
+    let mut index = |v| {
+        let term = value::quote(v, ctx.env.len(), budget)?;
+        erase(ctx, &term, kept, budget)
+    };
+    Ok(match ty.as_ref() {
+        Value::Universe(_) => RuntimeType::Type,
+        Value::Nat => RuntimeType::Nat,
+        Value::Eq(..) => RuntimeType::Proof,
+        Value::Vec { ty, len } => {
+            let len = index(len)?;
+            RuntimeType::Vec(Box::new(schema(ctx, ty, kept, budget)?), len)
+        }
+        Value::Fin { bound } => RuntimeType::Fin(index(bound)?),
+        Value::Sigma(domain, codomain) => {
+            let fst = schema(ctx, domain, kept, budget)?;
+            let next_ty = codomain.apply(value::fresh(ctx.env.len()), budget)?;
+            let mut next_kept = kept.to_vec();
+            next_kept.push(true);
+            let snd = schema(&ctx.bind(domain.clone()), &next_ty, &next_kept, budget)?;
+            RuntimeType::Pair(Box::new(fst), Box::new(snd))
+        }
+        Value::Inductive { id, parameters } => {
+            let decl = ctx.globals.get(id).ok_or(Error::UnknownInductive(*id))?;
+            let mut env = parameters.clone();
+            let mut field_ctx = ctx.clone();
+            let mut field_kept = kept.to_vec();
+            let mut fields = vec![];
+            for field in &decl.fields {
+                let ty = value::eval(field, &env, budget)?;
+                fields.push(schema(&field_ctx, &ty, &field_kept, budget)?);
+                env.push(value::fresh(field_ctx.env.len()));
+                field_ctx = field_ctx.bind(ty);
+                field_kept.push(true);
+            }
+            RuntimeType::Record(*id, fields)
+        }
+        // A bare type parameter is opaque. An arbitrary neutral type family may
+        // change representation; silently treating it as opaque would be unsafe.
+        Value::Neutral(value::Neutral::Var(_)) => RuntimeType::Opaque,
+        _ => return Err(Error::UnsupportedRuntimeBoundary),
+    })
 }

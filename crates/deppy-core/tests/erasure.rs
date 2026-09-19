@@ -76,3 +76,22 @@ fn unused_invalid_terms_are_still_kernel_checked() {
         Err(Error::TypeMismatch { .. })
     ));
 }
+
+#[test]
+fn referenced_definitions_cannot_hide_erased_runtime_usage() {
+    let mut kernel = Kernel::default();
+    let body = Term::Lam {
+        relevance: Relevance::Erased,
+        domain: Term::Nat.arc(),
+        body: Term::Var(0).arc(),
+    }
+    .arc();
+    let ty = kernel.infer(&body).unwrap();
+    kernel
+        .define(0, deppy_core::Definition { ty, body })
+        .unwrap();
+    assert_eq!(
+        kernel.erase(&Term::Global(0).arc()),
+        Err(Error::ErasedVariableUsed(0))
+    );
+}

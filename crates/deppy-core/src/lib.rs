@@ -5,7 +5,7 @@ mod kernel;
 pub use inductive::{InductiveDecl, InductiveId};
 mod value;
 
-pub use kernel::{Error, Kernel, RuntimeTerm};
+pub use kernel::{Error, Kernel, RuntimeSignature, RuntimeTerm, RuntimeType};
 use std::sync::Arc;
 
 pub type Tm = Arc<Term>;
