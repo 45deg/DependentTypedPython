@@ -65,7 +65,7 @@ impl Kernel {
                 Term::Pair { ty, fst, snd } => {
                     pending.extend([ty.clone(), fst.clone(), snd.clone()])
                 }
-                Term::Fst(t) | Term::Snd(t) | Term::Succ(t) => pending.push(t.clone()),
+                Term::Fst(t) | Term::Snd(t) => pending.push(t.clone()),
                 Term::Eq { ty, left, right } => {
                     pending.extend([ty.clone(), left.clone(), right.clone()])
                 }
@@ -86,66 +86,14 @@ impl Kernel {
                     right.clone(),
                     proof.clone(),
                 ]),
-                Term::Vec { ty, len } => pending.extend([ty.clone(), len.clone()]),
-                Term::VNil { ty } => pending.push(ty.clone()),
-                Term::VCons {
-                    ty,
-                    len,
-                    head,
-                    tail,
-                } => pending.extend([ty.clone(), len.clone(), head.clone(), tail.clone()]),
-                Term::Fin { bound } | Term::FZ { bound } => pending.push(bound.clone()),
-                Term::FS { bound, pred } => pending.extend([bound.clone(), pred.clone()]),
-                Term::VecElim {
-                    ty,
-                    motive,
-                    nil,
-                    cons,
-                    len,
-                    scrutinee,
-                    ..
-                } => pending.extend([
-                    ty.clone(),
-                    motive.clone(),
-                    nil.clone(),
-                    cons.clone(),
-                    len.clone(),
-                    scrutinee.clone(),
-                ]),
-                Term::FinElim {
-                    motive,
-                    zero,
-                    step,
-                    bound,
-                    scrutinee,
-                    ..
-                } => pending.extend([
-                    motive.clone(),
-                    zero.clone(),
-                    step.clone(),
-                    bound.clone(),
-                    scrutinee.clone(),
-                ]),
-                Term::Fin0Elim { ty, absurd } => pending.extend([ty.clone(), absurd.clone()]),
-                Term::NatElim {
-                    motive,
-                    zero,
-                    step,
-                    scrutinee,
-                    ..
-                } => pending.extend([
-                    motive.clone(),
-                    zero.clone(),
-                    step.clone(),
-                    scrutinee.clone(),
-                ]),
+
                 Term::App { function, argument } => {
                     pending.extend([function.clone(), argument.clone()])
                 }
                 Term::Let { ty, value, body } => {
                     pending.extend([ty.clone(), value.clone(), body.clone()])
                 }
-                Term::Var(_) | Term::Universe(_) | Term::Nat | Term::Zero => {}
+                Term::Var(_) | Term::Universe(_) => {}
             }
         }
         Ok(axioms)

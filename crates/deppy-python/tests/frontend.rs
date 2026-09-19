@@ -57,10 +57,7 @@ fn sigma_pack_and_dependent_projection() {
     let out = e.infer(&E::name("unpack").app(packed)).unwrap();
     assert_eq!(
         e.kernel().normalize(&out.term).unwrap(),
-        Term::VNil {
-            ty: Term::Nat.arc()
-        }
-        .arc()
+        Term::VNil(Term::Nat.arc()).arc()
     );
 }
 #[test]

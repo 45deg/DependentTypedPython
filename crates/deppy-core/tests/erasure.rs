@@ -14,10 +14,7 @@ fn runtime_use_of_erased_index_is_rejected_but_type_use_is_allowed() {
     let good = Term::Lam {
         relevance: Relevance::Erased,
         domain: Term::Nat.arc(),
-        body: Term::Fin {
-            bound: Term::Var(0).arc(),
-        }
-        .arc(),
+        body: Term::Fin(Term::Var(0).arc()).arc(),
     }
     .arc();
     assert_eq!(kernel.erase(&good).unwrap(), RuntimeTerm::Unit);
@@ -54,7 +51,7 @@ fn retained_indices_are_renumbered_and_erased_arguments_disappear() {
         kernel.erase(&applied).unwrap(),
         RuntimeTerm::App(
             Box::new(RuntimeTerm::Lam(Box::new(RuntimeTerm::Var(0)))),
-            Box::new(RuntimeTerm::Prim("zero", vec![]))
+            Box::new(RuntimeTerm::Data(deppy_core::standard::NAT, 0, vec![]))
         )
     );
 }
@@ -206,7 +203,7 @@ fn computational_uses_do_not_reuse_discarded_global_proofs() {
         RuntimeTerm::Prim(
             "j",
             vec![
-                RuntimeTerm::Prim("zero", vec![]),
+                RuntimeTerm::Data(deppy_core::standard::NAT, 0, vec![]),
                 RuntimeTerm::Prim("refl", vec![]),
             ]
         )
@@ -227,7 +224,7 @@ fn proof_lets_are_removed_only_when_their_runtime_uses_disappear() {
     };
     assert_eq!(
         k.erase(&binding(Term::Zero.arc())).unwrap(),
-        RuntimeTerm::Prim("zero", vec![])
+        RuntimeTerm::Data(deppy_core::standard::NAT, 0, vec![])
     );
     assert_eq!(
         k.erase(&binding(observe(Term::Var(0).arc()))),

@@ -65,31 +65,7 @@ def _j(base, proof):
     return base
 
 def _absurd(value):
-    raise TypeError('unreachable Fin[0] elimination')
-
-def _nat_elim(zero, step, n):
-    result = zero
-    for k in range(_natural(n)):
-        result = step(k)(result)
-    return result
-
-def _vec_elim(nil, cons, xs):
-    if type(xs) is not tuple:
-        raise TypeError('expected an immutable vector')
-    result = nil
-    for position in range(len(xs) - 1, -1, -1):
-        tail = xs[position + 1:]
-        result = cons(len(tail))(xs[position])(tail)(result)
-    return result
-
-def _fin_elim(zero, step, index):
-    bound, rank = index
-    _fin(index, bound)
-    result = zero(bound - rank - 1)
-    for offset in range(rank):
-        k = bound - rank + offset
-        result = step(k)((k, offset))(result)
-    return result
+    raise TypeError('unreachable empty elimination')
 
 def _record(tag, fields):
     return (_tag(tag), fields)
@@ -144,8 +120,18 @@ def _validate(value, schema, output=False):
             raise TypeError('expected an immutable dependent pair')
         first, second = args
         a = _validate(value[0], first, output)
-        b = _validate(value[1], second(value[0]), output)
+        b = _validate(value[1], second(a), output)
         return (a, b)
+    if kind == 'function':
+        if not callable(value):
+            raise TypeError('expected a callable')
+        argument, result = args
+        def checked(arg):
+            arg = _validate(arg, argument, not output)
+            return _validate(value(arg), result(arg), output)
+        return checked
+    if kind == 'data':
+        return _validate_data(value, schema, output)
     if kind == 'record':
         tag, fields = args
         if (type(value) is not tuple or len(value) != 2 or value[0] is not tag
@@ -153,6 +139,132 @@ def _validate(value, schema, output=False):
             raise TypeError('record nominal tag or arity mismatch')
         checked = []
         for i, field in enumerate(fields):
-            checked.append(_validate(value[1][i], field(*value[1][:i]), output))
+            checked.append(_validate(value[1][i], field(*checked), output))
         return (tag, tuple(checked))
     raise TypeError('unknown boundary schema')
+
+
+# General data uses a separate nominal namespace from single-constructor records.
+_DATA_SCHEMAS = {}
+
+_NAT_ID = 18446744073709551613
+_VEC_ID = 18446744073709551614
+_FIN_ID = 18446744073709551615
+
+def _is_vector(identifier):
+    offset = _VEC_ID - identifier
+    return 0 <= offset <= 2 * 4294967295 and offset % 2 == 0
+
+def _data(identifier, constructor, fields):
+    if identifier == _NAT_ID:
+        return 0 if constructor == 0 else _succ(fields[0])
+    if _is_vector(identifier):
+        return () if constructor == 0 else _vcons(*fields)
+    if identifier == _FIN_ID:
+        return _fz(*fields) if constructor == 0 else _fs(*fields)
+    return (_tag(('data', identifier)), constructor, fields)
+
+def _data_fields(identifier, value, arities):
+    if identifier == _NAT_ID:
+        n = _natural(value)
+        return (0, ()) if n == 0 else (1, (n - 1,))
+    if _is_vector(identifier):
+        if type(value) is not tuple:
+            raise TypeError('expected an immutable vector')
+        return (0, ()) if not value else (1, (len(value) - 1, value[0], value[1:]))
+    if identifier == _FIN_ID:
+        if type(value) is not tuple or len(value) != 2:
+            raise TypeError('expected a finite index')
+        bound, rank = value
+        _fin(value, _natural(bound))
+        return (0, (bound - 1,)) if rank == 0 else (1, (bound - 1, (bound - 1, rank - 1)))
+    if (type(value) is not tuple or len(value) != 3
+            or value[0] is not _tag(('data', identifier))
+            or type(value[1]) is not int or not 0 <= value[1] < len(arities)
+            or type(value[2]) is not tuple or len(value[2]) != arities[value[1]]):
+        raise TypeError('inductive nominal tag or constructor arity mismatch')
+    return value[1], value[2]
+
+def _data_elim(identifier, recursion, branches, value):
+    # An explicit postorder stack keeps direct recursion independent of Python's
+    # call-stack limit. Function-valued recursive fields produce lazy IH functions.
+    arities = tuple(len(fields) for fields in recursion)
+    def function_ih(field, depth):
+        if depth == 0:
+            return _data_elim(identifier, recursion, branches, field)
+        return lambda arg: function_ih(field(arg), depth - 1)
+    stack = [(False, value)]
+    results = []
+    while stack:
+        ready, node = stack.pop()
+        c, fields = _data_fields(identifier, node, arities)
+        plan = recursion[c]
+        direct = [field for field, depth in zip(fields, plan) if depth == 0]
+        if not ready:
+            stack.append((True, node))
+            stack.extend((False, child) for child in reversed(direct))
+            continue
+        count = len(direct)
+        children = results[-count:] if count else []
+        if count:
+            del results[-count:]
+        children = iter(children)
+        result = branches[c]
+        for field in fields:
+            result = result(field)
+        for field, depth in zip(fields, plan):
+            if depth is not None:
+                result = result(next(children) if depth == 0 else function_ih(field, depth))
+        results.append(result)
+    return results[0]
+
+
+def _same_index(left, right):
+    pending = [(left, right)]
+    while pending:
+        a, b = pending.pop()
+        if a is b:
+            continue
+        if type(a) is not type(b):
+            return False
+        if type(a) is tuple:
+            if len(a) != len(b):
+                return False
+            pending.extend(zip(a, b))
+        elif type(a) is int:
+            if a != b:
+                return False
+        else:
+            # Nominal tags compare by identity; no user-defined equality runs.
+            return False
+    return True
+
+def _validate_data(value, schema, output):
+    pending = [('visit', value, schema)]
+    results = []
+    while pending:
+        action, value, schema = pending.pop()
+        if action == 'fields':
+            c, fields, validators, result_indices, indices, i = schema
+            if i < len(fields):
+                checked = results[-i:] if i else []
+                pending.append(('fields', value, (c, fields, validators, result_indices, indices, i + 1)))
+                pending.append(('visit', fields[i], validators[i](*checked)))
+                continue
+            count = len(fields)
+            checked = tuple(results[-count:]) if count else ()
+            if count:
+                del results[-count:]
+            if not _same_index(result_indices(*checked), indices):
+                raise TypeError('inductive result index mismatch')
+            results.append((value[0], c, checked))
+            continue
+        if schema[0] != 'data':
+            results.append(_validate(value, schema, output))
+            continue
+        _, identifier, parameters, indices = schema
+        constructors = _DATA_SCHEMAS[identifier](*parameters)
+        c, fields = _data_fields(identifier, value, tuple(len(fs) for fs, _ in constructors))
+        validators, result_indices = constructors[c]
+        pending.append(('fields', value, (c, fields, validators, result_indices, indices, 0)))
+    return results[0]

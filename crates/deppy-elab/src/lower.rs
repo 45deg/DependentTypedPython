@@ -1,7 +1,9 @@
 //! Conservative lowering of a programmatic function HIR. No Python parsing.
 mod data;
+pub(crate) use data::lifted_cases;
 mod nested;
 mod rewrite;
+mod specialize;
 use crate::{Elaborated, Elaborator, Error, Expr as E, Plicity};
 use std::collections::{HashMap, HashSet};
 type Env = HashMap<String, E>;
@@ -120,11 +122,17 @@ type CheckedLocal = (String, Option<E>, E);
 
 #[derive(Clone)]
 struct Recursion {
-    ih: String,
+    ih: E,
+    history: Option<E>,
+    target: usize,
+    indices: Vec<usize>,
+    signature: Option<E>,
+    plicities: Vec<Plicity>,
     arguments: Vec<Option<String>>,
     suffix: Vec<Plicity>,
 }
 struct Lowerer {
+    generated: bool,
     kernel: deppy_core::Kernel,
     family: Option<data::Family>,
     alternatives: Vec<Recursion>,
@@ -198,6 +206,7 @@ impl Elaborator {
             None
         };
         Lowerer {
+            generated: false,
             kernel: self.kernel.clone(),
             family,
             alternatives: vec![],
@@ -275,7 +284,9 @@ impl Lowerer {
         }
     }
     fn bind(&mut self, env: &mut Env, name: &str) -> Result<String, Error> {
-        Self::name(name)?;
+        if !self.generated {
+            Self::name(name)?;
+        }
         let fresh = format!("{}:{name}", self.fresh());
         env.insert(name.into(), E::name(&fresh));
         Ok(fresh)
@@ -539,7 +550,12 @@ impl Lowerer {
             arguments.extend(f.parameters[d + 1..].iter().map(|_| None));
             bound.push(ih.clone());
             Some(Recursion {
-                ih,
+                ih: E::name(ih),
+                history: None,
+                target: d,
+                indices: kind.index().into_iter().collect(),
+                signature: None,
+                plicities: f.parameters.iter().map(|p| p.plicity).collect(),
                 arguments,
                 suffix: f.parameters[d + 1..].iter().map(|p| p.plicity).collect(),
             })

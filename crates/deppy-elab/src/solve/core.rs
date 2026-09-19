@@ -1,7 +1,23 @@
 use super::*;
 
 impl State {
-    fn core(&mut self, term: &T, scope: &mut Vec<Id>) -> Result<Tm, Error> {
+    fn vector_core(&self, mut term: Core) -> Result<Core, Error> {
+        let Core::Data { op, arguments } = &mut term else {
+            unreachable!()
+        };
+        let level = self
+            .kernel
+            .carrier_universe(&arguments[0], &self.core_domains)?;
+        let id = deppy_core::standard::vector_id(level);
+        *op = match *op {
+            deppy_core::DataOp::Type(_) => deppy_core::DataOp::Type(id),
+            deppy_core::DataOp::Constructor(_, c) => deppy_core::DataOp::Constructor(id, c),
+            deppy_core::DataOp::Eliminate(_, level) => deppy_core::DataOp::Eliminate(id, level),
+            _ => unreachable!(),
+        };
+        Ok(term)
+    }
+    pub(super) fn core(&mut self, term: &T, scope: &mut Vec<Id>) -> Result<Tm, Error> {
         self.tick()?;
         Ok(match term.as_ref() {
             Term::Data { op, arguments } => Core::Data {
@@ -55,7 +71,9 @@ impl State {
             Term::Sigma { id, domain, body } => {
                 let domain = self.core(domain, scope)?;
                 scope.push(*id);
+                self.core_domains.push(domain.clone());
                 let codomain = self.core(body, scope)?;
+                self.core_domains.pop();
                 scope.pop();
                 Core::Sigma { domain, codomain }
             }
@@ -102,34 +120,31 @@ impl State {
                 right: self.core(right, scope)?,
                 proof: self.core(proof, scope)?,
             },
-            Term::Vec { ty, len } => Core::Vec {
-                ty: self.core(ty, scope)?,
-                len: self.core(len, scope)?,
-            },
-            Term::VNil { ty } => Core::VNil {
-                ty: self.core(ty, scope)?,
-            },
+            Term::Vec { ty, len } => {
+                let term = Core::Vec(self.core(ty, scope)?, self.core(len, scope)?);
+                self.vector_core(term)?
+            }
+            Term::VNil { ty } => {
+                let term = Core::VNil(self.core(ty, scope)?);
+                self.vector_core(term)?
+            }
             Term::VCons {
                 ty,
                 len,
                 head,
                 tail,
-            } => Core::VCons {
-                ty: self.core(ty, scope)?,
-                len: self.core(len, scope)?,
-                head: self.core(head, scope)?,
-                tail: self.core(tail, scope)?,
-            },
-            Term::Fin { bound } => Core::Fin {
-                bound: self.core(bound, scope)?,
-            },
-            Term::FZ { bound } => Core::FZ {
-                bound: self.core(bound, scope)?,
-            },
-            Term::FS { bound, pred } => Core::FS {
-                bound: self.core(bound, scope)?,
-                pred: self.core(pred, scope)?,
-            },
+            } => {
+                let term = Core::VCons(
+                    self.core(ty, scope)?,
+                    self.core(len, scope)?,
+                    self.core(head, scope)?,
+                    self.core(tail, scope)?,
+                );
+                self.vector_core(term)?
+            }
+            Term::Fin { bound } => Core::Fin(self.core(bound, scope)?),
+            Term::FZ { bound } => Core::FZ(self.core(bound, scope)?),
+            Term::FS { bound, pred } => Core::FS(self.core(bound, scope)?, self.core(pred, scope)?),
             Term::VecElim {
                 level,
                 ty,
@@ -138,15 +153,18 @@ impl State {
                 cons,
                 len,
                 scrutinee,
-            } => Core::VecElim {
-                level: *level,
-                ty: self.core(ty, scope)?,
-                motive: self.core(motive, scope)?,
-                nil: self.core(nil, scope)?,
-                cons: self.core(cons, scope)?,
-                len: self.core(len, scope)?,
-                scrutinee: self.core(scrutinee, scope)?,
-            },
+            } => {
+                let term = Core::VecElim(
+                    *level,
+                    self.core(ty, scope)?,
+                    self.core(motive, scope)?,
+                    self.core(nil, scope)?,
+                    self.core(cons, scope)?,
+                    self.core(len, scope)?,
+                    self.core(scrutinee, scope)?,
+                );
+                self.vector_core(term)?
+            }
             Term::FinElim {
                 level,
                 motive,
@@ -154,18 +172,17 @@ impl State {
                 step,
                 bound,
                 scrutinee,
-            } => Core::FinElim {
-                level: *level,
-                motive: self.core(motive, scope)?,
-                zero: self.core(zero, scope)?,
-                step: self.core(step, scope)?,
-                bound: self.core(bound, scope)?,
-                scrutinee: self.core(scrutinee, scope)?,
-            },
-            Term::Fin0Elim { ty, absurd } => Core::Fin0Elim {
-                ty: self.core(ty, scope)?,
-                absurd: self.core(absurd, scope)?,
-            },
+            } => Core::FinElim(
+                *level,
+                self.core(motive, scope)?,
+                self.core(zero, scope)?,
+                self.core(step, scope)?,
+                self.core(bound, scope)?,
+                self.core(scrutinee, scope)?,
+            ),
+            Term::Fin0Elim { ty, absurd } => {
+                Core::Fin0Elim(self.core(ty, scope)?, self.core(absurd, scope)?)
+            }
             Term::Succ(n) => Core::Succ(self.core(n, scope)?),
             Term::NatElim {
                 level,
@@ -173,13 +190,13 @@ impl State {
                 zero,
                 step,
                 scrutinee,
-            } => Core::NatElim {
-                level: *level,
-                motive: self.core(motive, scope)?,
-                zero: self.core(zero, scope)?,
-                step: self.core(step, scope)?,
-                scrutinee: self.core(scrutinee, scope)?,
-            },
+            } => Core::NatElim(
+                *level,
+                self.core(motive, scope)?,
+                self.core(zero, scope)?,
+                self.core(step, scope)?,
+                self.core(scrutinee, scope)?,
+            ),
             Term::Meta(id, _) => return Err(Error::UnsolvedMeta { id: *id }),
             Term::App(f, x) => Core::App {
                 function: self.core(f, scope)?,
@@ -199,7 +216,9 @@ impl State {
             } => {
                 let domain = self.core(domain, scope)?;
                 scope.push(*id);
+                self.core_domains.push(domain.clone());
                 let body = self.core(body, scope)?;
+                self.core_domains.pop();
                 scope.pop();
                 if matches!(term.as_ref(), Term::Pi { .. }) {
                     Core::Pi {
@@ -234,8 +253,7 @@ impl State {
                 Term::Local(scope[index])
             }
             Core::Universe(l) => Term::Universe(*l),
-            Core::Nat => Term::Nat,
-            Core::Zero => Term::Zero,
+
             Core::App { function, argument } => Term::App(
                 self.import_core(function, scope)?,
                 self.import_core(argument, scope)?,
@@ -301,16 +319,89 @@ impl State {
                     }
                 }
             }
-            Core::Succ(x) => Term::Succ(self.import_core(x, scope)?),
+
             Core::Fst(x) => Term::Fst(self.import_core(x, scope)?),
             Core::Snd(x) => Term::Snd(self.import_core(x, scope)?),
-            Core::Data { op, arguments } => Term::Data {
-                op: *op,
-                arguments: arguments
+            Core::Data { op, arguments } => {
+                use deppy_core::{
+                    standard::{vector_level, FIN, NAT},
+                    DataOp as D,
+                };
+                let a = arguments
                     .iter()
                     .map(|x| self.import_core(x, scope))
-                    .collect::<Result<_, _>>()?,
-            },
+                    .collect::<Result<Vec<_>, _>>()?;
+                match (*op, a.as_slice()) {
+                    (D::Type(NAT), []) => Term::Nat,
+                    (D::Constructor(NAT, 0), []) => Term::Zero,
+                    (D::Constructor(NAT, 1), [n]) => Term::Succ(n.clone()),
+                    (D::Type(id), [ty, len]) if vector_level(id).is_some() => Term::Vec {
+                        ty: ty.clone(),
+                        len: len.clone(),
+                    },
+                    (D::Constructor(id, 0), [ty]) if vector_level(id).is_some() => {
+                        Term::VNil { ty: ty.clone() }
+                    }
+                    (D::Constructor(id, 1), [ty, len, head, tail])
+                        if vector_level(id).is_some() =>
+                    {
+                        Term::VCons {
+                            ty: ty.clone(),
+                            len: len.clone(),
+                            head: head.clone(),
+                            tail: tail.clone(),
+                        }
+                    }
+                    (D::Type(FIN), [bound]) => Term::Fin {
+                        bound: bound.clone(),
+                    },
+                    (D::Constructor(FIN, 0), [bound]) => Term::FZ {
+                        bound: bound.clone(),
+                    },
+                    (D::Constructor(FIN, 1), [bound, pred]) => Term::FS {
+                        bound: bound.clone(),
+                        pred: pred.clone(),
+                    },
+                    (D::Eliminate(NAT, level), [motive, zero, step, scrutinee]) => Term::NatElim {
+                        level,
+                        motive: motive.clone(),
+                        zero: zero.clone(),
+                        step: step.clone(),
+                        scrutinee: scrutinee.clone(),
+                    },
+                    (D::Eliminate(id, level), [ty, len, motive, nil, cons, scrutinee])
+                        if vector_level(id).is_some() =>
+                    {
+                        Term::VecElim {
+                            level,
+                            ty: ty.clone(),
+                            len: len.clone(),
+                            motive: motive.clone(),
+                            nil: nil.clone(),
+                            cons: cons.clone(),
+                            scrutinee: scrutinee.clone(),
+                        }
+                    }
+                    (D::Eliminate(FIN, level), [bound, motive, zero, step, scrutinee]) => {
+                        Term::FinElim {
+                            level,
+                            bound: bound.clone(),
+                            motive: motive.clone(),
+                            zero: zero.clone(),
+                            step: step.clone(),
+                            scrutinee: scrutinee.clone(),
+                        }
+                    }
+                    (D::Absurd(FIN), [_, ty, absurd]) => Term::Fin0Elim {
+                        ty: ty.clone(),
+                        absurd: absurd.clone(),
+                    },
+                    _ => Term::Data {
+                        op: *op,
+                        arguments: a,
+                    },
+                }
+            }
             Core::Inductive { id, parameters } => Term::Inductive {
                 id: *id,
                 parameters: parameters
@@ -377,83 +468,7 @@ impl State {
                 right: self.import_core(right, scope)?,
                 proof: self.import_core(proof, scope)?,
             },
-            Core::Vec { ty, len } => Term::Vec {
-                ty: self.import_core(ty, scope)?,
-                len: self.import_core(len, scope)?,
-            },
-            Core::VNil { ty } => Term::VNil {
-                ty: self.import_core(ty, scope)?,
-            },
-            Core::VCons {
-                ty,
-                len,
-                head,
-                tail,
-            } => Term::VCons {
-                ty: self.import_core(ty, scope)?,
-                len: self.import_core(len, scope)?,
-                head: self.import_core(head, scope)?,
-                tail: self.import_core(tail, scope)?,
-            },
-            Core::Fin { bound } => Term::Fin {
-                bound: self.import_core(bound, scope)?,
-            },
-            Core::FZ { bound } => Term::FZ {
-                bound: self.import_core(bound, scope)?,
-            },
-            Core::FS { bound, pred } => Term::FS {
-                bound: self.import_core(bound, scope)?,
-                pred: self.import_core(pred, scope)?,
-            },
-            Core::VecElim {
-                level,
-                ty,
-                motive,
-                nil,
-                cons,
-                len,
-                scrutinee,
-            } => Term::VecElim {
-                level: *level,
-                ty: self.import_core(ty, scope)?,
-                motive: self.import_core(motive, scope)?,
-                nil: self.import_core(nil, scope)?,
-                cons: self.import_core(cons, scope)?,
-                len: self.import_core(len, scope)?,
-                scrutinee: self.import_core(scrutinee, scope)?,
-            },
-            Core::FinElim {
-                level,
-                motive,
-                zero,
-                step,
-                bound,
-                scrutinee,
-            } => Term::FinElim {
-                level: *level,
-                motive: self.import_core(motive, scope)?,
-                zero: self.import_core(zero, scope)?,
-                step: self.import_core(step, scope)?,
-                bound: self.import_core(bound, scope)?,
-                scrutinee: self.import_core(scrutinee, scope)?,
-            },
-            Core::Fin0Elim { ty, absurd } => Term::Fin0Elim {
-                ty: self.import_core(ty, scope)?,
-                absurd: self.import_core(absurd, scope)?,
-            },
-            Core::NatElim {
-                level,
-                motive,
-                zero,
-                step,
-                scrutinee,
-            } => Term::NatElim {
-                level: *level,
-                motive: self.import_core(motive, scope)?,
-                zero: self.import_core(zero, scope)?,
-                step: self.import_core(step, scope)?,
-                scrutinee: self.import_core(scrutinee, scope)?,
-            },
+
             Core::Pair { ty, fst, snd } => Term::Pair {
                 ty: self.import_core(ty, scope)?,
                 fst: self.import_core(fst, scope)?,

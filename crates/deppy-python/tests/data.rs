@@ -2,6 +2,69 @@ use deppy_core::Term;
 use deppy_python::{check_module, Target};
 const LIST: &str = "from __future__ import annotations\nfrom deppy import inductive, constructor, dependent, Type, Nat, induct, Eq, refl\n@inductive\nclass List[A: Type]:\n    @constructor\n    def Nil() -> List[A]: ...\n    @constructor\n    def Cons(head: A, tail: List[A]) -> List[A]: ...\n";
 #[test]
+fn fixed_and_compound_indices_omit_impossible_branches() {
+    let source = r#"from __future__ import annotations
+from deppy import dependent, Type, Nat as Count, Eq, refl
+from deppy.naturals import Nat, Z, S
+from deppy.indexed import IVec, INil, ICons
+@dependent(decreases='xs')
+def head[A: Type](n: Nat, xs: IVec[A, S(n)]) -> A:
+    match xs:
+        case ICons(k, h, tail):
+            return h
+@dependent(decreases='xs')
+def empty[A: Type](xs: IVec[A, Z()]) -> Count:
+    match xs:
+        case INil():
+            return 0
+@dependent(decreases='xs')
+def second[A: Type](xs: IVec[A, S(S(Z()))]) -> A:
+    match xs:
+        case ICons(k, h, tail):
+            match tail:
+                case ICons(j, next, rest):
+                    return head(Z(), tail)
+@dependent(decreases='xs')
+def last[A: Type](n: Nat, xs: IVec[A, S(n)]) -> A:
+    match xs:
+        case ICons(k, h, tail):
+            match tail:
+                case INil():
+                    return h
+                case ICons(j, next, rest):
+                    return last(j, tail)
+@dependent
+def proof() -> Eq[Count, second(ICons(S(Z()), 7, ICons(Z(), 9, INil[Count]()))), 9]:
+    return refl(9)
+@dependent
+def last_proof() -> Eq[Count, last(S(Z()), ICons(S(Z()), 7, ICons(Z(), 9, INil[Count]()))), 9]:
+    return refl(9)
+"#;
+    check_module(source, Target::Python314).unwrap_or_else(|e| panic!("{e}"));
+    assert!(check_module(
+        &source.replace("return head(Z(), tail)", "return head(S(Z()), tail)"),
+        Target::Python314
+    )
+    .is_err());
+}
+#[test]
+fn nested_general_matches_compute_and_keep_coverage_checks() {
+    let source = format!("{LIST}\n@dependent\ndef classify[A: Type](xs: List[A]) -> Nat:\n    match xs:\n        case Nil():\n            return 0\n        case Cons(h, t):\n            match t:\n                case Nil():\n                    return 1\n                case Cons(j, rest):\n                    match rest:\n                        case Nil():\n                            return 2\n                        case Cons(k, tail):\n                            return 3\n@dependent\ndef proof() -> Eq[Nat, classify(Cons(0, Cons(0, Nil()))), 2]:\n    return refl(2)\n");
+    check_module(&source, Target::Python314).unwrap();
+    let missing = source.replace(
+        "                        case Cons(k, tail):\n                            return 3\n",
+        "",
+    );
+    assert!(check_module(&missing, Target::Python314).is_err());
+}
+#[test]
+fn constructor_matrix_supports_nested_recursion_and_ordered_wildcards() {
+    let source = format!("{LIST}\n@dependent\ndef pairs[A: Type](xs: List[A]) -> Nat:\n    match xs:\n        case Nil():\n            return 0\n        case Cons(_, Nil()):\n            return 0\n        case Cons(_, Cons(_, rest)):\n            return pairs(rest)\n@dependent\ndef choose[A: Type](xs: List[A]) -> Nat:\n    match xs:\n        case Cons(_, Cons(_, Nil())):\n            return 2\n        case Cons(_, _):\n            return 1\n        case Nil():\n            return 0\n@dependent\ndef proof() -> Eq[Nat, pairs(Cons(0, Cons(0, Cons(0, Cons(0, Nil()))))), 0]:\n    return refl(0)\n@dependent\ndef selected() -> Eq[Nat, choose(Cons(0, Cons(0, Nil()))), 2]:\n    return refl(2)\n");
+    check_module(&source, Target::Python314).unwrap();
+    let bad = source.replace("return pairs(rest)", "return pairs(xs)");
+    assert!(check_module(&bad, Target::Python314).is_err());
+}
+#[test]
 fn python_list_induction_computes_and_checks_equality() {
     let source = format!("{LIST}\n@dependent\ndef length[A: Type](xs: List[A]) -> Nat:\n    return induct(0, xs, lambda _: Nat, 0, lambda h, t, ih: 1)\n@dependent\ndef test() -> Eq[Nat, length(Cons(0, Nil())), 1]:\n    return refl(1)\n");
     let module = check_module(&source, Target::Python314).unwrap_or_else(|e| panic!("{e}"));
@@ -135,6 +198,30 @@ fn higher_universe_inductive_and_negative_alias_checks() {
 #[test]
 fn indexed_structural_recursion_and_pattern_wildcards() {
     let source = "from __future__ import annotations\nfrom deppy import dependent, Type, Nat as Count, Eq, refl, S as Succ\nfrom deppy.naturals import Nat, Z, S\nfrom deppy.indexed import IVec, INil, ICons\n@dependent(decreases='xs')\ndef length[A: Type](n: Nat, xs: IVec[A, n]) -> Count:\n    match xs:\n        case INil():\n            return 0\n        case ICons(k, _, tail):\n            return Succ(length(k, tail))\n@dependent\ndef proof() -> Eq[Count, length(S(Z()), ICons(Z(), 7, INil[Count]())), 1]:\n    return refl(1)\n";
+    check_module(source, Target::Python314).unwrap_or_else(|e| panic!("{e}"));
+}
+
+#[test]
+fn dependent_nested_matches_implement_indexed_get() {
+    let source = r#"from __future__ import annotations
+from deppy import dependent, Type, Nat as Count, Eq, refl, absurd
+from deppy.naturals import Nat, Z, S
+from deppy.indexed import IVec, INil, ICons, IFin, IFZ, IFS
+@dependent(decreases='xs')
+def get[A: Type, n: Nat](xs: IVec[A, n], i: IFin[n]) -> A:
+    match xs:
+        case INil():
+            return absurd(A, i)
+        case ICons(k, head, tail):
+            match i:
+                case IFZ(j):
+                    return head
+                case IFS(j, pred):
+                    return get(tail, pred)
+@dependent
+def proof() -> Eq[Count, get(ICons(S(Z()), 7, ICons(Z(), 9, INil[Count]())), IFS(S(Z()), IFZ(Z()))), 9]:
+    return refl(9)
+"#;
     check_module(source, Target::Python314).unwrap_or_else(|e| panic!("{e}"));
 }
 

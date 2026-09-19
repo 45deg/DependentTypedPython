@@ -20,14 +20,14 @@ impl DataOp {
         }
     }
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConstructorDecl {
     /// Scoped over the parameters and preceding fields.
     pub fields: Vec<Tm>,
     /// Result indices, scoped over parameters and all fields.
     pub indices: Vec<Tm>,
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DataDecl {
     pub parameters: Vec<Tm>,
     /// Scoped over parameters and preceding indices.

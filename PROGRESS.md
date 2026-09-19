@@ -180,7 +180,7 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - `@dependent`を独立した証明支援系として発展させ、別層の`@verified`が生成したVCをcore proofとして再利用するロードマップを`docs/deppy2.md`に記載。`@verified`、Verified HIR、WP/VC generation、`verified_spec`は未実装。
 
 
-### Phase 1の基盤実装（進行中）
+### Phase 1の基盤実装（初期段階の記録）
 
 - `Expr::Located` と `SourceLocation` による式の位置保持。構造的loweringでも位置を保持し、import先の実ファイルの行・列を診断に表示。
 - 構造化診断に種別・関連位置・期待型・実際の型を追加。型の詳細は通常の期待型との照合で提供。
@@ -190,7 +190,7 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - `@dependent(opaque=True)` とkernel/elaboratorの `define_opaque`。検査済み本体を保存し、変換判定では非展開、公理依存追跡では本体も走査。
 - `CheckedInterface` に検査時のkernel snapshotと公開名・型・宣言種別・record constructor・公理依存を格納。
 
-基盤実装時点では一般帰納型、一般のpattern matching、stdlib移行、専用core削除は未実装だった。現在の追加分は末尾に記録する。Phase 1全体は未完了。詳細は [実装状況](docs/dependent-phase1.md) を参照。
+基盤実装時点では一般帰納型、一般のpattern matching、stdlib移行、専用core削除は未実装だった。その後の追加分と完了時の検証を末尾に記録する。現在の受理範囲は [実装状況](docs/dependent-phase1.md) を参照。
 
 検証：workspaceの333テスト、全targetのClippy（警告をエラー化）、fmtが成功。CPython 3.12.0・3.14.3で各21ソースのcompile検証と各244件の既存runtime差分試験が成功。CLIのJSONをPythonのJSON parserで読み、Unicode・引用符・改行の扱いと未完成時の非ゼロ終了も確認。
 
@@ -212,6 +212,27 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - 平坦なconstructor pattern、複数の直接再帰field、後続引数の一般化、先行parameter添字の精緻化、wildcard。patternとmatchの診断位置を保持。
 - Empty・Unit・Bool・Sum・Option・Not・Decidable、Listと四定理、一般Natとzero_right、一般Natを添字にするIVec・IFinとgetをPythonで定義。追加の公理・定理固有primitiveは使用しない。
 - Listの四定理の一般形と具体値、indexed getの参照結果、偽の等式・不正bound・不正再帰・不正positivity・不完全な分岐の拒否を回帰試験に追加。
-- 一般の入れ子pattern matrix、interfaceを再利用するlinking、既存Vec証明群・runtimeの移行、専用core削除は残件。Phase 1全体は未完了。[詳細](docs/dependent-phase1.md)。
+- この時点では、入れ子pattern matrix、interfaceを再利用するlinking、既存Vec証明群・runtimeの移行、専用core削除が残っていた。
 
 検証：`cargo test --workspace --locked --offline`で366件成功。全targetのClippy（警告をエラー化）、fmt、diff checkが成功。CPython 3.14.7で25ソースの構文compileと、既存runtimeの244件のソース／生成コード比較が成功。新しい一般帰納型のruntime projectionは明示的に拒否し、その回帰も追加した。
+
+### 2026-09-20：一般帰納型のruntimeと境界検査
+
+- 一般constructor・eliminator・absurdをruntime IRへ消去し、standalone Pythonを生成する。recordとは別の名目的なtagを使う。
+- 複数の直接再帰fieldと関数型の再帰fieldに対応。計算で使う証明fieldを保持し、Jへ渡せる。直接再帰と帰納値の境界検査は明示的なstackで処理する。
+- 型parameterのschemaと有限な再帰宣言templateにより、constructorのarity、fieldの依存型、戻り先の添字を境界で検査する。型・証明・関数を含む添字、値parameter、高階fieldなど未対応の公開境界は拒否する。
+- 生成PythonでListのappend・長さ・和、二分木、二引数の関数型再帰field、証明fieldを経由するJ、一般Nat/IVec/IFinのgetを検証。深さ2,000のListと、不正なtag・arity・field・添字、消去で区別できなくなる添字の拒否を追加。
+- この時点では、一般pattern matrix、interface再利用linking、既存stdlib・公開APIの移行、高階field・値parameterのruntime境界、専用core削除が残っていた。
+
+検証：workspace 370テスト、全targetのClippy（警告をエラー化）、fmt、diff checkが成功。CPython 3.14.7の構文compile 25件、既存runtime差分244件も成功。
+
+### 2026-09-20：Phase 1の残実装を完了
+
+- 一般帰納型の順序付きpattern matrix、入れ子constructor・match・wildcard、子孫への構造的再帰を実装。固定・複合添字を線形constructor patternとして精緻化し、不可能な分岐を自動省略する。
+- 入れ子の依存matchを一般eliminatorへ変換。必要な局所文脈を一般化し、暗黙引数の消去を保持。一般IVec/IFinのstdlib `get`を入れ子matchへ移行した。
+- `CheckSession`による検査済み依存snapshotの再利用と、source・options変更時の無効化。公開import alias、constructor、record射影を同じinterfaceで公開する。
+- Nat・Vec・Finを通常の検査済み`DataDecl`へ移行し、専用core項・型規則・NbE規則を削除。既存APIは構文・builder・runtime表現の互換adapterとして保持し、既存Vec証明群とruntime試験を一般機構で通した。
+- runtimeの第一階値parameterと高階field・関数引数に対応。callbackの引数・結果を呼び出し時に検査し、依存するfieldのschemaには検査済みの値を渡す。
+- 未対応の非線形添字pattern、相互帰納型、universe polymorphism、消去情報が必要なruntime境界などは[受理範囲](docs/dependent-phase1.md)に明記する。
+
+検証：workspace 377テスト、全targetのClippy（警告をエラー化）、fmt、diff checkが成功。CPython 3.14.3で構文compile 25件とソース／生成コード比較244件が成功。

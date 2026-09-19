@@ -95,13 +95,7 @@ fn infers_bound_from_fin_and_constrains_constructor_holes() {
     );
     let elab = Elaborator::default();
     let out = elab.infer(&identity.app(E::fz(E::Zero))).unwrap();
-    assert_eq!(
-        out.ty,
-        C::Fin {
-            bound: C::Succ(C::Zero.arc()).arc()
-        }
-        .arc()
-    );
+    assert_eq!(out.ty, C::Fin(C::Succ(C::Zero.arc()).arc()).arc());
     elab.check(&E::fz(E::Hole), &E::fin(E::Zero.succ()))
         .unwrap();
     elab.infer(&E::vcons(E::Nat, E::Hole, E::Zero, E::vnil(E::Nat)))

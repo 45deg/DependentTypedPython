@@ -9,6 +9,8 @@ use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Debug)]
 pub(crate) struct DataBinding {
+    pub family: String,
+    pub constructors: Vec<(String, usize)>,
     pub parameters: usize,
     pub indices: usize,
     pub constructor: Option<usize>,
@@ -112,6 +114,11 @@ pub(crate) fn lower_with_options(
         sources: loader.sources,
         source_names: loader.source_names,
         declarations: loader.declarations,
+        public_bindings: root
+            .iter()
+            .filter(|(_, b)| b.builtin.is_none())
+            .map(|(name, b)| (name.clone(), b.name.clone()))
+            .collect(),
         public_names: root
             .values()
             .filter(|b| !b.name.contains('.'))
@@ -223,6 +230,12 @@ impl<R: SourceResolver> Loader<'_, R> {
                     nullary,
                     data: match &d.body {
                         DeclarationBody::Data(decl) => Some(DataBinding {
+                            family: decl.name.clone(),
+                            constructors: decl
+                                .constructors
+                                .iter()
+                                .map(|c| (c.name.clone(), c.fields.len()))
+                                .collect(),
                             parameters: decl.parameters.len(),
                             indices: decl.indices.len(),
                             constructor: None,
@@ -247,6 +260,12 @@ impl<R: SourceResolver> Loader<'_, R> {
                             record: None,
                             nullary: ctor.fields.is_empty(),
                             data: Some(DataBinding {
+                                family: decl.name.clone(),
+                                constructors: decl
+                                    .constructors
+                                    .iter()
+                                    .map(|c| (c.name.clone(), c.fields.len()))
+                                    .collect(),
                                 parameters: decl.parameters.len(),
                                 indices: 0,
                                 constructor: Some(c),

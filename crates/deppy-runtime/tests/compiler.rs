@@ -37,3 +37,43 @@ fn discarded_axiomatic_proofs_cannot_leak_into_runtime_j() {
     let error = compile_module(&bad, TARGET).unwrap_err();
     assert!(error.message.contains("erased variable"));
 }
+
+#[test]
+fn general_boundaries_reject_erased_indices() {
+    for source in [
+        r#"
+from __future__ import annotations
+from deppy import inductive, constructor, Index, Type, Nat
+@inductive
+class TypeIndexed:
+    item: Index[Type]
+    @constructor
+    def Mk() -> TypeIndexed[Nat]: ...
+"#,
+        r#"
+from __future__ import annotations
+from deppy import inductive, constructor, dependent, Type, Nat, Index
+@inductive
+class Indexed:
+    index: Index[Nat]
+    @constructor
+    def Mk(n: Nat) -> Indexed[n]: ...
+@dependent
+def identity[n: Nat](x: Indexed[n]) -> Indexed[n]:
+    return x
+"#,
+        r#"
+from __future__ import annotations
+from deppy import inductive, constructor, Index, Nat, Eq, refl
+from deppy.lists import List, Nil
+@inductive
+class ProofIndexed:
+    item: Index[List[List[Eq[Nat, 0, 0]]]]
+    @constructor
+    def Mk() -> ProofIndexed[Nil[List[Eq[Nat, 0, 0]]]()]: ...
+"#,
+    ] {
+        let error = compile_module(source, TARGET).unwrap_err();
+        assert!(error.message.contains("runtime boundary"), "{error}");
+    }
+}

@@ -209,4 +209,4 @@ funextなどは「未実装の定理」ではなく基礎体系の選択とし�
 
 ## 現在地の読み方
 
-この文書は目標設計を含む。現在実装済みの範囲は[README](../README.md)と[PROGRESS](../PROGRESS.md)を正とする。一般のユーザー定義帰納型、positivity、明示的な依存eliminator、Listの四定理を追加した。`@verified`、Verified HIR、WP/VC generation、`verified_spec`は未実装である。名前付きholeのCLI/APIでのgoal表示、opaque theorem、検査済み公開interfaceのsnapshotは追加済みである。Phase 1全体は未完了で、残件は[実装状況](dependent-phase1.md)を参照する。既存のNat・Vec・Fin、限定的な構造的再帰、明示的eliminatorは、これらへ移行するための実装済み基盤である。
+この文書は目標設計を含む。現在実装済みの範囲は[README](../README.md)と[PROGRESS](../PROGRESS.md)を正とする。Phase 1は実装済みで、一般帰納型・positivity・依存pattern matching・Listの四定理・holeとgoal表示・opaque theorem・検査済み依存snapshotの再利用に対応する。既存Nat・Vec・Finとruntimeも一般帰納型へ移行した。受理する構文と制約は[実装状況](dependent-phase1.md)に記載する。`@verified`、Verified HIR、WP/VC generation、`verified_spec`は未実装である。

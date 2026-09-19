@@ -1,21 +1,77 @@
 //! Kernel-check lowered declarations before exposing a module interface.
 use crate::*;
 
+#[derive(Clone)]
+pub(crate) struct LinkSnapshot {
+    elaborator: Elaborator,
+    record_id: u64,
+    data_id: u64,
+    data_entries: std::collections::BTreeMap<String, (u64, Option<usize>)>,
+    constructors: Vec<(String, deppy_core::DefId, Span)>,
+    axiom_names: std::collections::HashMap<deppy_core::DefId, String>,
+    processed: std::collections::HashSet<String>,
+    projections:
+        std::collections::BTreeMap<String, std::collections::BTreeMap<String, deppy_core::Tm>>,
+}
+impl LinkSnapshot {
+    fn new(options: FrontendOptions) -> Self {
+        Self {
+            elaborator: Elaborator::new(options.elaboration_steps),
+            record_id: 0,
+            data_id: 0,
+            data_entries: Default::default(),
+            constructors: vec![],
+            axiom_names: Default::default(),
+            processed: Default::default(),
+            projections: Default::default(),
+        }
+    }
+}
 pub(crate) fn check_lowered(
     module: Module,
     options: FrontendOptions,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Result<CheckedModule, Diagnostic> {
-    // Dependent Fin motives and composed equality proofs (e.g. reverse_get)
-    // exceed the small elaborator default. Keep checking explicitly bounded.
-    let mut elaborator = Elaborator::new(options.elaboration_steps);
+    check_lowered_cached(module, options, diagnostics, None).map(|(checked, _, _)| checked)
+}
+pub(crate) fn check_lowered_cached(
+    module: Module,
+    options: FrontendOptions,
+    diagnostics: &mut Vec<Diagnostic>,
+    cached: Option<LinkSnapshot>,
+) -> Result<(CheckedModule, LinkSnapshot, usize), Diagnostic> {
+    let mut state = cached.unwrap_or_else(|| LinkSnapshot::new(options));
+    let mut dependency_snapshot = None;
+    let mut reused = 0;
     let mut definitions = vec![];
-    let mut record_id = 0;
-    let mut data_id = 0;
-    let mut data_entries = std::collections::BTreeMap::new();
-    let mut constructors = vec![];
-    let mut axiom_names = std::collections::HashMap::new();
+    let LinkSnapshot {
+        elaborator,
+        record_id,
+        data_id,
+        data_entries,
+        constructors,
+        axiom_names,
+        processed,
+        projections,
+    } = &mut state;
     for d in module.declarations {
+        if !module.origins.contains_key(&d.name) && dependency_snapshot.is_none() {
+            dependency_snapshot = Some(LinkSnapshot {
+                elaborator: elaborator.clone(),
+                record_id: *record_id,
+                data_id: *data_id,
+                data_entries: data_entries.clone(),
+                constructors: constructors.clone(),
+                axiom_names: axiom_names.clone(),
+                processed: processed.clone(),
+                projections: projections.clone(),
+            });
+        }
+        if processed.contains(&d.name) {
+            reused += 1;
+            continue;
+        }
+        processed.insert(d.name.clone());
         let diagnostic = |message: String| {
             let origin = module
                 .origins
@@ -95,12 +151,12 @@ pub(crate) fn check_lowered(
         };
         if let DeclarationBody::Data(decl) = &d.body {
             let exports = elaborator
-                .declare_data(data_id, decl.clone())
+                .declare_data(*data_id, decl.clone())
                 .map_err(elab_diagnostic)?;
             for (index, (name, _)) in exports.iter().enumerate() {
-                data_entries.insert(name.clone(), (data_id, index.checked_sub(1)));
+                data_entries.insert(name.clone(), (*data_id, index.checked_sub(1)));
             }
-            data_id += 1;
+            *data_id += 1;
             for (name, id) in exports {
                 if module.public_names.contains(&name) {
                     definitions.push((name, id, d.span));
@@ -119,12 +175,13 @@ pub(crate) fn check_lowered(
             continue;
         }
         if let DeclarationBody::Record {
-            declaration: decl, ..
+            declaration: decl,
+            field_names,
         } = &d.body
         {
             let mut register =
                 |elaborator: &mut Elaborator| -> Result<deppy_core::DefId, deppy_elab::Error> {
-                    let record = elaborator.declare_record(record_id, decl.clone())?;
+                    let record = elaborator.declare_record(*record_id, decl.clone())?;
                     let id = elaborator.define(&d.name, Some(&d.ty), &record.ty())?;
                     let constructor_id = elaborator.define(
                         lower::constructor_name(&d.name),
@@ -132,10 +189,19 @@ pub(crate) fn check_lowered(
                         &record.constructor(),
                     )?;
                     constructors.push((d.name.clone(), constructor_id, d.span));
+                    let fields = field_names
+                        .iter()
+                        .zip(&decl.fields)
+                        .map(|(name, (binding, _))| {
+                            let projection = record.projection(binding)?;
+                            Ok((name.clone(), elaborator.infer(&projection)?.term))
+                        })
+                        .collect::<Result<_, deppy_elab::Error>>()?;
+                    projections.insert(d.name.clone(), fields);
                     Ok(id)
                 };
-            let id = register(&mut elaborator).map_err(elab_diagnostic)?;
-            record_id += 1;
+            let id = register(elaborator).map_err(elab_diagnostic)?;
+            *record_id += 1;
             if module.public_names.contains(&d.name) {
                 definitions.push((d.name, id, d.span));
             }
@@ -185,18 +251,63 @@ pub(crate) fn check_lowered(
             ids.into_iter().map(|id| axiom_names[&id].clone()).collect(),
         );
     }
-    let interface = CheckedInterface::from_checked(
-        &elaborator,
-        &definitions,
-        &constructors,
-        &axiom_dependencies,
-        &data_entries,
-    );
-    Ok(CheckedModule {
-        interface,
-        axiom_dependencies,
+    let mut exported = vec![];
+    let mut exported_data = std::collections::BTreeMap::new();
+    let mut exported_constructors = vec![];
+    let mut exported_dependencies = std::collections::BTreeMap::new();
+    for (alias, canonical) in &module.public_bindings {
+        let Some(id) = elaborator.definition_id(canonical) else {
+            continue;
+        };
+        let span = definitions
+            .iter()
+            .find(|(_, other, _)| *other == id)
+            .map_or(Span { start: 0, end: 0 }, |(_, _, span)| *span);
+        exported.push((alias.clone(), id, span));
+        if let Some(metadata) = data_entries.get(canonical) {
+            exported_data.insert(alias.clone(), *metadata);
+        }
+        if let Some((_, id, span)) = constructors.iter().find(|(name, _, _)| name == canonical) {
+            exported_constructors.push((alias.clone(), *id, *span));
+        }
+        let dependencies = elaborator
+            .kernel()
+            .axiom_dependencies(&deppy_core::Term::Global(id).arc())
+            .map_err(|e| Diagnostic {
+                details: Default::default(),
+                span,
+                message: e.to_string(),
+            })?;
+        exported_dependencies.insert(
+            alias.clone(),
+            dependencies
+                .into_iter()
+                .map(|id| axiom_names[&id].clone())
+                .collect(),
+        );
+    }
+    let mut interface = CheckedInterface::from_checked(
         elaborator,
-        definitions,
-        constructors,
-    })
+        &exported,
+        &exported_constructors,
+        &exported_dependencies,
+        &exported_data,
+    );
+    for (alias, canonical) in &module.public_bindings {
+        if let Some(fields) = projections.get(canonical) {
+            interface.set_projections(alias, fields.clone());
+        }
+    }
+    let dependency_snapshot = dependency_snapshot.unwrap_or_else(|| state.clone());
+    Ok((
+        CheckedModule {
+            interface,
+            axiom_dependencies,
+            elaborator: state.elaborator,
+            definitions,
+            constructors: state.constructors,
+        },
+        dependency_snapshot,
+        reused,
+    ))
 }

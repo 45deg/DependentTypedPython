@@ -19,6 +19,14 @@ impl Plicity {
 /// Implicit binders are erased; explicit erased proof binders are not yet exposed.
 #[derive(Clone, Debug)]
 pub enum Expr {
+    /// Type-directed constructor splitting. It elaborates entirely to checked
+    /// inductive eliminators and introduces no new core computation rules.
+    Cases {
+        level: u32,
+        value: Box<Expr>,
+        branches: Vec<CaseBranch>,
+        generalize: Vec<(String, Expr)>,
+    },
     Absurd {
         ty: Box<Expr>,
         value: Box<Expr>,
@@ -164,7 +172,139 @@ pub enum Expr {
     },
     Hole,
 }
+
+#[derive(Clone, Debug)]
+pub struct CaseBranch {
+    pub constructor: CaseConstructor,
+    pub fields: Vec<String>,
+    pub body: Expr,
+    pub location: Option<crate::SourceLocation>,
+}
+#[derive(Clone, Debug)]
+pub enum CaseConstructor {
+    Name(String),
+    Core(u64, usize),
+}
+impl From<String> for CaseConstructor {
+    fn from(name: String) -> Self {
+        Self::Name(name)
+    }
+}
 impl Expr {
+    pub(crate) fn contains_recur(&self) -> bool {
+        self.any(&|e| matches!(e, Expr::Recur(_)))
+    }
+    pub(crate) fn any(&self, predicate: &impl Fn(&Expr) -> bool) -> bool {
+        if predicate(self) {
+            return true;
+        }
+        use Expr::*;
+        let children: std::vec::Vec<&Expr> = match self {
+            Recur(arguments) => arguments.iter().collect(),
+            Core(_) | Name(_) | Universe(_) | Nat | Zero | Hole | UserHole(_) => vec![],
+            Located { expression, .. } => vec![expression],
+            Fst(x)
+            | Snd(x)
+            | Refl(x)
+            | Succ(x)
+            | VNil { ty: x }
+            | Fin { bound: x }
+            | FZ { bound: x }
+            | Field { value: x, .. } => vec![x],
+            Absurd { ty, value } | Ann { ty, term: value } => vec![ty, value],
+            App {
+                function, argument, ..
+            } => vec![function, argument],
+            Sigma {
+                domain, codomain, ..
+            }
+            | Pi {
+                domain, codomain, ..
+            } => vec![domain, codomain],
+            Pair { fst, snd } => vec![fst, snd],
+            Vec { ty, len } => vec![ty, len],
+            FS { bound, pred } => vec![bound, pred],
+            Fin0Elim { ty, absurd } => vec![ty, absurd],
+            Let {
+                ty, value, body, ..
+            } => ty
+                .iter()
+                .map(Box::as_ref)
+                .chain([value.as_ref(), body.as_ref()])
+                .collect(),
+            Lam { domain, body, .. } => domain
+                .iter()
+                .map(Box::as_ref)
+                .chain([body.as_ref()])
+                .collect(),
+            Eq { ty, left, right } => vec![ty, left, right],
+            RecordElim {
+                motive,
+                branch,
+                value,
+                ..
+            } => vec![motive, branch, value],
+            VCons {
+                ty,
+                len,
+                head,
+                tail,
+            } => vec![ty, len, head, tail],
+            NatElim {
+                motive,
+                zero,
+                step,
+                scrutinee,
+                ..
+            } => vec![motive, zero, step, scrutinee],
+            FinElim {
+                motive,
+                zero,
+                step,
+                bound,
+                scrutinee,
+                ..
+            } => vec![motive, zero, step, bound, scrutinee],
+            VecElim {
+                ty,
+                motive,
+                nil,
+                cons,
+                len,
+                scrutinee,
+                ..
+            } => vec![ty, motive, nil, cons, len, scrutinee],
+            J {
+                ty,
+                left,
+                motive,
+                base,
+                right,
+                proof,
+                ..
+            } => vec![ty, left, motive, base, right, proof],
+            Induct {
+                value,
+                motive,
+                branches,
+                ..
+            } => [value.as_ref(), motive.as_ref()]
+                .into_iter()
+                .chain(branches)
+                .collect(),
+            Cases {
+                value,
+                branches,
+                generalize,
+                ..
+            } => [value.as_ref()]
+                .into_iter()
+                .chain(branches.iter().map(|b| &b.body))
+                .chain(generalize.iter().map(|(_, e)| e))
+                .collect(),
+        };
+        children.into_iter().any(|e| e.any(predicate))
+    }
     pub fn located(self, location: crate::SourceLocation) -> Self {
         Self::Located {
             location,

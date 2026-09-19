@@ -31,32 +31,7 @@ pub(crate) enum Value {
     Universe(u32),
     Eq(Val, Val, Val),
     Refl(Val, Val),
-    Vec {
-        ty: Val,
-        len: Val,
-    },
-    VNil {
-        ty: Val,
-    },
-    VCons {
-        ty: Val,
-        len: Val,
-        head: Val,
-        tail: Val,
-    },
-    Fin {
-        bound: Val,
-    },
-    FZ {
-        bound: Val,
-    },
-    FS {
-        bound: Val,
-        pred: Val,
-    },
-    Nat,
-    Zero,
-    Succ(Val),
+
     Pi(Relevance, Val, Closure),
     Lam(Relevance, Val, Closure),
     Neutral(Neutral),
@@ -90,34 +65,6 @@ pub(crate) enum Neutral {
         base: Val,
         right: Val,
         proof: Val,
-    },
-    VecElim {
-        level: u32,
-        ty: Val,
-        motive: Val,
-        nil: Val,
-        cons: Val,
-        len: Val,
-        scrutinee: Val,
-    },
-    FinElim {
-        level: u32,
-        motive: Val,
-        zero: Val,
-        step: Val,
-        bound: Val,
-        scrutinee: Val,
-    },
-    Fin0Elim {
-        ty: Val,
-        absurd: Val,
-    },
-    NatElim {
-        level: u32,
-        motive: Val,
-        zero: Val,
-        step: Val,
-        scrutinee: Val,
     },
 }
 
@@ -263,19 +210,7 @@ pub(crate) fn eval(term: &Tm, env: &Env, budget: &mut Budget) -> Result<Val, Err
             )
         }
         Term::Universe(level) => Value::Universe(*level),
-        Term::NatElim {
-            level,
-            motive,
-            zero,
-            step,
-            scrutinee,
-        } => {
-            let motive = eval(motive, env, budget)?;
-            let zero = eval(zero, env, budget)?;
-            let step = eval(step, env, budget)?;
-            let scrutinee = eval(scrutinee, env, budget)?;
-            return nat_elim(*level, &motive, &zero, &step, &scrutinee, budget);
-        }
+
         Term::Eq { ty, left, right } => Value::Eq(
             eval(ty, env, budget)?,
             eval(left, env, budget)?,
@@ -311,87 +246,7 @@ pub(crate) fn eval(term: &Tm, env: &Env, budget: &mut Budget) -> Result<Val, Err
                 _ => return Err(Error::ExpectedEquality),
             }
         }
-        Term::Vec { ty, len } => Value::Vec {
-            ty: eval(ty, env, budget)?,
-            len: eval(len, env, budget)?,
-        },
-        Term::VNil { ty } => Value::VNil {
-            ty: eval(ty, env, budget)?,
-        },
-        Term::VCons {
-            ty,
-            len,
-            head,
-            tail,
-        } => Value::VCons {
-            ty: eval(ty, env, budget)?,
-            len: eval(len, env, budget)?,
-            head: eval(head, env, budget)?,
-            tail: eval(tail, env, budget)?,
-        },
-        Term::Fin { bound } => Value::Fin {
-            bound: eval(bound, env, budget)?,
-        },
-        Term::FZ { bound } => Value::FZ {
-            bound: eval(bound, env, budget)?,
-        },
-        Term::FS { bound, pred } => Value::FS {
-            bound: eval(bound, env, budget)?,
-            pred: eval(pred, env, budget)?,
-        },
-        Term::VecElim {
-            level,
-            ty,
-            motive,
-            nil,
-            cons,
-            len,
-            scrutinee,
-        } => {
-            let rec = VecRec {
-                level: *level,
-                ty: eval(ty, env, budget)?,
-                motive: eval(motive, env, budget)?,
-                nil: eval(nil, env, budget)?,
-                cons: eval(cons, env, budget)?,
-            };
-            return rec.apply(
-                &eval(len, env, budget)?,
-                &eval(scrutinee, env, budget)?,
-                budget,
-            );
-        }
-        Term::FinElim {
-            level,
-            motive,
-            zero,
-            step,
-            bound,
-            scrutinee,
-        } => {
-            let rec = FinRec {
-                level: *level,
-                motive: eval(motive, env, budget)?,
-                zero: eval(zero, env, budget)?,
-                step: eval(step, env, budget)?,
-            };
-            return rec.apply(
-                &eval(bound, env, budget)?,
-                &eval(scrutinee, env, budget)?,
-                budget,
-            );
-        }
-        Term::Fin0Elim { ty, absurd } => {
-            let ty = eval(ty, env, budget)?;
-            let absurd = eval(absurd, env, budget)?;
-            if !matches!(absurd.as_ref(), Value::Neutral(_)) {
-                return Err(Error::ExpectedEmptyFin);
-            }
-            Value::Neutral(Neutral::Fin0Elim { ty, absurd })
-        }
-        Term::Nat => Value::Nat,
-        Term::Zero => Value::Zero,
-        Term::Succ(n) => Value::Succ(eval(n, env, budget)?),
+
         Term::Pi {
             relevance,
             domain,
@@ -551,99 +406,9 @@ pub(crate) fn equal(a: &Val, b: &Val, depth: usize, budget: &mut Budget) -> Resu
             && equal(d, d2, depth, budget)?
             && equal(y, y2, depth, budget)?
             && equal(p, p2, depth, budget)?),
-        (Value::Vec { ty, len }, Value::Vec { ty: ty2, len: len2 }) => {
-            Ok(equal(ty, ty2, depth, budget)? && equal(len, len2, depth, budget)?)
-        }
-        (Value::VNil { ty }, Value::VNil { ty: ty2 }) => Ok(equal(ty, ty2, depth, budget)?),
-        (
-            Value::VCons {
-                ty,
-                len,
-                head,
-                tail,
-            },
-            Value::VCons {
-                ty: ty2,
-                len: len2,
-                head: head2,
-                tail: tail2,
-            },
-        ) => Ok(equal(ty, ty2, depth, budget)?
-            && equal(len, len2, depth, budget)?
-            && equal(head, head2, depth, budget)?
-            && equal(tail, tail2, depth, budget)?),
-        (Value::Fin { bound }, Value::Fin { bound: bound2 }) => {
-            Ok(equal(bound, bound2, depth, budget)?)
-        }
-        (Value::FZ { bound }, Value::FZ { bound: bound2 }) => {
-            Ok(equal(bound, bound2, depth, budget)?)
-        }
-        (
-            Value::FS { bound, pred },
-            Value::FS {
-                bound: bound2,
-                pred: pred2,
-            },
-        ) => Ok(equal(bound, bound2, depth, budget)? && equal(pred, pred2, depth, budget)?),
-        (
-            Value::Neutral(Neutral::VecElim {
-                level,
-                ty,
-                motive,
-                nil,
-                cons,
-                len,
-                scrutinee,
-            }),
-            Value::Neutral(Neutral::VecElim {
-                level: level2,
-                ty: ty2,
-                motive: motive2,
-                nil: nil2,
-                cons: cons2,
-                len: len2,
-                scrutinee: scrutinee2,
-            }),
-        ) => Ok(level == level2
-            && equal(ty, ty2, depth, budget)?
-            && equal(motive, motive2, depth, budget)?
-            && equal(nil, nil2, depth, budget)?
-            && equal(cons, cons2, depth, budget)?
-            && equal(len, len2, depth, budget)?
-            && equal(scrutinee, scrutinee2, depth, budget)?),
-        (
-            Value::Neutral(Neutral::FinElim {
-                level,
-                motive,
-                zero,
-                step,
-                bound,
-                scrutinee,
-            }),
-            Value::Neutral(Neutral::FinElim {
-                level: level2,
-                motive: motive2,
-                zero: zero2,
-                step: step2,
-                bound: bound2,
-                scrutinee: scrutinee2,
-            }),
-        ) => Ok(level == level2
-            && equal(motive, motive2, depth, budget)?
-            && equal(zero, zero2, depth, budget)?
-            && equal(step, step2, depth, budget)?
-            && equal(bound, bound2, depth, budget)?
-            && equal(scrutinee, scrutinee2, depth, budget)?),
-        (
-            Value::Neutral(Neutral::Fin0Elim { ty, absurd }),
-            Value::Neutral(Neutral::Fin0Elim {
-                ty: ty2,
-                absurd: absurd2,
-            }),
-        ) => Ok(equal(ty, ty2, depth, budget)? && equal(absurd, absurd2, depth, budget)?),
+
         (Value::Universe(x), Value::Universe(y)) => Ok(x == y),
-        (Value::Nat, Value::Nat) | (Value::Zero, Value::Zero) => Ok(true),
-        (Value::Succ(x), Value::Succ(y)) => equal(x, y, depth, budget),
+
         (Value::Pi(r, dom, cod), Value::Pi(s, dom2, cod2)) => {
             if r != s || !equal(dom, dom2, depth, budget)? {
                 return Ok(false);
@@ -683,26 +448,7 @@ pub(crate) fn equal(a: &Val, b: &Val, depth: usize, budget: &mut Budget) -> Resu
         (Value::Neutral(Neutral::App(f, x)), Value::Neutral(Neutral::App(g, y))) => {
             Ok(equal(f, g, depth, budget)? && equal(x, y, depth, budget)?)
         }
-        (
-            Value::Neutral(Neutral::NatElim {
-                level: l,
-                motive: p,
-                zero: z,
-                step: s,
-                scrutinee: n,
-            }),
-            Value::Neutral(Neutral::NatElim {
-                level: l2,
-                motive: p2,
-                zero: z2,
-                step: s2,
-                scrutinee: n2,
-            }),
-        ) => Ok(l == l2
-            && equal(p, p2, depth, budget)?
-            && equal(z, z2, depth, budget)?
-            && equal(s, s2, depth, budget)?
-            && equal(n, n2, depth, budget)?),
+
         _ => Ok(false),
     }
 }
@@ -821,73 +567,7 @@ pub(crate) fn quote(value: &Val, depth: usize, budget: &mut Budget) -> Result<Tm
             right: quote(right, depth, budget)?,
             proof: quote(proof, depth, budget)?,
         },
-        Value::Vec { ty, len } => Term::Vec {
-            ty: quote(ty, depth, budget)?,
-            len: quote(len, depth, budget)?,
-        },
-        Value::VNil { ty } => Term::VNil {
-            ty: quote(ty, depth, budget)?,
-        },
-        Value::VCons {
-            ty,
-            len,
-            head,
-            tail,
-        } => Term::VCons {
-            ty: quote(ty, depth, budget)?,
-            len: quote(len, depth, budget)?,
-            head: quote(head, depth, budget)?,
-            tail: quote(tail, depth, budget)?,
-        },
-        Value::Fin { bound } => Term::Fin {
-            bound: quote(bound, depth, budget)?,
-        },
-        Value::FZ { bound } => Term::FZ {
-            bound: quote(bound, depth, budget)?,
-        },
-        Value::FS { bound, pred } => Term::FS {
-            bound: quote(bound, depth, budget)?,
-            pred: quote(pred, depth, budget)?,
-        },
-        Value::Neutral(Neutral::VecElim {
-            level,
-            ty,
-            motive,
-            nil,
-            cons,
-            len,
-            scrutinee,
-        }) => Term::VecElim {
-            level: *level,
-            ty: quote(ty, depth, budget)?,
-            motive: quote(motive, depth, budget)?,
-            nil: quote(nil, depth, budget)?,
-            cons: quote(cons, depth, budget)?,
-            len: quote(len, depth, budget)?,
-            scrutinee: quote(scrutinee, depth, budget)?,
-        },
-        Value::Neutral(Neutral::FinElim {
-            level,
-            motive,
-            zero,
-            step,
-            bound,
-            scrutinee,
-        }) => Term::FinElim {
-            level: *level,
-            motive: quote(motive, depth, budget)?,
-            zero: quote(zero, depth, budget)?,
-            step: quote(step, depth, budget)?,
-            bound: quote(bound, depth, budget)?,
-            scrutinee: quote(scrutinee, depth, budget)?,
-        },
-        Value::Neutral(Neutral::Fin0Elim { ty, absurd }) => Term::Fin0Elim {
-            ty: quote(ty, depth, budget)?,
-            absurd: quote(absurd, depth, budget)?,
-        },
-        Value::Nat => Term::Nat,
-        Value::Zero => Term::Zero,
-        Value::Succ(n) => Term::Succ(quote(n, depth, budget)?),
+
         Value::Pi(relevance, domain, codomain) => Term::Pi {
             relevance: *relevance,
             domain: quote(domain, depth, budget)?,
@@ -898,19 +578,7 @@ pub(crate) fn quote(value: &Val, depth: usize, budget: &mut Budget) -> Result<Tm
             domain: quote(domain, depth, budget)?,
             body: quote(&body.apply(fresh(depth), budget)?, depth + 1, budget)?,
         },
-        Value::Neutral(Neutral::NatElim {
-            level,
-            motive,
-            zero,
-            step,
-            scrutinee,
-        }) => Term::NatElim {
-            level: *level,
-            motive: quote(motive, depth, budget)?,
-            zero: quote(zero, depth, budget)?,
-            step: quote(step, depth, budget)?,
-            scrutinee: quote(scrutinee, depth, budget)?,
-        },
+
         Value::Neutral(Neutral::Global(id)) => Term::Global(*id),
         Value::Neutral(Neutral::Var(level)) => Term::Var(
             depth
@@ -927,97 +595,6 @@ pub(crate) fn quote(value: &Val, depth: usize, budget: &mut Budget) -> Result<Tm
 
 /// Primitive structural recursion. A neutral scrutinee remains a neutral
 /// eliminator; no eta rule for Nat or arbitrary recursion is introduced.
-fn nat_elim(
-    level: u32,
-    motive: &Val,
-    zero: &Val,
-    step: &Val,
-    n: &Val,
-    budget: &mut Budget,
-) -> Result<Val, Error> {
-    budget.tick()?;
-    match n.as_ref() {
-        Value::Zero => Ok(zero.clone()),
-        Value::Succ(pred) => {
-            let ih = nat_elim(level, motive, zero, step, pred, budget)?;
-            apply(&apply(step, pred.clone(), budget)?, ih, budget)
-        }
-        Value::Neutral(_) => Ok(Arc::new(Value::Neutral(Neutral::NatElim {
-            level,
-            motive: motive.clone(),
-            zero: zero.clone(),
-            step: step.clone(),
-            scrutinee: n.clone(),
-        }))),
-        _ => Err(Error::ExpectedNat),
-    }
-}
-
-/// Structural recursion follows the tail, retaining its explicit size witness.
-struct VecRec {
-    level: u32,
-    ty: Val,
-    motive: Val,
-    nil: Val,
-    cons: Val,
-}
-impl VecRec {
-    fn apply(&self, len: &Val, xs: &Val, budget: &mut Budget) -> Result<Val, Error> {
-        budget.tick()?;
-        match xs.as_ref() {
-            Value::VNil { .. } => Ok(self.nil.clone()),
-            Value::VCons {
-                len, head, tail, ..
-            } => {
-                let ih = self.apply(len, tail, budget)?;
-                let branch = apply(&self.cons, len.clone(), budget)?;
-                let branch = apply(&branch, head.clone(), budget)?;
-                let branch = apply(&branch, tail.clone(), budget)?;
-                apply(&branch, ih, budget)
-            }
-            Value::Neutral(_) => Ok(Arc::new(Value::Neutral(Neutral::VecElim {
-                level: self.level,
-                ty: self.ty.clone(),
-                motive: self.motive.clone(),
-                nil: self.nil.clone(),
-                cons: self.cons.clone(),
-                len: len.clone(),
-                scrutinee: xs.clone(),
-            }))),
-            _ => Err(Error::ExpectedVec),
-        }
-    }
-}
-struct FinRec {
-    level: u32,
-    motive: Val,
-    zero: Val,
-    step: Val,
-}
-impl FinRec {
-    fn apply(&self, bound: &Val, index: &Val, budget: &mut Budget) -> Result<Val, Error> {
-        budget.tick()?;
-        match index.as_ref() {
-            Value::FZ { bound } => apply(&self.zero, bound.clone(), budget),
-            Value::FS { bound, pred } => {
-                let ih = self.apply(bound, pred, budget)?;
-                let branch = apply(&self.step, bound.clone(), budget)?;
-                let branch = apply(&branch, pred.clone(), budget)?;
-                apply(&branch, ih, budget)
-            }
-            Value::Neutral(_) => Ok(Arc::new(Value::Neutral(Neutral::FinElim {
-                level: self.level,
-                motive: self.motive.clone(),
-                zero: self.zero.clone(),
-                step: self.step.clone(),
-                bound: bound.clone(),
-                scrutinee: index.clone(),
-            }))),
-            _ => Err(Error::ExpectedFin),
-        }
-    }
-}
-
 pub(crate) fn project(pair: &Val, first: bool, budget: &mut Budget) -> Result<Val, Error> {
     budget.tick()?;
     match pair.as_ref() {

@@ -26,6 +26,8 @@ pub struct InterfaceEntry {
     pub kind: DeclarationKind,
     pub constructor: Option<DefId>,
     pub inductive: Option<InductiveMetadata>,
+    /// Checked projection functions in the same kernel snapshot.
+    pub projections: BTreeMap<String, Tm>,
     pub axiom_dependencies: Vec<String>,
 }
 
@@ -93,11 +95,17 @@ impl CheckedInterface {
                         kind,
                         constructor,
                         inductive,
+                        projections: BTreeMap::new(),
                         axiom_dependencies: dependencies[name].clone(),
                     },
                 )
             })
             .collect();
         Self { kernel, exports }
+    }
+    pub(crate) fn set_projections(&mut self, name: &str, projections: BTreeMap<String, Tm>) {
+        if let Some(entry) = self.exports.get_mut(name) {
+            entry.projections = projections;
+        }
     }
 }

@@ -33,14 +33,7 @@ fn ty(id: u64) -> Tm {
 fn decl() -> InductiveDecl {
     InductiveDecl {
         parameters: vec![T::Universe(0).arc()],
-        fields: vec![
-            n(),
-            T::Vec {
-                ty: v(1),
-                len: v(0),
-            }
-            .arc(),
-        ],
+        fields: vec![n(), T::Vec(v(1), v(0)).arc()],
         level: 0,
     }
 }
@@ -48,7 +41,7 @@ fn ctor(id: u64) -> Tm {
     T::Constructor {
         id,
         parameters: vec![n()],
-        fields: vec![z(), T::VNil { ty: n() }.arc()],
+        fields: vec![z(), T::VNil(n()).arc()],
     }
     .arc()
 }
@@ -68,17 +61,13 @@ fn dependent_constructor_and_generated_projections() {
     );
     assert_eq!(
         k.normalize(&app(app(ps[1].clone(), n()), ctor(1))).unwrap(),
-        T::VNil { ty: n() }.arc()
+        T::VNil(n()).arc()
     );
     let getter = lam(ty(1), app(app(ps[1].clone(), n()), v(0)));
     let expected = T::Pi {
         relevance: Relevance::Runtime,
         domain: ty(1),
-        codomain: T::Vec {
-            ty: n(),
-            len: app(app(ps[0].clone(), n()), v(0)),
-        }
-        .arc(),
+        codomain: T::Vec(n(), app(app(ps[0].clone(), n()), v(0))).arc(),
     }
     .arc();
     k.check(&getter, &expected).unwrap();
@@ -96,7 +85,7 @@ fn same_shape_declarations_are_nominal_and_not_sigma() {
             &ctor(1),
             &T::Sigma {
                 domain: n(),
-                codomain: T::Vec { ty: n(), len: v(0) }.arc()
+                codomain: T::Vec(n(), v(0)).arc()
             }
             .arc()
         )
@@ -156,7 +145,7 @@ fn invalid_constructor_arguments_and_unknown_ids_are_rejected() {
     for fields in [
         vec![],
         vec![z(), z()],
-        vec![T::Succ(z()).arc(), T::VNil { ty: n() }.arc()],
+        vec![T::Succ(z()).arc(), T::VNil(n()).arc()],
     ] {
         assert!(k
             .infer(
@@ -193,7 +182,7 @@ fn dependent_motive_observes_constructor_and_iota() {
     let branch = lam(
         n(),
         lam(
-            T::Vec { ty: n(), len: v(0) }.arc(),
+            T::Vec(n(), v(0)).arc(),
             T::Refl {
                 ty: r.clone(),
                 value: c,
@@ -223,7 +212,7 @@ fn dependent_motive_observes_constructor_and_iota() {
 fn all_eliminator_fields_are_checked_before_iota() {
     let k = kernel();
     let motive = lam(ty(1), n());
-    let branch = lam(n(), lam(T::Vec { ty: n(), len: v(0) }.arc(), z()));
+    let branch = lam(n(), lam(T::Vec(n(), v(0)).arc(), z()));
     for (id, parameters, level, motive, branch, scrutinee) in [
         (2, vec![n()], 0, motive.clone(), branch.clone(), ctor(1)),
         (1, vec![z()], 0, motive.clone(), branch.clone(), ctor(1)),

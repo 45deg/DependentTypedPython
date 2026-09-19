@@ -78,13 +78,13 @@ impl std::fmt::Display for Diagnostic {
     }
 }
 impl std::error::Error for Diagnostic {}
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Target {
     Python312,
     Python313,
     Python314,
 }
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FrontendOptions {
     pub target: Target,
     pub elaboration_steps: usize,
@@ -134,6 +134,8 @@ pub struct Module {
     pub sources: std::collections::HashMap<String, String>,
     pub declarations: Vec<Declaration>,
     pub public_names: std::collections::HashSet<String>,
+    /// Public source aliases mapped to canonical checked names.
+    pub public_bindings: std::collections::BTreeMap<String, String>,
     pub origins: std::collections::HashMap<String, String>,
 }
 pub struct CheckedModule {
@@ -293,5 +295,52 @@ pub fn analyze_module_with_options_and_resolver(
         checked,
         diagnostics,
         goals,
+    }
+}
+
+/// Reuse immutable checked dependency snapshots across root modules. A change
+/// to any dependency source or checking option invalidates the snapshot; failed
+/// checks never publish partial environments into the cache.
+#[derive(Default)]
+pub struct CheckSession {
+    snapshot: Option<linker::LinkSnapshot>,
+    sources: std::collections::HashMap<String, String>,
+    options: Option<FrontendOptions>,
+    reused_declarations: usize,
+}
+impl CheckSession {
+    pub fn reused_declarations(&self) -> usize {
+        self.reused_declarations
+    }
+    pub fn check(
+        &mut self,
+        source: &str,
+        options: FrontendOptions,
+        resolver: &mut impl SourceResolver,
+    ) -> Result<CheckedModule, Diagnostic> {
+        self.reused_declarations = 0;
+        let module = modules::lower_with_options(source, options, resolver)?;
+        let sources = module
+            .sources
+            .iter()
+            .filter(|(name, _)| !name.is_empty())
+            .map(|(name, source)| (name.clone(), source.clone()))
+            .collect::<std::collections::HashMap<_, _>>();
+        let cached = if self.options == Some(options) && self.sources == sources {
+            self.snapshot.clone()
+        } else {
+            None
+        };
+        let mut diagnostics = vec![];
+        let (checked, snapshot, reused) =
+            linker::check_lowered_cached(module, options, &mut diagnostics, cached)?;
+        if !diagnostics.is_empty() {
+            return Err(diagnostics.remove(0));
+        }
+        self.snapshot = Some(snapshot);
+        self.sources = sources;
+        self.options = Some(options);
+        self.reused_declarations = reused;
+        Ok(checked)
     }
 }

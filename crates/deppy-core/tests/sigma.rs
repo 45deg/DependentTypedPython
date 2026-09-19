@@ -33,13 +33,13 @@ fn lam(domain: Tm, body: Tm) -> Tm {
     .arc()
 }
 fn vec(n: Tm) -> Tm {
-    T::Vec { ty: nat(), len: n }.arc()
+    T::Vec(nat(), n).arc()
 }
 fn packed_ty() -> Tm {
     sigma(nat(), vec(var(0)))
 }
 fn packed() -> Tm {
-    pair(packed_ty(), zero(), T::VNil { ty: nat() }.arc())
+    pair(packed_ty(), zero(), T::VNil(nat()).arc())
 }
 #[test]
 fn dependent_pair_and_projections_compute() {
@@ -48,7 +48,7 @@ fn dependent_pair_and_projections_compute() {
     assert_eq!(k.infer(&p).unwrap(), packed_ty());
     assert_eq!(k.normalize(&fst(p.clone())).unwrap(), zero());
     assert_eq!(k.infer(&snd(p.clone())).unwrap(), vec(zero()));
-    assert_eq!(k.normalize(&snd(p)).unwrap(), T::VNil { ty: nat() }.arc());
+    assert_eq!(k.normalize(&snd(p)).unwrap(), T::VNil(nat()).arc());
 }
 #[test]
 fn neutral_second_projection_keeps_first_projection_in_type() {
@@ -95,11 +95,7 @@ fn rejects_bad_families_annotations_and_components_before_projection() {
     for p in [
         pair(nat(), zero(), zero()),
         pair(packed_ty(), nat(), zero()),
-        pair(
-            packed_ty(),
-            T::Succ(zero()).arc(),
-            T::VNil { ty: nat() }.arc(),
-        ),
+        pair(packed_ty(), T::Succ(zero()).arc(), T::VNil(nat()).arc()),
         pair(sigma(nat(), zero()), zero(), zero()),
         pair(sigma(nat(), nat()), zero(), nat()),
     ] {

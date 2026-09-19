@@ -14,7 +14,7 @@ mod syntax;
 use deppy_core::{Kernel, Tm};
 use solve::{Context, State};
 use std::fmt;
-pub use syntax::{Expr, Plicity};
+pub use syntax::{CaseBranch, CaseConstructor, Expr, Plicity};
 
 pub type SourceId = String;
 
@@ -276,6 +276,10 @@ impl Elaborator {
 
     pub fn kernel(&self) -> &Kernel {
         &self.kernel
+    }
+    /// Resolve a checked name without creating another nominal declaration.
+    pub fn definition_id(&self, name: &str) -> Option<deppy_core::DefId> {
+        self.globals.get(name).copied()
     }
     pub fn infer(&self, expr: &Expr) -> Result<Elaborated, Error> {
         let mut state = State::with_kernel(self.max_steps, self.kernel.clone());

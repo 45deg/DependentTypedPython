@@ -8,6 +8,42 @@ impl Lowerer {
     ) -> Result<E, Error> {
         self.tick()?;
         Ok(match e {
+            E::Cases {
+                level,
+                value,
+                branches,
+                generalize,
+            } => {
+                let value = Box::new(self.rewrite(value, env, recursion)?);
+                let mut case_env = env.clone();
+                let mut dependencies = vec![];
+                for (name, expr) in generalize {
+                    let expr = self.rewrite(expr, env, recursion)?;
+                    let name = self.bind(&mut case_env, name)?;
+                    dependencies.push((name, expr));
+                }
+                let mut rewritten = vec![];
+                for branch in branches {
+                    let mut inner = case_env.clone();
+                    let fields = branch
+                        .fields
+                        .iter()
+                        .map(|n| self.bind(&mut inner, n))
+                        .collect::<Result<_, _>>()?;
+                    rewritten.push(crate::CaseBranch {
+                        constructor: branch.constructor.clone(),
+                        fields,
+                        body: self.rewrite(&branch.body, &inner, recursion)?,
+                        location: branch.location.clone(),
+                    });
+                }
+                E::Cases {
+                    level: *level,
+                    value,
+                    branches: rewritten,
+                    generalize: dependencies,
+                }
+            }
             E::Absurd { ty, value } => E::Absurd {
                 ty: Box::new(self.rewrite(ty, env, recursion)?),
                 value: Box::new(self.rewrite(value, env, recursion)?),
@@ -50,7 +86,9 @@ impl Lowerer {
                 E::let_in(name, ty, value, self.rewrite(body, &inner, recursion)?)
             }
             E::Name(name) => {
-                Self::name(name)?;
+                if !self.generated {
+                    Self::name(name)?;
+                }
                 env.get(name)
                     .cloned()
                     .ok_or_else(|| Error::UnknownName(name.clone()))?
@@ -84,10 +122,27 @@ impl Lowerer {
                         "self-call requires every declared argument".into(),
                     ));
                 }
-                let mut call = E::name(&rec.ih);
+                let mut call = rec.ih.clone();
+                let mut validation = rec.signature.clone();
                 let mut suffix = rec.suffix.iter();
-                for (arg, expected) in arguments.iter().zip(&rec.arguments) {
+                for (position, (arg, expected)) in arguments.iter().zip(&rec.arguments).enumerate()
+                {
                     let arg = self.rewrite(arg, env, recursion)?;
+                    if let Some(checker) = validation.take() {
+                        // The checker has the original parameter telescope. Its
+                        // application validates refined/compound index arguments.
+                        let argument = if rec.indices.contains(&position)
+                            && rec.plicities[position] == Plicity::Implicit
+                        {
+                            E::Hole
+                        } else {
+                            arg.clone()
+                        };
+                        validation = Some(apply(checker, argument, rec.plicities[position]));
+                    }
+                    if rec.signature.is_some() && rec.indices.contains(&position) {
+                        continue;
+                    }
                     if let Some(expected) = expected {
                         if !matches!(arg.unlocated(),E::Name(actual) if actual==expected) {
                             return Err(Error::InvalidRecursion("self-call must use the direct recursive field, its index, and unchanged prefix parameters".into()));
@@ -96,7 +151,11 @@ impl Lowerer {
                         call = apply(call, arg, *suffix.next().unwrap());
                     }
                 }
-                call
+                if let Some(validation) = validation {
+                    E::let_in(self.fresh(), None, validation, call)
+                } else {
+                    call
+                }
             }
             E::Pi {
                 name,

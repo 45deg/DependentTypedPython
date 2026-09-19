@@ -6,6 +6,9 @@ use std::{
 };
 fn run(source: &str, assertions: &str) {
     let generated = compile_module(source, Target::Python314).unwrap();
+    run_generated(&generated, assertions);
+}
+fn run_generated(generated: &str, assertions: &str) {
     let mut child = Command::new("python3")
         .arg("-I")
         .arg("-")
@@ -128,10 +131,61 @@ fn unsupported_boundaries_report_a_compile_error() {
         .message
         .contains("runtime boundary"));
     let source = "from __future__ import annotations\nfrom deppy import dependent, Nat, Pi\n@dependent\ndef apply(f: Pi[Nat, lambda n: Nat], n: Nat) -> Nat:\n    return f(n)\n";
-    assert!(compile_module(source, Target::Python314)
-        .unwrap_err()
-        .message
-        .contains("unsupported"));
+    run(source, "\nassert exports['apply'](lambda n: n + 1, 3) == 4\nfor f in [3, lambda n: -1, lambda n: 'bad']:\n    try:\n        exports['apply'](f, 3)\n    except TypeError:\n        pass\n    else:\n        raise AssertionError('invalid callback accepted')\n");
+}
+
+#[test]
+fn higher_order_fields_and_value_parameters_are_validated() {
+    let library = r#"from __future__ import annotations
+from deppy import inductive, constructor, Nat, Pi, Vec
+@inductive
+class Sized[n: Nat]:
+    @constructor
+    def Mk(xs: Vec[Nat, n]) -> Sized[n]: ...
+@inductive
+class Higher:
+    @constructor
+    def Callback(f: Pi[Nat, lambda k: Vec[Nat, k]]) -> Higher: ...
+"#;
+    let source = r#"from __future__ import annotations
+from deppy import dependent, Nat, Vec, Pi, induct
+from helper import Sized, Mk, Higher, Callback
+@dependent
+def pack(n: Nat, xs: Vec[Nat, n]) -> Sized[n]:
+    return Mk[n](xs)
+@dependent
+def unpack(n: Nat, x: Sized[n]) -> Vec[Nat, n]:
+    return induct(0, x, lambda _: Vec[Nat, n], lambda xs: xs)
+@dependent
+def callback(f: Pi[Nat, lambda k: Vec[Nat, k]]) -> Higher:
+    return Callback(f)
+@dependent
+def invoke(x: Higher, k: Nat) -> Vec[Nat, k]:
+    return induct(0, x, lambda _: Vec[Nat, k], lambda f: f(k))
+"#;
+    let generated =
+        deppy_runtime::compile_module_with_resolver(source, Target::Python314, &mut |_: &str| {
+            Ok(Some(library.to_owned()))
+        })
+        .unwrap();
+    run_generated(
+        &generated,
+        r#"
+v = exports['pack'](2, (7, 9))
+assert exports['unpack'](2, v) == (7, 9)
+h = exports['callback'](lambda k: tuple(range(k)))
+assert exports['invoke'](h, 3) == (0, 1, 2)
+for thunk in [lambda: exports['unpack'](1, v),
+              lambda: exports['invoke'](exports['callback'](lambda k: ()), 3),
+              lambda: exports['callback'](7)]:
+    try:
+        thunk()
+    except TypeError:
+        pass
+    else:
+        raise AssertionError('invalid dependent boundary accepted')
+"#,
+    );
 }
 
 #[test]
@@ -306,5 +360,184 @@ _nat_elim = forbidden
 _j = forbidden
 assert exports['zero_right'](10000) is None
 "#,
+    );
+}
+
+#[test]
+fn general_list_and_binary_tree_execute_with_checked_boundaries() {
+    run(
+        r#"
+from __future__ import annotations
+from deppy import dependent, inductive, constructor, Type, Nat, S, induct, nat_elim
+@inductive
+class List[A: Type]:
+    @constructor
+    def Nil() -> List[A]: ...
+    @constructor
+    def Cons(head: A, tail: List[A]) -> List[A]: ...
+@dependent
+def length[A: Type](xs: List[A]) -> Nat:
+    match xs:
+        case Nil():
+            return 0
+        case Cons(h, t):
+            return S(length(t))
+@dependent
+def append[A: Type](xs: List[A], ys: List[A]) -> List[A]:
+    match xs:
+        case Nil():
+            return ys
+        case Cons(h, t):
+            return Cons(h, append(t, ys))
+@dependent
+def sum(xs: List[Nat]) -> Nat:
+    return induct(0, xs, lambda _: Nat, 0, lambda h, t, ih: nat_elim(0, lambda _: Nat, ih, lambda k, n: S(n), h))
+@inductive
+class Tree:
+    @constructor
+    def Leaf(value: Nat) -> Tree: ...
+    @constructor
+    def Node(left: Tree, right: Tree) -> Tree: ...
+@dependent
+def total(t: Tree) -> Nat:
+    return induct(0, t, lambda _: Nat, lambda n: n, lambda l, r, il, ir: nat_elim(0, lambda _: Nat, ir, lambda k, n: S(n), il))
+"#,
+        r#"
+nil = exports['Nil']()
+xs = nil
+for i in reversed(range(30)):
+    xs = exports['Cons'](i, xs)
+assert exports['length'](xs) == 30
+assert exports['sum'](xs) == sum(range(30))
+assert exports['length'](exports['append'](xs, xs)) == 60
+deep = nil
+for i in range(2000):
+    deep = (xs[0], 1, (1, deep))
+assert exports['length'](deep) == 2000
+assert exports['sum'](deep) == 2000
+leaf, node = exports['Leaf'], exports['Node']
+tree = node(node(leaf(2), leaf(3)), leaf(7))
+assert exports['total'](tree) == 12
+for bad in [tree, (xs[0], True, xs[2]), (xs[0], 9, ()),
+            (xs[0], 1, (1,)), (xs[0], 1, (1, [])),
+            (xs[0], 1, ('wrong', nil)), (object(), 0, ()), (_tag(0), 0, ())]:
+    try:
+        exports['sum'](bad)
+    except TypeError:
+        pass
+    else:
+        raise AssertionError('malformed general data accepted')
+"#,
+    );
+}
+
+#[test]
+fn general_indexed_vector_runtime_checks_indices_and_computes_get() {
+    run(
+        r#"
+from __future__ import annotations
+from deppy import dependent, Nat
+from deppy.naturals import Nat as N, Z, S
+from deppy.indexed import IVec, INil, ICons, IFin, IFZ, IFS, get
+@dependent
+def zero() -> N:
+    return Z()
+@dependent
+def successor(n: N) -> N:
+    return S(n)
+@dependent
+def empty() -> IVec[Nat, Z()]:
+    return INil[Nat]()
+@dependent
+def cons(n: N, h: Nat, t: IVec[Nat, n]) -> IVec[Nat, S(n)]:
+    return ICons(n, h, t)
+@dependent
+def first(n: N) -> IFin[S(n)]:
+    return IFZ(n)
+@dependent
+def next(n: N, i: IFin[n]) -> IFin[S(n)]:
+    return IFS(n, i)
+@dependent
+def lookup(n: N, xs: IVec[Nat, n], i: IFin[n]) -> Nat:
+    return get(xs, i)
+"#,
+        r#"
+z = exports['zero']()
+one = exports['successor'](z)
+two = exports['successor'](one)
+empty = exports['empty']()
+xs = exports['cons'](one, 7, exports['cons'](z, 9, empty))
+first = exports['first'](one)
+second = exports['next'](one, exports['first'](z))
+assert exports['lookup'](two, xs, first) == 7
+assert exports['lookup'](two, xs, second) == 9
+for size in range(1, 8):
+    lengths = [z]
+    vector = empty
+    for h in range(size):
+        vector = exports['cons'](lengths[-1], h, vector)
+        lengths.append(exports['successor'](lengths[-1]))
+    for rank in range(size):
+        index = exports['first'](lengths[size - rank - 1])
+        for k in range(size - rank, size):
+            index = exports['next'](lengths[k], index)
+        assert exports['lookup'](lengths[-1], vector, index) == size - rank - 1
+
+for args in [(one, xs, first), (two, xs, exports['first'](z)),
+             (two, (xs[0], xs[1], (z, 7, xs[2][2])), first)]:
+    try:
+        exports['lookup'](*args)
+    except TypeError:
+        pass
+    else:
+        raise AssertionError('invalid indexed data accepted')
+"#,
+    );
+}
+
+#[test]
+fn general_function_recursive_fields_and_proof_fields_compute_internally() {
+    let library = r#"
+from __future__ import annotations
+from deppy import dependent, inductive, constructor, Pi, Nat, S, induct, Eq, refl, J
+@inductive
+class Tree:
+    @constructor
+    def Leaf() -> Tree: ...
+    @constructor
+    def Node(children: Pi[Nat, lambda _: Pi[Nat, lambda _: Tree]]) -> Tree: ...
+@dependent
+def depth(tree: Tree) -> Nat:
+    return induct(0, tree, lambda _: Nat, 0, lambda children, ih: S(ih(2)(3)))
+@dependent
+def compute() -> Nat:
+    return depth(Node(lambda n: lambda m: Node(lambda k: lambda l: Leaf())))
+@inductive
+class Evidence:
+    @constructor
+    def Witness(proof: Eq[Nat, 0, 0]) -> Evidence: ...
+@dependent
+def proof_computation() -> Nat:
+    return induct(0, Witness(refl(0)), lambda _: Nat, lambda p: J(0, Nat, 0, lambda end, q: Nat, 7, 0, p))
+"#;
+    let source = r#"
+from __future__ import annotations
+from deppy import dependent, Nat
+from helper import compute, proof_computation
+@dependent
+def result() -> Nat:
+    return compute()
+@dependent
+def evidence() -> Nat:
+    return proof_computation()
+"#;
+    let generated =
+        deppy_runtime::compile_module_with_resolver(source, Target::Python314, &mut |_: &str| {
+            Ok(Some(library.to_owned()))
+        })
+        .unwrap();
+    run_generated(
+        &generated,
+        "\nassert exports['result']() == 2\nassert exports['evidence']() == 7\n",
     );
 }

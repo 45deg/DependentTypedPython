@@ -777,7 +777,8 @@ impl State {
                 codomain,
             } => {
                 let (domain, a) = self.type_expr(ctx, domain)?;
-                let (ctx, id) = self.bind(ctx, name, domain.clone());
+                let (mut ctx, id) = self.bind(ctx, name, domain.clone());
+                ctx.last_mut().unwrap().plicity = *plicity;
                 let (body, b) = self.type_expr(&ctx, codomain)?;
                 Ok((
                     Term::Pi {
@@ -798,7 +799,8 @@ impl State {
             } => {
                 let domain = domain.as_ref().ok_or(Error::AnnotationRequired)?;
                 let (domain, _) = self.type_expr(ctx, domain)?;
-                let (ctx, id) = self.bind(ctx, name, domain.clone());
+                let (mut ctx, id) = self.bind(ctx, name, domain.clone());
+                ctx.last_mut().unwrap().plicity = *plicity;
                 let (body, ty) = self.synth(&ctx, body)?;
                 Ok((
                     Term::Lam {
@@ -862,7 +864,7 @@ impl State {
                 let (ty, _) = self.type_expr(ctx, ty)?;
                 Ok((self.check(ctx, term, &ty)?, ty))
             }
-            Expr::Hole | Expr::UserHole(_) => Err(Error::AnnotationRequired),
+            Expr::Hole | Expr::UserHole(_) | Expr::Cases { .. } => Err(Error::AnnotationRequired),
         }
     }
 
@@ -890,6 +892,15 @@ impl State {
             return Ok(self
                 .let_expr(ctx, name, ty.as_deref(), value, body, Some(expected))?
                 .0);
+        }
+        if let Expr::Cases {
+            level,
+            value,
+            branches,
+            generalize,
+        } = expr
+        {
+            return self.cases(ctx, *level, value, branches, generalize, expected);
         }
         if let Expr::UserHole(name) = expr {
             let id = self.metas.len();
@@ -978,7 +989,8 @@ impl State {
                 let (annotation, _) = self.type_expr(ctx, annotation)?;
                 self.unify_types(ctx, &annotation, dom)?;
             }
-            let (ctx, id) = self.bind(ctx, name, dom.clone());
+            let (mut ctx, id) = self.bind(ctx, name, dom.clone());
+            ctx.last_mut().unwrap().plicity = *plicity;
             let cod = self.replace(cod, *old_id, Term::Local(id).arc())?;
             let body = self.check(&ctx, body, &cod)?;
             return Ok(Term::Lam {

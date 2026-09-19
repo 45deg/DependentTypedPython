@@ -6,6 +6,7 @@ pub(crate) struct Local {
     pub(super) name: String,
     pub(super) ty: T,
     pub(super) value: Option<T>,
+    pub(super) plicity: Plicity,
 }
 
 pub(crate) type Context = Vec<Local>;
@@ -18,6 +19,7 @@ pub(super) struct Meta {
 }
 
 pub(crate) struct State {
+    pub(super) core_domains: Vec<Tm>,
     pub(super) user_goals: Vec<(usize, String, Option<crate::SourceLocation>, Context, T)>,
     pub(super) location: Option<crate::SourceLocation>,
     pub(super) kernel: Kernel,
@@ -31,6 +33,7 @@ pub(crate) struct State {
 impl State {
     pub(crate) fn new(remaining: usize) -> Self {
         Self {
+            core_domains: vec![],
             user_goals: Vec::new(),
             location: None,
             kernel: Kernel::new(remaining),
@@ -85,6 +88,7 @@ impl State {
             name: name.to_owned(),
             ty,
             value: None,
+            plicity: Plicity::Explicit,
         });
         (ctx, id)
     }

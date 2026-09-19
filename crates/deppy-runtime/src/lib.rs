@@ -32,6 +32,7 @@ fn compile_checked(checked: deppy_python::CheckedModule) -> Result<String, Diagn
     out.push_str("\n# Public checked declarations (implicit parameters are erased).\n");
     // A dictionary avoids collisions between source identifiers and runtime helpers.
     out.push_str("exports = {}\n");
+    let mut data_families = std::collections::BTreeSet::new();
     for (name, public_id, span) in checked.definitions {
         let id = checked
             .constructors
@@ -61,6 +62,9 @@ fn compile_checked(checked: deppy_python::CheckedModule) -> Result<String, Diagn
                 span,
                 message: format!("runtime boundary for {name}: {e}"),
             })?;
+        for ty in signature.arguments.iter().chain([&signature.result]) {
+            collect_data(ty, &mut data_families);
+        }
         let args: Vec<_> = (0..signature.arguments.len())
             .map(|i| format!("a{i}"))
             .collect();
@@ -81,7 +85,79 @@ fn compile_checked(checked: deppy_python::CheckedModule) -> Result<String, Diagn
         ));
         out.push_str(&format!("exports[{}] = _export{id}\n", py_string(&name)));
     }
+    let mut emitted = std::collections::BTreeSet::new();
+    while let Some(id) = data_families.pop_first() {
+        if !emitted.insert(id) {
+            continue;
+        }
+        let decl = kernel
+            .runtime_data_declaration(id)
+            .map_err(|e| Diagnostic {
+                details: Default::default(),
+                span: Span { start: 0, end: 0 },
+                message: format!("runtime boundary for inductive family {id}: {e}"),
+            })?;
+        let params = (0..decl.parameters)
+            .map(|i| format!("p{i}"))
+            .collect::<Vec<_>>();
+        let mut constructors = vec![];
+        for ctor in &decl.constructors {
+            let mut env = params.clone();
+            let mut fields = vec![];
+            let mut names = vec![];
+            for ty in &ctor.fields {
+                collect_data(ty, &mut data_families);
+                fields.push(format!(
+                    "(lambda {}: {}),",
+                    names.join(", "),
+                    schema(ty, &env)
+                ));
+                let name = format!("f{}", names.len());
+                env.push(name.clone());
+                names.push(name);
+            }
+            let indices = ctor
+                .indices
+                .iter()
+                .map(|t| format!("{},", expression(t, &env)))
+                .collect::<Vec<_>>()
+                .join(" ");
+            constructors.push(format!(
+                "(({}), lambda {}: ({})),",
+                fields.join(" "),
+                names.join(", "),
+                indices
+            ));
+        }
+        out.push_str(&format!(
+            "_DATA_SCHEMAS[{id}] = lambda {}: ({})\n",
+            params.join(", "),
+            constructors.join(" ")
+        ));
+    }
     Ok(out)
+}
+fn collect_data(ty: &deppy_core::RuntimeType, ids: &mut std::collections::BTreeSet<u64>) {
+    use deppy_core::RuntimeType as T;
+    match ty {
+        T::Data(id, parameters, _) => {
+            ids.insert(*id);
+            for ty in parameters {
+                collect_data(ty, ids);
+            }
+        }
+        T::Vec(ty, _) => collect_data(ty, ids),
+        T::Pair(a, b) | T::Function(a, b) => {
+            collect_data(a, ids);
+            collect_data(b, ids);
+        }
+        T::Record(_, fields) => {
+            for ty in fields {
+                collect_data(ty, ids);
+            }
+        }
+        _ => {}
+    }
 }
 fn py_string(s: &str) -> String {
     // Names cannot contain controls or quotes, but encode rather than rely on that.
@@ -97,18 +173,57 @@ fn expression(term: &RuntimeTerm, env: &[String]) -> String {
     // as literals to avoid CPython's parser nesting limit.
     let mut natural = term;
     let mut count = 0usize;
-    while let RuntimeTerm::Prim("succ", args) = natural {
+    while let RuntimeTerm::Data(deppy_core::standard::NAT, 1, args) = natural {
         if args.len() != 1 {
             break;
         }
         count += 1;
         natural = &args[0];
     }
-    if matches!(natural, RuntimeTerm::Prim("zero", args) if args.is_empty()) {
+    if matches!(natural, RuntimeTerm::Data(deppy_core::standard::NAT, 0, args) if args.is_empty()) {
         return count.to_string();
     }
     let sub = |t| expression(t, env);
     match term {
+        RuntimeTerm::Data(id, constructor, fields) => format!(
+            "_data({id}, {constructor}, ({}))",
+            fields
+                .iter()
+                .map(|t| format!("{},", sub(t)))
+                .collect::<Vec<_>>()
+                .join(" ")
+        ),
+        RuntimeTerm::DataElim {
+            id,
+            recursion,
+            branches,
+            value,
+        } => {
+            let plan = recursion
+                .iter()
+                .map(|fields| {
+                    format!(
+                        "({})",
+                        fields
+                            .iter()
+                            .map(|depth| format!(
+                                "{},",
+                                depth.map_or("None".into(), |n| n.to_string())
+                            ))
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    )
+                })
+                .map(|s| format!("{s},"))
+                .collect::<Vec<_>>()
+                .join(" ");
+            let branches = branches
+                .iter()
+                .map(|t| format!("{},", sub(t)))
+                .collect::<Vec<_>>()
+                .join(" ");
+            format!("_data_elim({id}, ({plan}), ({branches}), {})", sub(value))
+        }
         RuntimeTerm::Unit => "None".into(),
         RuntimeTerm::Var(i) => env[env.len() - i - 1].clone(),
         RuntimeTerm::Global(id) => format!("_d{id}"),
@@ -150,6 +265,21 @@ fn expression(term: &RuntimeTerm, env: &[String]) -> String {
 fn schema(ty: &deppy_core::RuntimeType, env: &[String]) -> String {
     use deppy_core::RuntimeType as T;
     match ty {
+        T::Parameter(i) => env[env.len() - i - 1].clone(),
+        T::Value(value) => expression(value, env),
+        T::Data(id, parameters, indices) => format!(
+            "('data', {id}, ({}), ({}))",
+            parameters
+                .iter()
+                .map(|t| format!("{},", schema(t, env)))
+                .collect::<Vec<_>>()
+                .join(" "),
+            indices
+                .iter()
+                .map(|t| format!("{},", expression(t, env)))
+                .collect::<Vec<_>>()
+                .join(" ")
+        ),
         T::Opaque => "('opaque',)".into(),
         T::Type => "('type',)".into(),
         T::Nat => "('nat',)".into(),
@@ -160,12 +290,17 @@ fn schema(ty: &deppy_core::RuntimeType, env: &[String]) -> String {
             expression(len, env)
         ),
         T::Fin(bound) => format!("('fin', {})", expression(bound, env)),
-        T::Pair(first, second) => {
+        T::Pair(first, second) | T::Function(first, second) => {
+            let kind = if matches!(ty, T::Pair(..)) {
+                "pair"
+            } else {
+                "function"
+            };
             let name = format!("s{}", env.len());
             let mut next = env.to_vec();
             next.push(name.clone());
             format!(
-                "('pair', {}, lambda {name}: {})",
+                "('{kind}', {}, lambda {name}: {})",
                 schema(first, env),
                 schema(second, &next)
             )

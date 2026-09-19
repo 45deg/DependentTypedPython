@@ -95,6 +95,8 @@ impl Lowerer {
                 record: None,
                 nullary: false,
                 data: Some(DataBinding {
+                    family: name.clone(),
+                    constructors: vec![],
                     parameters: parameters.len(),
                     indices: indices.len(),
                     constructor: None,
@@ -157,6 +159,8 @@ impl Lowerer {
                     record: None,
                     nullary: fields.is_empty(),
                     data: Some(DataBinding {
+                        family: name.clone(),
+                        constructors: vec![],
                         parameters: parameters.len(),
                         indices: 0,
                         constructor: Some(constructors.len()),
@@ -168,6 +172,17 @@ impl Lowerer {
                 fields,
                 result,
             });
+        }
+        let metadata = constructors
+            .iter()
+            .map(|c| (c.name.clone(), c.fields.len()))
+            .collect::<Vec<_>>();
+        for binding in self.globals.values_mut() {
+            if let Some(data) = &mut binding.data {
+                if data.family == name {
+                    data.constructors = metadata.clone();
+                }
+            }
         }
         Ok(Declaration {
             name: name.clone(),

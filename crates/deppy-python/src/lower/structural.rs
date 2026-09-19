@@ -219,6 +219,9 @@ impl Lowerer {
                 let Expr::Name(subject) = s.subject.as_ref() else {
                     return Err(error(s, "match subject must be a parameter name"));
                 };
+                if self.general_matrix(s, scope) {
+                    return self.matrix(s, scope);
+                }
                 let mut arms = vec![];
                 for case in &s.cases {
                     if case.guard.is_some() {
@@ -232,7 +235,11 @@ impl Lowerer {
                     });
                 }
                 Ok(Body::Match {
-                    scrutinee: subject.id.to_string(),
+                    scrutinee: scope
+                        .aliases
+                        .get(subject.id.as_str())
+                        .cloned()
+                        .unwrap_or_else(|| subject.id.to_string()),
                     arms,
                 }
                 .located(deppy_elab::SourceLocation {

@@ -38,14 +38,7 @@ fn app(f: Tm, x: Tm) -> Tm {
     .arc()
 }
 fn elim(level: u32, motive: Tm, zero: Tm, step: Tm, scrutinee: Tm) -> Tm {
-    T::NatElim {
-        level,
-        motive,
-        zero,
-        step,
-        scrutinee,
-    }
-    .arc()
+    T::NatElim(level, motive, zero, step, scrutinee).arc()
 }
 fn copy(t: Tm) -> Tm {
     elim(0, lam(n(), n()), z(), lam(n(), lam(n(), s(v(0)))), t)

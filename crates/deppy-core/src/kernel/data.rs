@@ -60,21 +60,38 @@ fn check_arguments(
     }
     Ok(env)
 }
-fn declaration(id: u64, budget: &Budget) -> Result<DataDecl, Error> {
-    budget
-        .2
-        .get(&id)
-        .cloned()
-        .ok_or(Error::UnknownInductive(id))
+pub(super) fn declaration(id: u64, budget: &mut Budget) -> Result<DataDecl, Error> {
+    if let Some(decl) = budget.2.get(&id) {
+        return Ok(decl.clone());
+    }
+    let level = crate::standard::vector_level(id).ok_or(Error::UnknownInductive(id))?;
+    let decl = crate::standard::vector_declaration(level);
+    let mut kernel = Kernel {
+        definitions: budget.1.clone(),
+        data: budget.2.clone(),
+        globals: Arc::default(),
+        max_steps: budget.0,
+    };
+    kernel.declare_data(id, decl.clone())?;
+    budget.2 = kernel.data;
+    Ok(decl)
 }
 
 impl Kernel {
-    pub fn data_declaration(&self, id: u64) -> Result<&DataDecl, Error> {
-        self.data.get(&id).ok_or(Error::UnknownInductive(id))
+    pub fn data_declaration(&self, id: u64) -> Result<DataDecl, Error> {
+        declaration(
+            id,
+            &mut Budget(self.max_steps, self.definitions.clone(), self.data.clone()),
+        )
     }
     /// Atomically register a strictly positive family. Recursive parameters must
     /// remain uniform; recursive occurrences under arbitrary type operators are rejected.
     pub fn declare_data(&mut self, id: u64, decl: DataDecl) -> Result<(), Error> {
+        if let Some(level) = crate::standard::vector_level(id) {
+            if decl != crate::standard::vector_declaration(level) {
+                return Err(Error::DuplicateInductive(id));
+            }
+        }
         if self.data.contains_key(&id) {
             return Err(Error::DuplicateInductive(id));
         }
@@ -524,7 +541,7 @@ pub(super) fn children(term: &Tm) -> Vec<&Tm> {
         Term::App { function, argument } => vec![function, argument],
         Term::Let { ty, value, body } => vec![ty, value, body],
         Term::Pair { ty, fst, snd } => vec![ty, fst, snd],
-        Term::Fst(t) | Term::Snd(t) | Term::Succ(t) => vec![t],
+        Term::Fst(t) | Term::Snd(t) => vec![t],
         Term::Eq { ty, left, right } => vec![ty, left, right],
         Term::Refl { ty, value } => vec![ty, value],
         Term::J {
@@ -536,42 +553,8 @@ pub(super) fn children(term: &Tm) -> Vec<&Tm> {
             proof,
             ..
         } => vec![ty, left, motive, base, right, proof],
-        Term::Vec { ty, len } => vec![ty, len],
-        Term::VNil { ty } => vec![ty],
-        Term::VCons {
-            ty,
-            len,
-            head,
-            tail,
-        } => vec![ty, len, head, tail],
-        Term::Fin { bound } | Term::FZ { bound } => vec![bound],
-        Term::FS { bound, pred } => vec![bound, pred],
-        Term::VecElim {
-            ty,
-            motive,
-            nil,
-            cons,
-            len,
-            scrutinee,
-            ..
-        } => vec![ty, motive, nil, cons, len, scrutinee],
-        Term::FinElim {
-            motive,
-            zero,
-            step,
-            bound,
-            scrutinee,
-            ..
-        } => vec![motive, zero, step, bound, scrutinee],
-        Term::Fin0Elim { ty, absurd } => vec![ty, absurd],
-        Term::NatElim {
-            motive,
-            zero,
-            step,
-            scrutinee,
-            ..
-        } => vec![motive, zero, step, scrutinee],
-        Term::Global(_) | Term::Var(_) | Term::Universe(_) | Term::Nat | Term::Zero => vec![],
+
+        Term::Global(_) | Term::Var(_) | Term::Universe(_) => vec![],
     }
 }
 
@@ -639,7 +622,7 @@ impl Kernel {
         let motive = value::fresh(env.len());
         env.push(motive.clone());
         for c in 0..decl.constructors.len() {
-            let ty = branch_type(id, c, decl, params.clone(), motive.clone(), &mut budget)?;
+            let ty = branch_type(id, c, &decl, params.clone(), motive.clone(), &mut budget)?;
             domains.push((
                 Relevance::Runtime,
                 value::quote(&ty, env.len(), &mut budget)?,
@@ -679,8 +662,6 @@ impl Kernel {
 fn disjoint(a: &Val, b: &Val, budget: &mut Budget) -> Result<bool, Error> {
     budget.tick()?;
     match (a.as_ref(), b.as_ref()) {
-        (Value::Zero, Value::Succ(_)) | (Value::Succ(_), Value::Zero) => Ok(true),
-        (Value::Succ(a), Value::Succ(b)) => disjoint(a, b, budget),
         (
             Value::Data {
                 op: DataOp::Constructor(id, c),

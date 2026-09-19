@@ -1,5 +1,6 @@
 mod data;
 mod expression;
+mod matrix;
 mod record;
 mod structural;
 use crate::{Declaration, DeclarationBody, Diagnostic};
@@ -17,6 +18,7 @@ fn error(node: &impl Ranged, message: impl Into<String>) -> Diagnostic {
 }
 #[derive(Clone, Default)]
 struct Scope {
+    aliases: HashMap<String, String>,
     locals: HashSet<String>,
     assigned: HashSet<String>,
     fields: HashSet<String>,

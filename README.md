@@ -100,7 +100,7 @@ from deppy.vectors import get
 
 `@dependent(decreases="parameter")` では、不変のローカル定義列に続く `match` または `return` を関数HIRへ変換します。Natの `Z()` / `S(k)`、Vecの `VNil()` / `VCons(k, head, tail)`、Finの `FZ(k)` / `FS(k, pred)` に対応します。網羅性・添字・直接の部分構造への再帰を既存HIRで検査し、kernelで再検査します。自己呼び出しは関数名による位置引数適用に限定し、暗黙型引数は現在の型引数を補います。例は `crates/deppy-python/examples/structural.py` のadd・appendです。
 
-再帰関数のmotive universeは省略時0で、`@dependent(decreases="n", motive_level=1)` のように具体値を指定できます。guard、Finのbound以外のワイルドカード、キーワードpattern、コンストラクタpatternの入れ子、自己呼び出しの明示的型引数は未対応です。入れ子のmatchは既存HIRの制限に従います。patternのcapture名にもPythonの関数全体のローカルスコープを適用します。`lower_module` の本体は `DeclarationBody::Expression` / `Structural` / `Record` / `Axiom` で区別されます。
+再帰関数のmotive universeは省略時0で、`@dependent(decreases="n", motive_level=1)` のように具体値を指定できます。一般帰納型では入れ子constructor pattern、wildcard、入れ子match、線形な固定・複合添字の分岐に対応します。guard、キーワードpattern、自己呼び出しの明示的型引数は未対応です。既存builtinのpattern構文は互換HIRの制限に従います。patternのcapture名にもPythonの関数全体のローカルスコープを適用します。`lower_module` の本体は `DeclarationBody::Expression` / `Structural` / `Record` / `Axiom` / `Data` で区別されます。
 
 `cong(f, proof)` と等式の推移律 `trans(p, q)` はPythonライブラリ `deppy.equality` のJから導いた定義を適用し、`fin0_elim(i)` は戻り値の期待型を使って空のFinを消去します。現在はType₀が対象です。`Eq`・`refl`・`J` も同じ `deppy.equality` から、`Fin`・`FZ`・`FS`・各消去子も `deppy.fin` からimportできます。Fin patternのboundは `FZ(_)` / `FS(_, j)` と省略でき、他の名前を捕捉しない内部名を生成します。`crates/deppy-python/examples/proofs.py` にChatlogのget・zero_right宣言があります。これらの静的検査と生成コアの計算をテストしています。
 
@@ -194,7 +194,7 @@ get    : {A : Type[level]} → (n : Nat) → Vec A n → Fin n → A
 
 getのVec motiveは`P k xs = Fin k → A`です。空の分岐にはfin0_elimを使い、VConsの分岐ではFinElimから導いたcase splitで先頭と再帰呼び出しを選びます。型レベルのNat eliminatorで分岐関数の型を作るため、添字の強制変換は不要です。実行例は`[1] ++ [0] = [1, 0]`と、その2番目の値が0であることをkernelの正規化で確認します。
 
-これらは固定された型と明示的なeliminatorの実装です。一般のユーザー定義帰納型とpositivity checkingは別途追加済みです。対応する構文と分岐の制約は[Phase 1の実装状況](docs/dependent-phase1.md)を参照してください。生成runtimeのVecは不変tupleで、境界で長さと既知の要素型を検査します。
+これらのAPIは通常の検査を通した一般帰納型とeliminatorへ変換します。Nat・Vec・Finの専用core項・型規則・評価規則は削除済みです。対応する構文と分岐の制約は[Phase 1の実装状況](docs/dependent-phase1.md)を参照してください。生成runtimeのVecは不変tupleで、境界で長さと既知の要素型を検査します。
 
 ## reverseとmirrorの参照等式
 
@@ -290,13 +290,13 @@ uv run --no-project --offline --python 3.12 python -c "import runpy; f = runpy.r
 | 型 | `None` |
 | 等式の証明 | 内部ではpayloadなしのトークン、公開結果では `None` |
 
-公開関数は引数・結果のスキーマを検査し、不変の値を再構築します。Vecの長さ、Finの上限、Sigma・recordの依存フィールドを検査し、リストなどの可変値、偽造した添字・異なるrecordのタグを拒否します。消去した型パラメータの要素はopaqueな不変データとして扱い、元の具体的なPythonクラスを検証する仕組みではありません。既知の `Vec[Nat, n]` なら各要素のNatも検査します。
+公開関数は引数・結果のスキーマを検査し、不変の値を再構築します。Vecの長さ、Finの上限、Sigma・record・一般帰納型の依存フィールドを検査し、リストなどの可変値、偽造した添字・異なる型のタグを拒否します。高階fieldと関数引数には呼び出し時の引数・結果検査を付けます。消去した型パラメータの要素はopaqueな不変データとして扱い、元の具体的なPythonクラスを検証する仕組みではありません。既知の `Vec[Nat, n]` なら各要素のNatも検査します。
 
 これは既存例を実行できるMVPです。次は対応範囲外です。
 
 - 外部Pythonからの証明入力。内部の証明トークンを渡しても拒否します。`Proof[...]` の構文は未実装です。証明結果と実行時使用のない証明letの計算は消去します。消去条件と残る制約は [証明の消去](docs/proofs.md#証明の消去) を参照してください。
-- 高階関数・任意の型族を公開境界で検証すること。消去した値添字が境界のサイズ検査に必要な場合も、コンパイル時に拒否します。
-- 一般Pythonとの混在コンパイル、ソース互換のruntime class。検査済みモジュールはソースを静的に読み込み、同じkernel環境で再検査します。
+- 任意の型族の公開境界schema。消去した値添字が境界のサイズ検査に必要な場合も、コンパイル時に拒否します。
+- 一般Pythonとの混在コンパイル、ソース互換のruntime class。モジュールはソースを静的に読み込みます。`CheckSession`は同じ依存source・optionsの検査済みsnapshotを再利用でき、rootは毎回検査します。
 - 深い項や大きな再帰に対するスタック・メモリ保証。recursor自体はループを使いますが、生成closureの呼び出しにはPythonのスタック上限があります。Rustの再帰的な検査にもスタック制約があります。
 
 検証は `cargo test --workspace --locked --offline` と、次の差分実行で再現できます。Rustのruntime統合テストには `python3` が必要です。
@@ -308,7 +308,7 @@ uv run --no-project --offline --python 3.14 scripts/check_python_runtime.py
 
 Python 3.12.0・3.14.3で各244ケースが一致しました。比較するのはリポジトリの5fixtureです。ソース側にはテスト専用の `scripts/reference_deppy.py` を使います。この参照モデルは型検査器・証明検査器ではありません。
 
-残る拡張はuniverse polymorphism、CPython 3.13の実行検証、一般のpattern matrix、検査済みinterfaceを使うlinking、一般帰納型のruntime移行などです。これらを既存例の実行MVPの完了条件には含めません。未対応の構文や未解決の穴を公理として受理する機能は設けません。
+残る拡張はuniverse polymorphism、相互帰納型、CPython 3.13の実行検証、`@verified`などです。これらを既存例の実行MVPやPhase 1の完了条件には含めません。未対応の構文や未解決の穴を公理として受理する機能は設けません。
 
 
 ## 証明の作成途中の解析
@@ -326,4 +326,4 @@ holeや診断が残る場合、CLIは非ゼロ終了し、`Analysis.checked` は
 
 Phase 1全体の完成状況と残件は [実装状況](docs/dependent-phase1.md) を参照してください。
 
-一般帰納型の標準ライブラリとして`deppy.data`、`deppy.lists`、`deppy.naturals`、`deppy.indexed`を追加しています。Listの四定理と一般Natを添字にした安全なgetを、公理なしで検査できます。既存API・証明群・runtimeの移行は未完了であり、専用Nat・Vec・Fin coreは保持しています。構文と残件は[Phase 1の実装状況](docs/dependent-phase1.md)を参照してください。
+一般帰納型の標準ライブラリとして`deppy.data`、`deppy.lists`、`deppy.naturals`、`deppy.indexed`を提供しています。Listの四定理と、入れ子matchで定義した安全なgetを、公理なしで検査できます。既存API・Vec証明群・runtimeも一般帰納型の経路へ移行済みです。Phase 1の実装内容と受理範囲は[実装状況](docs/dependent-phase1.md)を参照してください。

@@ -50,9 +50,12 @@ def fin_case(k: Nat, P: Pi[IFin[S(k)], lambda index: Type], i: IFin[S(k)],
 
 @dependent
 def get[A: Type, n: Nat](xs: IVec[A, n], i: IFin[n]) -> A:
-    return induct(
-        0, xs,
-        lambda size, vector: Pi[IFin[size], lambda _: A],
-        lambda impossible: absurd(A, impossible),
-        lambda k, head, tail, ih: lambda index: fin_case(k, lambda _: A, index, head, lambda j: ih(j)),
-    )(i)
+    match xs:
+        case INil():
+            return absurd(A, i)
+        case ICons(k, head, tail):
+            match i:
+                case IFZ(j):
+                    return head
+                case IFS(j, pred):
+                    return get(tail, pred)

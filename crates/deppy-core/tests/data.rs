@@ -200,13 +200,13 @@ fn neutral_general_elimination_composes_with_existing_eliminators() {
             v(0),
         ],
     );
-    let body = Term::NatElim {
-        level: 0,
-        motive: lam(nat(), nat()),
-        zero: zero(),
-        step: lam(nat(), lam(nat(), v(0))),
-        scrutinee: count,
-    }
+    let body = Term::NatElim(
+        0,
+        lam(nat(), nat()),
+        zero(),
+        lam(nat(), lam(nat(), v(0))),
+        count,
+    )
     .arc();
     let function = lam(family(0), body);
     assert_eq!(k.infer(&function).unwrap(), pi(family(0), nat()));
@@ -301,13 +301,16 @@ fn recursive_occurrences_in_result_indices_are_rejected() {
 }
 
 #[test]
-fn runtime_projection_of_general_data_fails_explicitly() {
+fn runtime_projection_preserves_general_constructor_identity() {
     let mut k = Kernel::default();
     k.declare_data(0, naturals()).unwrap();
     let zero = data(DataOp::Constructor(0, 0), vec![]);
-    assert_eq!(k.erase(&zero), Err(Error::UnsupportedInductiveRuntime(0)));
+    assert_eq!(
+        k.erase(&zero).unwrap(),
+        deppy_core::RuntimeTerm::Data(0, 0, vec![])
+    );
     assert!(matches!(
-        k.runtime_signature(&zero),
-        Err(Error::UnsupportedInductiveRuntime(0))
+        k.runtime_signature(&zero).unwrap().result,
+        deppy_core::RuntimeType::Data(0, _, _)
     ));
 }

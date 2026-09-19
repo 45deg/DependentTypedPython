@@ -208,16 +208,10 @@ fn vector_carrier_and_motive_survive_outer_binders() {
 #[test]
 fn rejects_bad_vec_eliminator_fields_before_iota() {
     let good = ve(0, n(), vm(), z(), vs(s(v(0))), z(), nil(n()));
-    let Term::VecElim {
-        ty,
-        motive,
-        nil: base,
-        cons,
-        len,
-        scrutinee,
-        ..
-    } = good.as_ref()
-    else {
+    let Term::Data { arguments, .. } = good.as_ref() else {
+        panic!()
+    };
+    let [ty, len, motive, base, cons, scrutinee] = arguments.as_slice() else {
         panic!()
     };
     for index in 0..7 {
@@ -254,15 +248,10 @@ fn rejects_bad_vec_eliminator_fields_before_iota() {
 #[test]
 fn rejects_bad_fin_eliminator_fields_before_iota() {
     let good = fe(0, fm(), lam(n(), z()), fstep(s(v(0))), s(z()), fz(z()));
-    let Term::FinElim {
-        motive,
-        zero,
-        step,
-        bound,
-        scrutinee,
-        ..
-    } = good.as_ref()
-    else {
+    let Term::Data { arguments, .. } = good.as_ref() else {
+        panic!()
+    };
+    let [bound, motive, zero, step, scrutinee] = arguments.as_slice() else {
         panic!()
     };
     for index in 0..6 {

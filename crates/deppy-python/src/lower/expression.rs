@@ -14,7 +14,7 @@ impl Lowerer {
             Expr::Name(n) => {
                 let name = n.id.as_str();
                 if scope.locals.contains(name) {
-                    E::name(name)
+                    E::name(scope.aliases.get(name).map(String::as_str).unwrap_or(name))
                 } else if scope.assigned.contains(name) {
                     return Err(error(n, "local name used before its definition"));
                 } else if let Some(builtin) = self.imports.get(name) {
