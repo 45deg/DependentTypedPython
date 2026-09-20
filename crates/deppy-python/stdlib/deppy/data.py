@@ -1,5 +1,6 @@
 from __future__ import annotations
-from deppy._builtins import inductive, constructor, dependent, Type, Pi, Sigma, Pair, absurd
+from deppy._builtins import inductive, constructor, dependent, Type, Pi, Sigma, Pair, Nat, Eq, refl, absurd
+from deppy.equality import transport
 
 
 @inductive
@@ -107,3 +108,37 @@ def decide_implies[P: Type, Q: Type](dp: Decidable[P], dq: Decidable[Q]) -> Deci
                     return No[Pi[P, lambda _: Q]](lambda implication: nq(implication(p)))
         case No(np):
             return Yes[Pi[P, lambda _: Q]](lambda p: absurd(Q, np(p)))
+
+
+@dependent
+def decision_weight[P: Type](d: Decidable[P]) -> Nat:
+    match d:
+        case Yes(_):
+            return 1
+        case No(_):
+            return 0
+
+
+@dependent(decreases="d")
+def weight_yes[P: Type](d: Decidable[P], p: P) -> Eq[Nat, decision_weight(d), 1]:
+    match d:
+        case Yes(_):
+            return refl(1)
+        case No(np):
+            return absurd(Eq[Nat, 0, 1], np(p))
+
+
+@dependent(decreases="d")
+def weight_no[P: Type](d: Decidable[P], np: Not(P)) -> Eq[Nat, decision_weight(d), 0]:
+    match d:
+        case Yes(p):
+            return absurd(Eq[Nat, 1, 0], np(p))
+        case No(_):
+            return refl(0)
+
+
+@dependent
+def weight_transport[A: Type, P: Pi[A, lambda _: Type], x: A, y: A](
+    dec: Pi[A, lambda q: Decidable[P(q)]], eq: Eq[A, x, y]
+) -> Eq[Nat, decision_weight(dec(x)), decision_weight(dec(y))]:
+    return transport[A, x, y](lambda z: Eq[Nat, decision_weight(dec(x)), decision_weight(dec(z))], eq, refl(decision_weight(dec(x))))

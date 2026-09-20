@@ -1,7 +1,8 @@
 from __future__ import annotations
 from deppy._builtins import inductive, constructor, Index, dependent, theorem, Type, Pi, Sigma, Pair, Nat, Z, S, Eq, refl, absurd
 from deppy.equality import cong, trans, transport
-from deppy.data import Empty, Unit, MkUnit, Sum, Left, Right, Not, Decidable, Yes, No, sum_elim
+from deppy.data import Empty, Unit, MkUnit, Sum, Left, Right, Not, Decidable, Yes, No, sum_elim, decision_weight
+from deppy.nat import add
 
 
 @inductive
@@ -156,6 +157,37 @@ def filter[A: Type, P: Pi[A, lambda _: Type]](
             return Nil[A]()
         case Cons(x, tail):
             return filter_head(x, decide(x), filter(decide, tail))
+
+
+@dependent(decreases="xs")
+def count[A: Type, P: Pi[A, lambda _: Type]](
+    decide: Pi[A, lambda x: Decidable[P(x)]], xs: List[A]
+) -> Nat:
+    match xs:
+        case Nil():
+            return 0
+        case Cons(x, tail):
+            return add(decision_weight(decide(x)), count(decide, tail))
+
+
+@dependent
+def reject_head[A: Type, P: Type](x: A, d: Decidable[P], tail: List[A]) -> List[A]:
+    match d:
+        case Yes(_):
+            return tail
+        case No(_):
+            return Cons(x, tail)
+
+
+@dependent(decreases="xs")
+def reject[A: Type, P: Pi[A, lambda _: Type]](
+    decide: Pi[A, lambda x: Decidable[P(x)]], xs: List[A]
+) -> List[A]:
+    match xs:
+        case Nil():
+            return Nil[A]()
+        case Cons(x, tail):
+            return reject_head(x, decide(x), reject(decide, tail))
 
 
 @inductive
