@@ -236,3 +236,12 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - 未対応の非線形添字pattern、相互帰納型、universe polymorphism、消去情報が必要なruntime境界などは[受理範囲](docs/dependent-phase1.md)に明記する。
 
 検証：workspace 377テスト、全targetのClippy（警告をエラー化）、fmt、diff checkが成功。CPython 3.14.3で構文compile 25件とソース／生成コード比較244件が成功。
+
+### 2026-09-20：verified準備の順序判定・減少補題
+
+- 既存の `absurd(type, value)` が `LE[S(n), 0]` の空なindexed familyを除去できることを確認。型変数・上位universeへの除去と、inhabited／未確定の添字の拒否を回帰試験で固定した。kernelやfrontendの規則追加は不要だった。
+- `deppy.nat_order` に透明な `le_decide` / `lt_decide` を追加。自然数の入れ子matchに関する現frontendの制約に合わせ、後者の判定を補助関数へ分離した。
+- 順序の反対称性、厳密順序の非反射性・推移、加算の左右の単調性、正のカウンタについて `pred_or(0, n) < n` を示す `pred_lt` を追加。新しい証明補題は `@theorem` とし、判定を計算する関数は `@dependent` を維持した。
+- 数式付きdocstringとSphinx公開API、`math-library.md` の実装状況を更新。乗算の残りの法則とverified本体は今回の範囲外。
+
+検証：`cargo test --workspace --locked --offline`で389テスト成功（新規3テスト内で大小判定32通り、一般形の補題利用、不正な証明の拒否を確認）。全targetのClippy（警告をエラー化）、fmt、CPython 3.14.7で30ソースの構文compile、Sphinxの警告をエラー扱いするHTMLビルドが成功。新APIの生成Pythonでの実行は未検証。

@@ -10,13 +10,18 @@ P0 の最初の公開面を stdlib に実装した。基礎型は新しく宣言
   `deppy.logic` は同じ宣言の再exportであり、別の名目的型を作らない。
 - `deppy.nat`: 加算・乗算、加算の結合・交換、乗算の右分配、後者と等式の消去、
   加算の左右消去。
-- `deppy.nat_order`: `LE`、`LT`、反射・step・推移。
+- `deppy.nat_order`: `LE`、`LT`、反射・step・推移、透明な `le_decide` / `lt_decide`、
+  反対称性、厳密順序の非反射性・推移、加算の左右の単調性、正の数の前者が減少する `pred_lt`。
 - `deppy.lists`: `length`、`Mem`、`NoDup`、`All`、`Any`、`filter`、要素除去、
   map による所属保存。既存の append・map・reverse と同じ `List` 上に置く。
 
 公開APIは具体値の正規化、異なるimport経路での名目的同一性、公理依存が空であることを
-回帰テストで検査する。順序の決定手続き、乗算の残りの交換・結合・分配・単調性は、
-現frontendで空のindexed familyを除去する一般APIを整えてから追加する。
+回帰テストで検査する。空のindexed familyの除去には既存の `absurd(type, value)` を使う。
+`LE[S(n), 0]` は除去できるが、未確定の `LE[n, 0]` やinhabitedな添字は拒否する。
+この範囲はfrontendとkernelに実装済みであり、順序用の専用規則は追加しない。
+新しい順序の証明補題は `@theorem`、判定手続きは `@dependent` とする。
+乗算の残りの交換・結合・分配・単調性は未実装。今回の範囲は加算とカウントダウンの基礎までで、
+`verified`、ループのVC生成、一般の停止性証明はまだ含まない。
 
 2026-09-20時点のstdlib、`lagrange.py`、`fermat.py`、`fermat2.py`を調査した提案。
 以下のモジュール名・API名は、実装済みと明記したもの以外は提案である。

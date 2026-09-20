@@ -1,6 +1,8 @@
 from __future__ import annotations
-from deppy._builtins import inductive, constructor, Index, dependent, Nat, Z, S, Type, Eq, refl, absurd
+from deppy._builtins import inductive, constructor, Index, dependent, theorem, Nat, Z, S, Type, Pi, Eq, refl, absurd
 from deppy.data import Empty, Unit, MkUnit, Decidable, Yes, No
+from deppy.nat import add, add_comm, add_zero, pred_or
+from deppy.equality import cong, sym, transport
 
 
 @inductive
@@ -64,3 +66,124 @@ def le_trans[n: Nat, m: Nat](p: LE[n, m], k: Nat, q: LE[m, k]) -> LE[n, k]:
             match q:
                 case LESucc(j, end, proof):
                     return LESucc(a, end, le_trans(step, end, proof))
+
+
+@theorem
+def not_succ_le_zero(n: Nat, p: LE[S(n), 0]) -> Empty:
+    r"""Theorem ``not_succ_le_zero``: :math:`\neg(n+1 \le 0)`."""
+    return absurd(Empty, p)
+
+
+@dependent(decreases="decision")
+def le_decide_succ(n: Nat, m: Nat, decision: Decidable[LE[n, m]]) -> Decidable[LE[S(n), S(m)]]:
+    r"""Lift a decision for :math:`n \le m` to one for :math:`n+1 \le m+1`."""
+    match decision:
+        case Yes(p):
+            return Yes[LE[S(n), S(m)]](LESucc(n, m, p))
+        case No(np):
+            return No[LE[S(n), S(m)]](lambda p: np(le_pred(n, m, p)))
+
+
+@dependent(decreases="m")
+def le_decide_step(n: Nat, m: Nat, smaller: Pi[Nat, lambda b: Decidable[LE[n, b]]]) -> Decidable[LE[S(n), m]]:
+    r"""Decide :math:`n+1 \le m` using decisions for :math:`n \le b`."""
+    match m:
+        case Z():
+            return No[LE[S(n), 0]](lambda p: not_succ_le_zero(n, p))
+        case S(b):
+            return le_decide_succ(n, b, smaller(b))
+
+
+@dependent(decreases="n")
+def le_decide(n: Nat, m: Nat) -> Decidable[LE[n, m]]:
+    r"""Compute a proof or refutation of :math:`n \le m`."""
+    match n:
+        case Z():
+            return Yes[LE[0, m]](LEZero(m))
+        case S(a):
+            return le_decide_step(a, m, lambda b: le_decide(a, b))
+
+
+@dependent
+def lt_decide(n: Nat, m: Nat) -> Decidable[LT(n, m)]:
+    r"""Compute a proof or refutation of :math:`n < m`."""
+    return le_decide(S(n), m)
+
+
+@theorem(decreases="n")
+def lt_irrefl(n: Nat, p: LT(n, n)) -> Empty:
+    r"""Theorem ``lt_irrefl``: :math:`\neg(n < n)`."""
+    match n:
+        case Z():
+            return not_succ_le_zero(0, p)
+        case S(k):
+            return lt_irrefl(k, le_pred(S(k), k, p))
+
+
+@theorem(decreases="p")
+def le_weaken[n: Nat, m: Nat](p: LE[S(n), m]) -> LE[n, m]:
+    r"""Theorem ``le_weaken``: :math:`n < m \Rightarrow n \le m`."""
+    match p:
+        case LESucc(a, b, q):
+            return le_step(q)
+
+
+@theorem
+def lt_trans(n: Nat, m: Nat, k: Nat, p: LT(n, m), q: LT(m, k)) -> LT(n, k):
+    r"""Theorem ``lt_trans``: :math:`n < m \land m < k \Rightarrow n < k`."""
+    return le_trans(p, k, le_weaken(q))
+
+
+@theorem(decreases="p")
+def le_zero_eq[n: Nat](p: LE[n, 0]) -> Eq[Nat, n, 0]:
+    r"""Theorem ``le_zero_eq``: :math:`n \le 0 \Rightarrow n = 0`."""
+    match p:
+        case LEZero(_):
+            return refl(0)
+
+
+@theorem(decreases="p")
+def le_antisymm[n: Nat, m: Nat](p: LE[n, m], q: LE[m, n]) -> Eq[Nat, n, m]:
+    r"""Theorem ``le_antisymm``: :math:`n \le m \land m \le n \Rightarrow n = m`."""
+    match p:
+        case LEZero(b):
+            return sym(le_zero_eq(q))
+        case LESucc(a, b, step):
+            return cong[Nat, Nat](lambda k: S(k), le_antisymm(step, le_pred(b, a, q)))
+
+
+@theorem(decreases="k")
+def add_le_add_left(n: Nat, m: Nat, k: Nat, p: LE[n, m]) -> LE[add(k, n), add(k, m)]:
+    r"""Theorem ``add_le_add_left``: :math:`n \le m \Rightarrow k+n \le k+m`."""
+    match k:
+        case Z():
+            return p
+        case S(j):
+            return LESucc(add(j, n), add(j, m), add_le_add_left(n, m, j, p))
+
+
+@theorem(decreases="p")
+def add_le_add_right[n: Nat, m: Nat](p: LE[n, m], k: Nat) -> LE[add(n, k), add(m, k)]:
+    r"""Theorem ``add_le_add_right``: :math:`n \le m \Rightarrow n+k \le m+k`."""
+    match p:
+        case LEZero(b):
+            prefix = transport[Nat, add(k, 0), k](lambda start: LE[start, add(k, b)], add_zero(k), add_le_add_left(0, b, k, LEZero(b)))
+            return transport[Nat, add(k, b), add(b, k)](lambda end: LE[k, end], add_comm(k, b), prefix)
+        case LESucc(a, b, q):
+            return LESucc(add(a, k), add(b, k), add_le_add_right(q, k))
+
+
+@theorem
+def add_lt_add_right(n: Nat, m: Nat, k: Nat, p: LT(n, m)) -> LT(add(n, k), add(m, k)):
+    r"""Theorem ``add_lt_add_right``: :math:`n < m \Rightarrow n+k < m+k`."""
+    return add_le_add_right(p, k)
+
+
+@theorem(decreases="n")
+def pred_lt(n: Nat, positive: LT(0, n)) -> LT(pred_or(0, n), n):
+    r"""Theorem ``pred_lt``: :math:`0 < n \Rightarrow \operatorname{pred}(n) < n`."""
+    match n:
+        case Z():
+            return absurd(LT(pred_or(0, 0), 0), positive)
+        case S(k):
+            return le_refl(S(k))
