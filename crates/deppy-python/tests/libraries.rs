@@ -1,3 +1,4 @@
+use deppy_core::Term;
 use deppy_elab::Expr as E;
 use deppy_python::{check_module, check_module_with_resolver, Target};
 const TARGET: Target = Target::Python314;
@@ -59,6 +60,65 @@ def symmetric(n: Nat) -> Eq[Nat, n, n]:
         TARGET
     )
     .is_err());
+}
+
+#[test]
+fn p0_math_library_shares_types_and_computes() {
+    let source = r#"from __future__ import annotations
+from deppy import dependent, Type, Nat, Eq, refl
+from deppy.nat import add, mul
+from deppy.data import Decidable, Yes
+from deppy.logic import Decidable as LogicalDecision
+from deppy.lists import List, Nil, Cons, length, filter
+from deppy.nat_order import LE, LEZero, LESucc, LT, le_refl, le_trans
+
+@dependent
+def same_decision[P: Type](d: Decidable[P]) -> LogicalDecision[P]:
+    return d
+
+@dependent
+def keep(n: Nat) -> Decidable[Eq[Nat, n, n]]:
+    return Yes(refl(n))
+
+@dependent
+def arithmetic() -> Eq[Nat, add(2, mul(3, 2)), 8]:
+    return refl(8)
+
+@dependent
+def list_length() -> Eq[Nat, length(Cons(1, Cons(2, Nil[Nat]()))), 2]:
+    return refl(2)
+
+@dependent
+def filtered() -> Eq[List[Nat], filter[Nat, lambda n: Eq[Nat, n, n]](keep, Cons(1, Cons(2, Nil[Nat]()))), Cons(1, Cons(2, Nil[Nat]()))]:
+    return refl(Cons(1, Cons(2, Nil[Nat]())))
+
+@dependent
+def ordered() -> LE[1, 3]:
+    return le_trans(LESucc(0, 1, LEZero(1)), 3, LESucc(1, 2, LESucc(0, 1, LEZero(1))))
+
+@dependent
+def strict() -> LT(1, 3):
+    return LESucc(1, 2, LESucc(0, 1, LEZero(1)))
+"#;
+    let checked = check_module(source, TARGET).unwrap_or_else(|e| panic!("{e}"));
+    assert!(checked.axiom_dependencies.values().all(Vec::is_empty));
+    for name in ["arithmetic", "list_length", "filtered"] {
+        let id = checked
+            .definitions
+            .iter()
+            .find(|(definition, _, _)| definition == name)
+            .unwrap()
+            .1;
+        assert!(matches!(
+            checked
+                .elaborator
+                .kernel()
+                .normalize(&Term::Global(id).arc())
+                .unwrap()
+                .as_ref(),
+            Term::Refl { .. }
+        ));
+    }
 }
 
 #[test]

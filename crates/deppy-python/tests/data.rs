@@ -100,6 +100,9 @@ fn structural_list_recursion_checks_and_computes() {
 fn standard_libraries_check_four_list_theorems_and_indexed_get() {
     for source in [
         include_str!("../stdlib/deppy/data.py"),
+        include_str!("../stdlib/deppy/equality.py"),
+        include_str!("../stdlib/deppy/nat.py"),
+        include_str!("../stdlib/deppy/nat_order.py"),
         include_str!("../stdlib/deppy/lists.py"),
         include_str!("../stdlib/deppy/indexed.py"),
         include_str!("../stdlib/deppy/naturals.py"),

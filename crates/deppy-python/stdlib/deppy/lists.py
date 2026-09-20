@@ -1,6 +1,7 @@
 from __future__ import annotations
-from deppy._builtins import inductive, constructor, dependent, Type, Pi, Eq, refl
-from deppy.equality import cong, trans
+from deppy._builtins import inductive, constructor, Index, dependent, theorem, Type, Pi, Sigma, Pair, Nat, Z, S, Eq, refl, absurd
+from deppy.equality import cong, trans, transport
+from deppy.data import Empty, Unit, MkUnit, Sum, Left, Right, Not, Decidable, Yes, No, sum_elim
 
 
 @inductive
@@ -9,6 +10,51 @@ class List[A: Type]:
     def Nil() -> List[A]: ...
     @constructor
     def Cons(head: A, tail: List[A]) -> List[A]: ...
+
+
+@dependent(decreases="xs")
+def length[A: Type](xs: List[A]) -> Nat:
+    match xs:
+        case Nil():
+            return 0
+        case Cons(_, tail):
+            return S(length(tail))
+
+
+@dependent(decreases="xs", motive_level=1)
+def Mem[A: Type](x: A, xs: List[A]) -> Type:
+    match xs:
+        case Nil():
+            return Empty
+        case Cons(y, tail):
+            return Sum[Eq[A, x, y], Mem(x, tail)]
+
+
+@dependent(decreases="xs", motive_level=1)
+def NoDup[A: Type](xs: List[A]) -> Type:
+    match xs:
+        case Nil():
+            return Unit
+        case Cons(x, tail):
+            return Sigma[Not(Mem(x, tail)), lambda _: NoDup(tail)]
+
+
+@dependent(decreases="xs", motive_level=1)
+def All[A: Type](P: Pi[A, lambda _: Type], xs: List[A]) -> Type:
+    match xs:
+        case Nil():
+            return Unit
+        case Cons(x, tail):
+            return Sigma[P(x), lambda _: All(P, tail)]
+
+
+@dependent(decreases="xs", motive_level=1)
+def Any[A: Type](P: Pi[A, lambda _: Type], xs: List[A]) -> Type:
+    match xs:
+        case Nil():
+            return Empty
+        case Cons(x, tail):
+            return Sum[P(x), Any(P, tail)]
 
 
 @dependent(decreases="xs")
@@ -90,3 +136,83 @@ def reverse_involution[A: Type](xs: List[A]) -> Eq[List[A], reverse(reverse(xs))
             return refl(Nil[A]())
         case Cons(h, t):
             return trans(reverse_snoc(reverse(t), h), cong(lambda rest: Cons(h, rest), reverse_involution(t)))
+
+
+@dependent
+def filter_head[A: Type, P: Type](x: A, d: Decidable[P], tail: List[A]) -> List[A]:
+    match d:
+        case Yes(_):
+            return Cons(x, tail)
+        case No(_):
+            return tail
+
+
+@dependent(decreases="xs")
+def filter[A: Type, P: Pi[A, lambda _: Type]](
+    decide: Pi[A, lambda x: Decidable[P(x)]], xs: List[A]
+) -> List[A]:
+    match xs:
+        case Nil():
+            return Nil[A]()
+        case Cons(x, tail):
+            return filter_head(x, decide(x), filter(decide, tail))
+
+
+@inductive
+class Removal[A: Type, x: A]:
+    source: Index[List[A]]
+    rest: Index[List[A]]
+
+    @constructor
+    def RemoveHere(tail: List[A]) -> Removal[A, x, Cons(x, tail), tail]: ...
+    @constructor
+    def RemoveThere(head: A, ys: List[A], zs: List[A], step: Removal[A, x, ys, zs]) -> Removal[A, x, Cons(head, ys), Cons(head, zs)]: ...
+
+
+@theorem(decreases="xs")
+def find_removal[A: Type](x: A, xs: List[A], member: Mem(x, xs)) -> Sigma[List[A], lambda rest: Removal[A, x, xs, rest]]:
+    match xs:
+        case Nil():
+            return absurd(Sigma[List[A], lambda rest: Removal[A, x, Nil[A](), rest]], member)
+        case Cons(y, tail):
+            match member:
+                case Left(eq):
+                    return transport[A, x, y](
+                        lambda z: Sigma[List[A], lambda rest: Removal[A, x, Cons(z, tail), rest]],
+                        eq,
+                        Pair(tail, RemoveHere[A, x](tail)),
+                    )
+                case Right(later):
+                    found = find_removal(x, tail, later)
+                    return Pair(Cons(y, found.fst), RemoveThere[A, x](y, tail, found.fst, found.snd))
+
+
+@theorem(decreases="r")
+def removal_mem[A: Type, x: A, ys: List[A], zs: List[A]](r: Removal[A, x, ys, zs]) -> Mem(x, ys):
+    match r:
+        case RemoveHere(tail):
+            return Left(refl(x))
+        case RemoveThere(head, before, after, step):
+            return Right(removal_mem(step))
+
+
+@theorem(decreases="r")
+def removal_length[A: Type, x: A, ys: List[A], zs: List[A]](r: Removal[A, x, ys, zs]) -> Eq[Nat, length(ys), S(length(zs))]:
+    match r:
+        case RemoveHere(tail):
+            return refl(S(length(tail)))
+        case RemoveThere(head, before, after, step):
+            return cong(lambda n: S(n), removal_length(step))
+
+
+@theorem(decreases="xs")
+def map_mem[A: Type, B: Type](f: Pi[A, lambda _: B], x: A, xs: List[A], member: Mem(x, xs)) -> Mem(f(x), map(f, xs)):
+    match xs:
+        case Nil():
+            return absurd(Mem(f(x), Nil[B]()), member)
+        case Cons(y, tail):
+            return sum_elim[Eq[A, x, y], Mem(x, tail), Mem(f(x), Cons(f(y), map(f, tail)))](
+                member,
+                lambda eq: Left(cong(f, eq)),
+                lambda later: Right(map_mem(f, x, tail, later)),
+            )
