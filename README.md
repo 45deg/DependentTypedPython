@@ -25,6 +25,12 @@ python3 scripts/check_fermat.py
 
 RustのCargoを使用します。kernelとelaboratorに外部crate依存はありません。Python frontendはRuffのparser・AST・text size crateを `=0.0.12` に固定し、推移的な依存はCargo.lockで固定しています。初回は `cargo fetch --locked` で依存を取得してください。検証環境はRust 1.97.1です。
 
+数学APIのSphinxドキュメントは、証明ソースを実行せずdocstringを静的に抽出する。
+
+```sh
+uv run --with 'sphinx>=8.2,<9' sphinx-build -W -b html docs docs/_build/html
+```
+
 ```sh
 cargo test --workspace --offline
 cargo run -p deppy-core --example identity --offline

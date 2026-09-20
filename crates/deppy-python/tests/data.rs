@@ -131,6 +131,33 @@ fn standard_libraries_check_four_list_theorems_and_indexed_get() {
 }
 
 #[test]
+fn dependent_declarations_accept_python_docstrings() {
+    let source = r#"from __future__ import annotations
+from deppy import inductive, constructor, dependent, Nat, Z, S, Eq, refl
+@inductive
+class Flag:
+    """A documented proposition."""
+    @constructor
+    def On() -> Flag:
+        """The sole constructor."""
+        ...
+@dependent
+def identity(n: Nat) -> Nat:
+    """Return :math:`n`."""
+    return n
+@dependent(decreases="n")
+def proof(n: Nat) -> Eq[Nat, identity(n), n]:
+    """Identity theorem."""
+    match n:
+        case Z():
+            return refl(0)
+        case S(k):
+            return refl(S(k))
+"#;
+    check_module(source, Target::Python314).unwrap_or_else(|e| panic!("{e}"));
+}
+
+#[test]
 fn multiple_recursive_children_can_be_used_in_one_expression() {
     let source = "from __future__ import annotations\nfrom deppy import inductive, constructor, dependent, Nat, nat_elim, S, Eq, refl\n@dependent\ndef plus(n: Nat, m: Nat) -> Nat:\n    return nat_elim(0, lambda _: Nat, m, lambda k, ih: S(ih), n)\n@inductive\nclass Tree:\n    @constructor\n    def Leaf() -> Tree: ...\n    @constructor\n    def Node(left: Tree, right: Tree) -> Tree: ...\n@dependent(decreases='tree')\ndef size(tree: Tree) -> Nat:\n    match tree:\n        case Leaf():\n            return 1\n        case Node(left, right):\n            return plus(size(left), size(right))\n@dependent\ndef proof() -> Eq[Nat, size(Node(Leaf(), Node(Leaf(), Leaf()))), 3]:\n    return refl(3)\n";
     check_module(source, Target::Python314).unwrap_or_else(|e| panic!("{e}"));

@@ -115,13 +115,20 @@ impl Lowerer {
                 continue;
             };
             self.tick(f.range())?;
+            let valid_body = match f.body.as_slice() {
+                [Stmt::Expr(e)] => matches!(e.value.as_ref(), Expr::EllipsisLiteral(_)),
+                [Stmt::Expr(doc), Stmt::Expr(e)] => {
+                    matches!(doc.value.as_ref(), Expr::StringLiteral(_))
+                        && matches!(e.value.as_ref(), Expr::EllipsisLiteral(_))
+                }
+                _ => false,
+            };
             if f.is_async
                 || f.type_params.is_some()
                 || f.decorator_list.len() != 1
                 || self.builtin(&f.decorator_list[0].expression, &parameter_scope)
                     != Some("constructor")
-                || f.body.len() != 1
-                || !matches!(&f.body[0], Stmt::Expr(e) if matches!(e.value.as_ref(), Expr::EllipsisLiteral(_)))
+                || !valid_body
             {
                 return Err(error(
                     f,

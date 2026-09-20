@@ -820,6 +820,7 @@ def central_subgroup[A: Type](g: Group[A], finite: Enumeration[A], a: A) -> Subg
 def finite_group_power[A: Type](
     g: Group[A], finite: Enumeration[A], a: A
 ) -> Eq[A, power(g, a, length(finite.elements)), g.unit]:
+    r"""Finite-group power theorem: :math:`a^{|G|}=e` for every :math:`a\in G`."""
     h = central_subgroup(g, finite, a)
     period = abelian_subgroup_period(
         g,
@@ -851,6 +852,10 @@ def fermat_little[A: Type](
     cardinality: Eq[Nat, S(length(nonzero.elements)), p],
     a: A,
 ) -> Eq[A, power(multiplication, a, predecessor(p)), multiplication.unit]:
+    r"""Fermat's little theorem in multiplicative-group form.
+
+    If :math:`p=1+|G|`, then :math:`a^{p-1}=1` for every nonzero ``a``.
+    """
     exponent = cong(lambda n: predecessor(n), cardinality)
     return trans(
         cong(lambda n: power(multiplication, a, n), sym(exponent)),
@@ -862,6 +867,7 @@ def fermat_little[A: Type](
 # Its multiplication table is the two-element group checked in lagrange.py.
 @theorem
 def fermat_three(a: Bit) -> Eq[Bit, power(bit_group(), a, 2), B0()]:
+    r"""Fermat's theorem for the nonzero elements of :math:`\mathbf F_3`."""
     return fermat_little(bit_group(), bit_enumeration(), 3, refl(3), a)
 
 

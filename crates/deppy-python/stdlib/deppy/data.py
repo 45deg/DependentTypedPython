@@ -5,17 +5,20 @@ from deppy.equality import transport
 
 @inductive
 class Empty:
+    r"""The uninhabited proposition :math:`\bot`."""
     pass
 
 
 @inductive
 class Unit:
+    r"""The always-true proposition :math:`\top`, inhabited by ``MkUnit``."""
     @constructor
     def MkUnit() -> Unit: ...
 
 
 @inductive
 class Bool:
+    r"""A two-valued boolean with constructors ``False_`` and ``True_``."""
     @constructor
     def False_() -> Bool: ...
     @constructor
@@ -24,6 +27,7 @@ class Bool:
 
 @inductive
 class Sum[A: Type, B: Type]:
+    r"""Disjoint sum :math:`A + B`; ``Left`` and ``Right`` identify the chosen side."""
     @constructor
     def Left(value: A) -> Sum[A, B]: ...
     @constructor
@@ -32,6 +36,7 @@ class Sum[A: Type, B: Type]:
 
 @inductive
 class Option[A: Type]:
+    r"""An optional ``A``, represented by ``None_`` or ``Some(value)``."""
     @constructor
     def None_() -> Option[A]: ...
     @constructor
@@ -40,11 +45,17 @@ class Option[A: Type]:
 
 @dependent
 def Not(P: Type) -> Type:
+    r"""Logical negation :math:`\neg P`, defined as :math:`P \to \bot`."""
     return Pi[P, lambda _: Empty]
 
 
 @inductive
 class Decidable[P: Type]:
+    r"""A constructive decision for proposition ``P``.
+
+    ``Yes.proof`` contains evidence of :math:`P`. ``No.refutation`` contains
+    a function :math:`P \to \bot` proving :math:`\neg P`.
+    """
     @constructor
     def Yes(proof: P) -> Decidable[P]: ...
     @constructor
@@ -55,6 +66,7 @@ class Decidable[P: Type]:
 def sum_elim[A: Type, B: Type, C: Type](
     value: Sum[A, B], left: Pi[A, lambda _: C], right: Pi[B, lambda _: C]
 ) -> C:
+    r"""Eliminate a sum by supplying handlers for its left and right values."""
     match value:
         case Left(x):
             return left(x)
@@ -64,6 +76,7 @@ def sum_elim[A: Type, B: Type, C: Type](
 
 @dependent
 def decide_not[P: Type](d: Decidable[P]) -> Decidable[Not(P)]:
+    r"""Decide :math:`\neg P` from a decision for :math:`P`."""
     match d:
         case Yes(p):
             return No[Not(P)](lambda np: np(p))
@@ -73,6 +86,7 @@ def decide_not[P: Type](d: Decidable[P]) -> Decidable[Not(P)]:
 
 @dependent
 def decide_and[P: Type, Q: Type](dp: Decidable[P], dq: Decidable[Q]) -> Decidable[Sigma[P, lambda _: Q]]:
+    r"""Decide conjunction :math:`P \land Q`."""
     match dp:
         case Yes(p):
             match dq:
@@ -86,6 +100,7 @@ def decide_and[P: Type, Q: Type](dp: Decidable[P], dq: Decidable[Q]) -> Decidabl
 
 @dependent
 def decide_or[P: Type, Q: Type](dp: Decidable[P], dq: Decidable[Q]) -> Decidable[Sum[P, Q]]:
+    r"""Decide disjunction :math:`P \lor Q`."""
     match dp:
         case Yes(p):
             return Yes[Sum[P, Q]](Left[P, Q](p))
@@ -99,6 +114,7 @@ def decide_or[P: Type, Q: Type](dp: Decidable[P], dq: Decidable[Q]) -> Decidable
 
 @dependent
 def decide_implies[P: Type, Q: Type](dp: Decidable[P], dq: Decidable[Q]) -> Decidable[Pi[P, lambda _: Q]]:
+    r"""Decide implication :math:`P \to Q`."""
     match dp:
         case Yes(p):
             match dq:
@@ -112,6 +128,7 @@ def decide_implies[P: Type, Q: Type](dp: Decidable[P], dq: Decidable[Q]) -> Deci
 
 @dependent
 def decision_weight[P: Type](d: Decidable[P]) -> Nat:
+    r"""Return one for ``Yes`` and zero for ``No``."""
     match d:
         case Yes(_):
             return 1
@@ -121,6 +138,7 @@ def decision_weight[P: Type](d: Decidable[P]) -> Nat:
 
 @dependent(decreases="d")
 def weight_yes[P: Type](d: Decidable[P], p: P) -> Eq[Nat, decision_weight(d), 1]:
+    r"""Theorem ``weight_yes``: an inhabited proposition has decision weight one."""
     match d:
         case Yes(_):
             return refl(1)
@@ -130,6 +148,7 @@ def weight_yes[P: Type](d: Decidable[P], p: P) -> Eq[Nat, decision_weight(d), 1]
 
 @dependent(decreases="d")
 def weight_no[P: Type](d: Decidable[P], np: Not(P)) -> Eq[Nat, decision_weight(d), 0]:
+    r"""Theorem ``weight_no``: a refuted proposition has decision weight zero."""
     match d:
         case Yes(p):
             return absurd(Eq[Nat, 1, 0], np(p))
@@ -141,4 +160,5 @@ def weight_no[P: Type](d: Decidable[P], np: Not(P)) -> Eq[Nat, decision_weight(d
 def weight_transport[A: Type, P: Pi[A, lambda _: Type], x: A, y: A](
     dec: Pi[A, lambda q: Decidable[P(q)]], eq: Eq[A, x, y]
 ) -> Eq[Nat, decision_weight(dec(x)), decision_weight(dec(y))]:
+    r"""Decision weights are invariant under transport along :math:`x=y`."""
     return transport[A, x, y](lambda z: Eq[Nat, decision_weight(dec(x)), decision_weight(dec(z))], eq, refl(decision_weight(dec(x))))

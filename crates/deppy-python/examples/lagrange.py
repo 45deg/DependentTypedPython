@@ -478,6 +478,12 @@ def inverse_injective[A: Type](
 
 @record
 class Enumeration[A: Type]:
+    r"""A duplicate-free complete enumeration of a finite carrier ``A``.
+
+    :ivar elements: The concrete list containing every element of ``A``.
+    :ivar unique: Evidence that ``elements`` has no duplicates.
+    :ivar complete: Membership evidence for every value ``x : A``.
+    """
     elements: List[A]
     unique: NoDup(self.elements)
     complete: Pi[A, lambda x: Has(x, self.elements)]
@@ -560,6 +566,17 @@ def weight_transport[A: Type, P: Pi[A, lambda _: Type], x: A, y: A](
 # instances below construct all of these proofs.
 @record
 class Group[A: Type]:
+    r"""A group structure on carrier ``A``.
+
+    :ivar unit: Identity element :math:`e`.
+    :ivar op: Curried multiplication :math:`A \to A \to A`.
+    :ivar inverse: Inversion :math:`a \mapsto a^{-1}`.
+    :ivar assoc: Associativity, :math:`(ab)c=a(bc)`.
+    :ivar left_unit: Left identity law, :math:`ea=a`.
+    :ivar right_unit: Right identity law, :math:`ae=a`.
+    :ivar left_inverse: Left inverse law, :math:`a^{-1}a=e`.
+    :ivar right_inverse: Right inverse law, :math:`aa^{-1}=e`.
+    """
     unit: A
     op: Pi[A, lambda x: Pi[A, lambda y: A]]
     inverse: Pi[A, lambda x: A]
@@ -578,6 +595,14 @@ class Group[A: Type]:
 
 @record(level=1)
 class Subgroup[A: Type, g: Group[A]]:
+    r"""A decidable subgroup of ``g``.
+
+    :ivar member: Membership proposition on the carrier.
+    :ivar decide: Decision procedure for membership.
+    :ivar unit_closed: Evidence that the identity is a member.
+    :ivar mul_closed: Closure under multiplication.
+    :ivar inv_closed: Closure under inversion.
+    """
     member: Pi[A, lambda _: Type]
     decide: Pi[A, lambda x: Decision[self.member(x)]]
     unit_closed: self.member(g.unit)
@@ -873,6 +898,12 @@ def reject_info[A: Type, P: Pi[A, lambda _: Type]](
 
 @record
 class Equivalence[A: Type, R: Pi[A, lambda a: Pi[A, lambda b: Type]]]:
+    r"""Proof that ``R`` is an equivalence relation.
+
+    :ivar reflexive: Evidence of :math:`R(a,a)`.
+    :ivar symmetric: A map from :math:`R(a,b)` to :math:`R(b,a)`.
+    :ivar transitive: A map from :math:`R(a,b)` and :math:`R(b,c)` to :math:`R(a,c)`.
+    """
     reflexive: Pi[A, lambda a: R(a)(a)]
     symmetric: Pi[A, lambda a: Pi[A, lambda b: Pi[R(a)(b), lambda _: R(b)(a)]]]
     transitive: Pi[
@@ -1095,6 +1126,7 @@ def lagrange[A: Type](
     h: Subgroup[A, g],
     finite: Enumeration[A],
 ) -> Divisible(count(h.decide, finite.elements), length(finite.elements)):
+    r"""Lagrange's theorem: :math:`|H| \mid |G|` for a finite group ``G`` and subgroup ``H``."""
     return enumeration_partition[A, lambda a: lambda b: Related(g, h, a, b)](
         lambda a: lambda b: coset_decide(g, h, a, b),
         coset_equivalence(g, h),

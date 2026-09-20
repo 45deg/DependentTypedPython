@@ -120,6 +120,12 @@ impl Lowerer {
         statements: &[Stmt],
         scope: &Scope,
     ) -> Result<Body, Diagnostic> {
+        let statements = match statements.first() {
+            Some(Stmt::Expr(expr)) if matches!(expr.value.as_ref(), Expr::StringLiteral(_)) => {
+                &statements[1..]
+            }
+            _ => statements,
+        };
         if let Some((Stmt::Return(ret), prefix)) = statements.split_last() {
             let mut scope = scope.clone();
             let mut lets = vec![];

@@ -269,6 +269,10 @@ def finite_abelian_power[A: Type](
     finite: Enumeration[A],
     a: A,
 ) -> Eq[A, power(g, a, length(finite.elements)), g.unit]:
+    r"""Direct finite-abelian-group theorem: :math:`a^{|G|}=e`.
+
+    This proof permutes the complete product and does not use Lagrange's theorem.
+    """
     permuted = bijection_product[A, A](
         g,
         lambda x: x,
@@ -301,6 +305,7 @@ def fermat_little[A: Type](
     cardinality: Eq[Nat, S(length(nonzero.elements)), p],
     a: A,
 ) -> Eq[A, power(multiplication, a, predecessor(p)), multiplication.unit]:
+    r"""Direct-product proof of Fermat's little theorem, :math:`a^{p-1}=1`."""
     exponent = cong(lambda n: predecessor(n), cardinality)
     return trans(
         cong(lambda n: power(multiplication, a, n), sym(exponent)),
