@@ -8,6 +8,15 @@ impl Lowerer {
     ) -> Result<E, Error> {
         self.tick()?;
         Ok(match e {
+            E::Rewrite {
+                proof,
+                body,
+                forward,
+            } => E::Rewrite {
+                proof: Box::new(self.rewrite(proof, env, recursion)?),
+                body: Box::new(self.rewrite(body, env, recursion)?),
+                forward: *forward,
+            },
             E::Cases {
                 level,
                 value,

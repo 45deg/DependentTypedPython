@@ -1,7 +1,8 @@
 from __future__ import annotations
 from deppy import dependent, theorem, Nat, Z, S, Type, Sigma, Eq, refl, Pair, absurd
 from deppy.data import Bool, False_, True_, MkUnit
-from deppy.equality import cong, cong2, trans, sym, transport
+from deppy.equality import cong2, trans, sym
+from deppy.tactics import rewrite, rewrite_in
 from deppy.nat import add, add_zero, add_succ, pred_or
 from deppy.nat_order import lt_decide, pred_lt
 from deppy.verified import verified, Refined, verified_spec, nat_lt, decision_true, false_ne_true
@@ -54,7 +55,7 @@ def fib_preserve(n: Nat, remaining: Nat, index: Nat, a: Nat, b: Nat, inv: FibInv
     r"""One simultaneous Fibonacci update preserves all three invariant clauses."""
     return Pair(counter_step(n, remaining, index, inv.fst, test),
         Pair(inv.snd.snd,
-            trans(cong2[Nat, Nat, Nat](lambda x: lambda y: add(x, y), inv.snd.fst, inv.snd.snd), fib_step(index))))
+            rewrite(inv.snd.fst, rewrite(inv.snd.snd, fib_step(index)))))
 
 
 @theorem(decreases="remaining")
@@ -70,8 +71,8 @@ def counter_zero(remaining: Nat, test: Eq[Bool, nat_lt(0, remaining), False_()])
 @theorem
 def fib_exit(n: Nat, remaining: Nat, index: Nat, a: Nat, b: Nat, inv: FibInvariant(n, remaining, index, a, b), test: Eq[Bool, nat_lt(0, remaining), False_()]) -> Eq[Nat, a, fib_recursive(n)]:
     r"""At exit :math:`r=0`, hence :math:`i=n` and :math:`a=F_n`."""
-    index_is_n = transport[Nat, remaining, 0](lambda r: Eq[Nat, add(r, index), n], counter_zero(remaining, test), inv.fst)
-    return trans(inv.snd.fst, cong[Nat, Nat](fib_recursive, index_is_n))
+    index_is_n = rewrite_in(counter_zero(remaining, test), inv.fst)
+    return rewrite(sym(index_is_n), inv.snd.fst)
 
 
 @verified(

@@ -181,7 +181,10 @@ impl Lowerer {
                     return Ok(proof);
                 }
 
-                if self.builtin(&call.func, scope) == Some("induct") {
+                if matches!(
+                    self.builtin(&call.func, scope),
+                    Some("induct" | "induction")
+                ) {
                     let args = &call.arguments.args;
                     if args.len() < 3 || !call.arguments.keywords.is_empty() {
                         return Err(error(
@@ -234,6 +237,9 @@ impl Lowerer {
                     }
                 }
 
+                if self.builtin(&call.func, scope) == Some("cases") {
+                    return self.tactic_cases(call, scope);
+                }
                 if self.builtin(&call.func, scope) == Some("hole") {
                     if !call.arguments.keywords.is_empty() || call.arguments.args.len() != 1 {
                         return Err(error(call, "hole requires one name string"));
@@ -266,6 +272,14 @@ impl Lowerer {
                         }
                         return Ok(E::Recur(args));
                     }
+                }
+                if self.builtin(&call.func, scope) == Some("intro")
+                    && !matches!(call.arguments.args.as_ref(), [Expr::Lambda(_)])
+                {
+                    return Err(error(
+                        call,
+                        "intro requires a lambda binding the introduced assumptions",
+                    ));
                 }
                 if let Some(value) = self.record_call(call, scope)? {
                     return Ok(value);
@@ -360,6 +374,15 @@ impl Lowerer {
                     .map(|arg| self.expr(arg, scope))
                     .collect::<Result<Vec<_>, _>>()?;
                 match (builtin.as_deref(), args.as_slice()) {
+                    (Some("intro" | "exact"), [body]) => body.clone(),
+                    (Some("apply"), [function, arguments @ ..]) => {
+                        arguments.iter().cloned().fold(function.clone(), E::app)
+                    }
+                    (Some(name @ ("rewrite" | "rewrite_in")), [proof, body]) => E::Rewrite {
+                        proof: Box::new(proof.clone()),
+                        body: Box::new(body.clone()),
+                        forward: name == "rewrite_in",
+                    },
                     (Some("Z"), []) => E::Zero,
                     (Some("S"), [n]) => n.clone().succ(),
                     (Some("refl"), [n]) => n.clone().refl(),
@@ -502,5 +525,94 @@ impl Lowerer {
             body = E::lam(p.parameter.name.to_string(), plicity, domain.clone(), body);
         }
         Ok(body)
+    }
+}
+
+impl Lowerer {
+    fn tactic_cases(&mut self, call: &ast::ExprCall, scope: &Scope) -> Result<E, Diagnostic> {
+        let [value, Expr::Dict(branches)] = call.arguments.args.as_ref() else {
+            return Err(error(
+                call,
+                "cases(value, {Constructor: branch, ...}) requires a branch dictionary",
+            ));
+        };
+        if !call.arguments.keywords.is_empty() {
+            return Err(error(call, "cases requires positional arguments"));
+        }
+        let mut lowered = vec![];
+        for item in &branches.items {
+            let Some(key) = &item.key else {
+                return Err(error(call, "cases does not support dictionary unpacking"));
+            };
+            let (constructor, arity) = match self.builtin(key, scope) {
+                Some("Z") => (
+                    deppy_elab::CaseConstructor::Core(deppy_core::standard::NAT, 0),
+                    0,
+                ),
+                Some("S") => (
+                    deppy_elab::CaseConstructor::Core(deppy_core::standard::NAT, 1),
+                    1,
+                ),
+                _ => {
+                    let Expr::Name(name) = key else {
+                        return Err(error(key, "cases requires a constructor name"));
+                    };
+                    let binding = self.globals.get(name.id.as_str()).filter(|_| {
+                        !scope.locals.contains(name.id.as_str())
+                            && !scope.assigned.contains(name.id.as_str())
+                    });
+                    let Some(binding) = binding else {
+                        return Err(error(key, "unknown case constructor"));
+                    };
+                    let Some(data) = &binding.data else {
+                        return Err(error(key, "cases requires an inductive constructor"));
+                    };
+                    let Some(index) = data.constructor else {
+                        return Err(error(key, "cases requires a constructor, not a type"));
+                    };
+                    (
+                        deppy_elab::CaseConstructor::Name(binding.name.clone()),
+                        data.constructors[index].1,
+                    )
+                }
+            };
+            let mut branch = self.expr(&item.value, scope)?;
+            let mut fields = vec![];
+            for _ in 0..arity {
+                while let E::Located { expression, .. } = branch {
+                    branch = *expression;
+                }
+                let E::Lam {
+                    name,
+                    body,
+                    plicity: Plicity::Explicit,
+                    domain: None,
+                } = branch
+                else {
+                    return Err(error(
+                        &item.value,
+                        "case branch requires one lambda parameter per constructor field",
+                    ));
+                };
+                fields.push(name);
+                branch = *body;
+            }
+            lowered.push(deppy_elab::CaseBranch {
+                constructor,
+                fields,
+                body: branch,
+                location: Some(deppy_elab::SourceLocation {
+                    source: self.namespace.clone(),
+                    start: item.value.range().start().to_usize(),
+                    end: item.value.range().end().to_usize(),
+                }),
+            });
+        }
+        Ok(E::Cases {
+            level: 0,
+            value: Box::new(self.expr(value, scope)?),
+            branches: lowered,
+            generalize: vec![],
+        })
     }
 }

@@ -6,7 +6,7 @@ if sys.implementation.name != "cpython" or not (3, 12) <= sys.version_info[:2] <
     raise SystemExit("CPython 3.12–3.14 is required")
 
 root = pathlib.Path(__file__).resolve().parent.parent
-paths = list((root / "crates/deppy-python/examples").glob("*.py"))
+paths = list((root / "crates/deppy-python/examples").rglob("*.py"))
 paths += list((root / "crates/deppy-python/stdlib").rglob("*.py"))
 for path in paths:
     compile(path.read_text(encoding="utf-8"), str(path), "exec", dont_inherit=True)

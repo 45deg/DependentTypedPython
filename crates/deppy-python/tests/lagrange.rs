@@ -1,6 +1,10 @@
-use deppy_python::{check_module, Target};
+use deppy_python::{check_module_with_resolver, FileResolver, Target};
 
-const SOURCE: &str = include_str!("../examples/lagrange.py");
+fn resolver() -> FileResolver {
+    FileResolver::new(concat!(env!("CARGO_MANIFEST_DIR"), "/examples/proof_case")).unwrap()
+}
+
+const SOURCE: &str = include_str!("../examples/proof_case/lagrange.py");
 
 // The proof's nested dependent terms need more stack than the test harness's
 // small worker stack. This does not change the elaboration or kernel budgets.
@@ -16,7 +20,8 @@ fn with_proof_stack(check: impl FnOnce() + Send + 'static) {
 #[test]
 fn finite_group_lagrange_and_instances_are_axiom_free() {
     with_proof_stack(|| {
-        let module = check_module(SOURCE, Target::Python314).unwrap();
+        let module =
+            check_module_with_resolver(SOURCE, Target::Python314, &mut resolver()).unwrap();
         for name in [
             "uniform_partition",
             "coset_size",
@@ -46,7 +51,9 @@ fn lagrange_rejects_wrong_divisibility_and_unproved_partition() {
         ] {
             assert_eq!(SOURCE.matches(before).count(), 1);
             let invalid = SOURCE.replace(before, after);
-            let error = check_module(&invalid, Target::Python314).err().unwrap();
+            let error = check_module_with_resolver(&invalid, Target::Python314, &mut resolver())
+                .err()
+                .unwrap();
             assert!(!error.message.contains("budget"), "{}", error.message);
         }
     });

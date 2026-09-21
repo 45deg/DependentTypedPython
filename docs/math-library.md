@@ -32,16 +32,16 @@ P0 の最初の公開面を stdlib に実装した。基礎型は新しく宣言
 
 | 領域 | 実装済み | 整備上の問題 |
 | --- | --- | --- |
-| 等式 | `deppy.equality` の `sym`, `trans`, `cong`, `transport` | `lagrange.py` が再定義。`cong2` はstdlibに実装済み。例の共通化と依存関数向け補題の整備が残る |
+| 等式 | `deppy.equality` の `sym`, `trans`, `cong`, `transport` | 3つの証明例からstdlibを利用。`cong2` はstdlibに実装済み。依存関数向け補題の整備が残る |
 | 論理・判定 | `deppy.data` の `Empty`, `Unit`, `Sum`, `Option`, `Not`, `Decidable` | examplesに別の `Empty`, `Unit`, `Either`, `Decision` がある |
 | 自然数 | 公開 `deppy.nat.Nat` と、一般帰納型の例である `deppy.naturals.Nat` | 別の名目的な型。後者の `add` は前者へそのまま適用できない |
 | リスト | `deppy.lists` の `List`, `append`, `map`, `reverse` と基本等式 | examplesの `List` は別型。所属・重複なし・除去はstdlibにも実装済み。examplesの独自型との共有と個数APIの整備が残る |
-| 有限性 | `lagrange.py` の `Enumeration`, `same_count`, `bijection_count` | 数学の基礎APIがラグランジュの例に依存している |
-| 有限積 | 両Fermatファイルの `product`, `same_product`, `bijection_product` | 重複があり、逆元を使わない部分まで `Group` を要求している |
+| 有限性 | `proof_case/common.py` の `Enumeration`, `same_count`, `bijection_count` | 証明例間では共有済み。stdlibへの統合が残る |
+| 有限積 | `proof_case/common.py` の `product`, `same_product`, `bijection_product` | 重複は解消済み。逆元を使わない部分まで `Group` を要求している |
 | 群 | `Group`, `Subgroup`, 剰余類、ラグランジュ、有限群の累乗定理 | stdlibでは未提供。判定可能性が `Subgroup` の定義に含まれている |
 | 数論・体 | 有限体の非零元の乗法群としてのFermat | `Prime`, 除算・剰余、整数、有限体そのものの構成は未実装 |
 
-単一ファイルでの再定義は実験として意図したものだが、ライブラリへ移すときには
+証明例の共通定義は `proof_case/common.py` に集約した。stdlibへ移すときには
 再exportで同じ型を共有する必要がある。同じ形の帰納型を別々に宣言しても同じ型にはならない。
 
 根拠となる実装:
@@ -49,9 +49,10 @@ P0 の最初の公開面を stdlib に実装した。基礎型は新しく宣言
 - [標準の論理データ型](../crates/deppy-python/stdlib/deppy/data.py)
 - [標準のリスト](../crates/deppy-python/stdlib/deppy/lists.py)
 - [別宣言の自然数](../crates/deppy-python/stdlib/deppy/naturals.py)と[それを使う添字型](../crates/deppy-python/stdlib/deppy/indexed.py)
-- [有限列挙・分割・群](../crates/deppy-python/examples/lagrange.py)
-- [判定可能性・有限積・有限群の累乗](../crates/deppy-python/examples/fermat.py)
-- [可換群での直接証明](../crates/deppy-python/examples/fermat2.py)
+- [有限列挙・群・有限積の共有定義](../crates/deppy-python/examples/proof_case/common.py)
+- [有限集合の分割・ラグランジュ](../crates/deppy-python/examples/proof_case/lagrange.py)
+- [判定可能性・有限積・有限群の累乗](../crates/deppy-python/examples/proof_case/fermat.py)
+- [可換群での直接証明](../crates/deppy-python/examples/proof_case/fermat2.py)
 
 ## 先に固定する設計
 

@@ -87,6 +87,12 @@ impl State {
     pub(crate) fn synth(&mut self, ctx: &Context, expr: &Expr) -> Result<(T, T), Error> {
         self.tick()?;
         match expr {
+            Expr::Rewrite {
+                proof,
+                body,
+                forward: true,
+            } => self.rewrite_equality(ctx, proof, body, None),
+            Expr::Rewrite { forward: false, .. } => Err(Error::AnnotationRequired),
             Expr::Absurd { ty, value } => {
                 let (ty, _) = self.type_expr(ctx, ty)?;
                 let (value, receiver_ty) = self.synth(ctx, value)?;
@@ -123,6 +129,19 @@ impl State {
             } => {
                 let (value, receiver_ty) = self.synth(ctx, value)?;
                 let receiver_ty = self.whnf(&receiver_ty)?;
+                if matches!(receiver_ty.as_ref(), Term::Nat) {
+                    if branches.len() != 2 {
+                        return Err(deppy_core::Error::ArityMismatch.into());
+                    }
+                    return self.nat_induction(
+                        ctx,
+                        *level,
+                        motive,
+                        &branches[0],
+                        &branches[1],
+                        value,
+                    );
+                }
                 let Term::Data {
                     op: deppy_core::DataOp::Type(id),
                     arguments,
@@ -727,49 +746,10 @@ impl State {
                 step,
                 scrutinee,
             } => {
-                level.checked_add(1).ok_or(Error::UniverseOverflow)?;
-                let motive_ty = Term::Pi {
-                    id: self.fresh(),
-                    plicity: Plicity::Explicit,
-                    domain: Term::Nat.arc(),
-                    body: Term::Universe(*level).arc(),
-                }
-                .arc();
-                let motive = self.check(ctx, motive, &motive_ty)?;
-                let zero_ty = Term::App(motive.clone(), Term::Zero.arc()).arc();
-                let zero = self.check(ctx, zero, &zero_ty)?;
-                let n = self.fresh();
-                let ih_ty = Term::App(motive.clone(), Term::Local(n).arc()).arc();
-                let result_ty =
-                    Term::App(motive.clone(), Term::Succ(Term::Local(n).arc()).arc()).arc();
-                let step_ty = Term::Pi {
-                    id: n,
-                    plicity: Plicity::Explicit,
-                    domain: Term::Nat.arc(),
-                    body: Term::Pi {
-                        id: self.fresh(),
-                        plicity: Plicity::Explicit,
-                        domain: ih_ty,
-                        body: result_ty,
-                    }
-                    .arc(),
-                }
-                .arc();
-                let step = self.check(ctx, step, &step_ty)?;
                 let scrutinee = self.check(ctx, scrutinee, &Term::Nat.arc())?;
-                let ty = Term::App(motive.clone(), scrutinee.clone()).arc();
-                Ok((
-                    Term::NatElim {
-                        level: *level,
-                        motive,
-                        zero,
-                        step,
-                        scrutinee,
-                    }
-                    .arc(),
-                    ty,
-                ))
+                self.nat_induction(ctx, *level, motive, zero, step, scrutinee)
             }
+
             Expr::Pi {
                 name,
                 plicity,
@@ -902,6 +882,16 @@ impl State {
         {
             return self.cases(ctx, *level, value, branches, generalize, expected);
         }
+        if let Expr::Rewrite {
+            proof,
+            body,
+            forward: false,
+        } = expr
+        {
+            return self
+                .rewrite_equality(ctx, proof, body, Some(expected))
+                .map(|(term, _)| term);
+        }
         if let Expr::UserHole(name) = expr {
             let id = self.metas.len();
             let term = self.meta(ctx, expected.clone());
@@ -1004,5 +994,58 @@ impl State {
         let (term, ty) = self.synth(ctx, expr)?;
         self.unify_types(ctx, &ty, expected)?;
         Ok(term)
+    }
+}
+
+impl State {
+    fn nat_induction(
+        &mut self,
+        ctx: &Context,
+        level: u32,
+        motive: &Expr,
+        zero: &Expr,
+        step: &Expr,
+        scrutinee: T,
+    ) -> Result<(T, T), Error> {
+        level.checked_add(1).ok_or(Error::UniverseOverflow)?;
+        let motive_ty = Term::Pi {
+            id: self.fresh(),
+            plicity: Plicity::Explicit,
+            domain: Term::Nat.arc(),
+            body: Term::Universe(level).arc(),
+        }
+        .arc();
+        let motive = self.check(ctx, motive, &motive_ty)?;
+        let zero_ty = Term::App(motive.clone(), Term::Zero.arc()).arc();
+        let zero = self.check(ctx, zero, &zero_ty)?;
+        let n = self.fresh();
+        let ih_ty = Term::App(motive.clone(), Term::Local(n).arc()).arc();
+        let result_ty = Term::App(motive.clone(), Term::Succ(Term::Local(n).arc()).arc()).arc();
+        let step_ty = Term::Pi {
+            id: n,
+            plicity: Plicity::Explicit,
+            domain: Term::Nat.arc(),
+            body: Term::Pi {
+                id: self.fresh(),
+                plicity: Plicity::Explicit,
+                domain: ih_ty,
+                body: result_ty,
+            }
+            .arc(),
+        }
+        .arc();
+        let step = self.check(ctx, step, &step_ty)?;
+        let ty = Term::App(motive.clone(), scrutinee.clone()).arc();
+        Ok((
+            Term::NatElim {
+                level,
+                motive,
+                zero,
+                step,
+                scrutinee,
+            }
+            .arc(),
+            ty,
+        ))
     }
 }

@@ -19,7 +19,7 @@ def main():
     if args.elaboration_steps <= 0:
         parser.error("--elaboration-steps must be positive")
     checker = args.checker.resolve()
-    examples = root / "crates/deppy-python/examples"
+    examples = root / "crates/deppy-python/examples/proof_case"
     source = (examples / "fermat.py").read_text(encoding="utf-8")
 
     def check(path):
@@ -51,9 +51,10 @@ def main():
     )
     with tempfile.TemporaryDirectory(prefix="deppy-fermat-") as temporary:
         folder = pathlib.Path(temporary)
-        (folder / "lagrange.py").write_text(
-            (examples / "lagrange.py").read_text(encoding="utf-8"), encoding="utf-8"
-        )
+        for dependency in ("common.py", "lagrange.py"):
+            (folder / dependency).write_text(
+                (examples / dependency).read_text(encoding="utf-8"), encoding="utf-8"
+            )
         for name, before, after in corruptions:
             if source.count(before) != 1:
                 raise AssertionError(f"Expected exactly one mutation site: {before}")

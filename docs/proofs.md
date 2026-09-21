@@ -192,3 +192,45 @@ def identity_proof(n: Nat) -> Eq[Nat, n, n]:
 `@theorem` は `@dependent(opaque=True)` の別名です。本体は通常どおりkernelで検査しますが、正規化と変換判定では展開しません。後続の証明は公開された型を使ってこの定理を適用できます。`@theorem(decreases="n")` のように `decreases`・`motive_level` と併用できます。`deppy` と `deppy.core` からimportできます。`theorem` に透明化オプションはありません。計算する透明な定義には従来どおり `@dependent` を使います。既存の `@dependent(opaque=True/False)` も引き続き利用できます。
 
 opaque定義は公理ではありません。本体が公理を使う場合、その依存はimport後も追跡します。明示的なunfold機能はありません。runtime extractionは変換判定とは別で、保持した検査済み本体を利用します。
+
+## 小さなtactic層
+
+`deppy.tactics` のtacticは式として組み合わせます。生成するのは既存のCore証明項で、通常の証明と同じkernel検査を通ります。Pythonの実行やsolverを信頼する仕組みではありません。
+
+| 式 | 動作 |
+| --- | --- |
+| `intro(lambda x: proof)` | goalの関数型に従って仮定を導入。複数引数も可 |
+| `exact(proof)` | 証明を現在のgoalの型で検査 |
+| `apply(lemma, arg, ...)` | 補題に引数を適用。暗黙引数は既存の推論で補完 |
+| `rewrite(eq, proof)` | goal中の等式の左辺を右辺に書換え、残ったgoalを `proof` で証明 |
+| `rewrite_in(eq, proof)` | 既存の証明の型を左辺から右辺へ書換え |
+| `cases(value, {Constructor: branch, ...})` | コンストラクタごとの場合分け。フィールドは `lambda` で束縛 |
+| `induction(level, value, motive, *branches)` | Natまたは一般帰納型の帰納法。再帰フィールドには帰納法の仮定も渡る |
+
+`apply` の明示引数は指定します。未完成の引数には `hole("名前")` を置けます。`cases` の分岐は全コンストラクタを重複なく列挙し、結果のuniverseは0です。高いuniverseや明示的なmotiveが必要な場合は `induction` / `induct` を使います。
+
+```python
+from deppy.tactics import rewrite, induction
+
+@theorem
+def add_zero_again(n: Nat) -> Eq[Nat, add(n, 0), n]:
+    return induction(0, n, lambda k: Eq[Nat, add(k, 0), k],
+        refl(0), lambda k, ih: rewrite(ih, refl(S(k))))
+```
+
+書換えは解決済みの型を正規化し、変換可能な出現をまとめて置換します。逆向きには `rewrite(sym(eq), proof)` を使います。該当する出現がなければgoalは変わりません。まだ推論できないメタ変数がある場合や、依存する出現の置換で型が成立しなくなる場合は検査に失敗します。その場合は型注釈や明示的なmotiveを持つ `transport` / `J` を使ってください。
+
+Fibonacciの不変条件保存は、二つの等式でgoalを書換えて漸化式を適用します。
+
+```python
+rewrite(inv.snd.fst, rewrite(inv.snd.snd, fib_step(index)))
+```
+
+終了時の添字の証明も、motiveを手書きせずに表せます。
+
+```python
+index_is_n = rewrite_in(counter_zero(remaining, test), inv.fst)
+return rewrite(sym(index_is_n), inv.snd.fst)
+```
+
+`@verified(proofs={...})` の各証明callbackにも同じtacticを使えます。`proofs={}` で未指定の `loop.init`・`loop.preserve`・`loop.decrease`・`loop.exit` は、それぞれ名前・ソース位置・局所文脈・期待型を持つ独立goalになります。`analyze_module` やCLIのgoal表示で確認し、必要なキーだけ順に埋められます。tactic内の `hole` も同じgoal形式を使います。未完成の証明は検査済み宣言として登録されません。

@@ -19,6 +19,12 @@ impl Plicity {
 /// Implicit binders are erased; explicit erased proof binders are not yet exposed.
 #[derive(Clone, Debug)]
 pub enum Expr {
+    /// Equality rewriting, elaborated to J; no new kernel primitive.
+    Rewrite {
+        proof: Box<Expr>,
+        body: Box<Expr>,
+        forward: bool,
+    },
     /// Type-directed constructor splitting. It elaborates entirely to checked
     /// inductive eliminators and introduces no new core computation rules.
     Cases {
@@ -200,6 +206,7 @@ impl Expr {
         }
         use Expr::*;
         let children: std::vec::Vec<&Expr> = match self {
+            Rewrite { proof, body, .. } => vec![proof, body],
             Recur(arguments) => arguments.iter().collect(),
             Core(_) | Name(_) | Universe(_) | Nat | Zero | Hole | UserHole(_) => vec![],
             Located { expression, .. } => vec![expression],

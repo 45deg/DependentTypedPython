@@ -3,20 +3,39 @@ use super::*;
 impl State {
     /// Capture-avoiding simultaneous substitution, freshening every binder.
     pub(super) fn subst(&mut self, term: &T, map: &HashMap<Id, T>) -> Result<T, Error> {
+        self.subst_rewrite(term, map, None)
+    }
+
+    /// IDs are globally fresh; freshening binders prevents replacement capture.
+    pub(super) fn subst_rewrite(
+        &mut self,
+        term: &T,
+        map: &HashMap<Id, T>,
+        rule: Option<(&T, &T)>,
+    ) -> Result<T, Error> {
         self.tick()?;
+        if let Some((pattern, replacement)) = rule {
+            // Rewrite callers supply fully resolved terms, so conversion here
+            // cannot solve metavariables. It also compares alpha-renamed binders.
+            match self.unify(term, pattern) {
+                Ok(()) => return Ok(replacement.clone()),
+                Err(Error::CannotUnify) => {}
+                Err(error) => return Err(error),
+            }
+        }
         Ok(match term.as_ref() {
             Term::Data { op, arguments } => Term::Data {
                 op: *op,
                 arguments: arguments
                     .iter()
-                    .map(|x| self.subst(x, map))
+                    .map(|x| self.subst_rewrite(x, map, rule))
                     .collect::<Result<_, _>>()?,
             },
             Term::Inductive { id, parameters } => Term::Inductive {
                 id: *id,
                 parameters: parameters
                     .iter()
-                    .map(|x| self.subst(x, map))
+                    .map(|x| self.subst_rewrite(x, map, rule))
                     .collect::<Result<_, _>>()?,
             },
             Term::Constructor {
@@ -27,11 +46,11 @@ impl State {
                 id: *id,
                 parameters: parameters
                     .iter()
-                    .map(|x| self.subst(x, map))
+                    .map(|x| self.subst_rewrite(x, map, rule))
                     .collect::<Result<_, _>>()?,
                 fields: fields
                     .iter()
-                    .map(|x| self.subst(x, map))
+                    .map(|x| self.subst_rewrite(x, map, rule))
                     .collect::<Result<_, _>>()?,
             },
             Term::Elim {
@@ -45,42 +64,42 @@ impl State {
                 id: *id,
                 parameters: parameters
                     .iter()
-                    .map(|x| self.subst(x, map))
+                    .map(|x| self.subst_rewrite(x, map, rule))
                     .collect::<Result<_, _>>()?,
                 level: *level,
-                motive: self.subst(motive, map)?,
-                branch: self.subst(branch, map)?,
-                scrutinee: self.subst(scrutinee, map)?,
+                motive: self.subst_rewrite(motive, map, rule)?,
+                branch: self.subst_rewrite(branch, map, rule)?,
+                scrutinee: self.subst_rewrite(scrutinee, map, rule)?,
             },
-            Term::Fst(p) => Term::Fst(self.subst(p, map)?),
-            Term::Snd(p) => Term::Snd(self.subst(p, map)?),
+            Term::Fst(p) => Term::Fst(self.subst_rewrite(p, map, rule)?),
+            Term::Snd(p) => Term::Snd(self.subst_rewrite(p, map, rule)?),
             Term::Pair { ty, fst, snd } => Term::Pair {
-                ty: self.subst(ty, map)?,
-                fst: self.subst(fst, map)?,
-                snd: self.subst(snd, map)?,
+                ty: self.subst_rewrite(ty, map, rule)?,
+                fst: self.subst_rewrite(fst, map, rule)?,
+                snd: self.subst_rewrite(snd, map, rule)?,
             },
             Term::Sigma { id, domain, body } => {
-                let domain = self.subst(domain, map)?;
+                let domain = self.subst_rewrite(domain, map, rule)?;
                 let new_id = self.fresh();
                 let mut map = map.clone();
                 map.insert(*id, Term::Local(new_id).arc());
                 Term::Sigma {
                     id: new_id,
                     domain,
-                    body: self.subst(body, &map)?,
+                    body: self.subst_rewrite(body, &map, rule)?,
                 }
             }
             Term::Global(_) => return Ok(term.clone()),
             Term::Local(id) => return Ok(map.get(id).cloned().unwrap_or_else(|| term.clone())),
             Term::Universe(_) | Term::Nat | Term::Zero => return Ok(term.clone()),
             Term::Eq { ty, left, right } => Term::Eq {
-                ty: self.subst(ty, map)?,
-                left: self.subst(left, map)?,
-                right: self.subst(right, map)?,
+                ty: self.subst_rewrite(ty, map, rule)?,
+                left: self.subst_rewrite(left, map, rule)?,
+                right: self.subst_rewrite(right, map, rule)?,
             },
             Term::Refl { ty, value } => Term::Refl {
-                ty: self.subst(ty, map)?,
-                value: self.subst(value, map)?,
+                ty: self.subst_rewrite(ty, map, rule)?,
+                value: self.subst_rewrite(value, map, rule)?,
             },
             Term::J {
                 level,
@@ -92,19 +111,19 @@ impl State {
                 proof,
             } => Term::J {
                 level: *level,
-                ty: self.subst(ty, map)?,
-                left: self.subst(left, map)?,
-                motive: self.subst(motive, map)?,
-                base: self.subst(base, map)?,
-                right: self.subst(right, map)?,
-                proof: self.subst(proof, map)?,
+                ty: self.subst_rewrite(ty, map, rule)?,
+                left: self.subst_rewrite(left, map, rule)?,
+                motive: self.subst_rewrite(motive, map, rule)?,
+                base: self.subst_rewrite(base, map, rule)?,
+                right: self.subst_rewrite(right, map, rule)?,
+                proof: self.subst_rewrite(proof, map, rule)?,
             },
             Term::Vec { ty, len } => Term::Vec {
-                ty: self.subst(ty, map)?,
-                len: self.subst(len, map)?,
+                ty: self.subst_rewrite(ty, map, rule)?,
+                len: self.subst_rewrite(len, map, rule)?,
             },
             Term::VNil { ty } => Term::VNil {
-                ty: self.subst(ty, map)?,
+                ty: self.subst_rewrite(ty, map, rule)?,
             },
             Term::VCons {
                 ty,
@@ -112,20 +131,20 @@ impl State {
                 head,
                 tail,
             } => Term::VCons {
-                ty: self.subst(ty, map)?,
-                len: self.subst(len, map)?,
-                head: self.subst(head, map)?,
-                tail: self.subst(tail, map)?,
+                ty: self.subst_rewrite(ty, map, rule)?,
+                len: self.subst_rewrite(len, map, rule)?,
+                head: self.subst_rewrite(head, map, rule)?,
+                tail: self.subst_rewrite(tail, map, rule)?,
             },
             Term::Fin { bound } => Term::Fin {
-                bound: self.subst(bound, map)?,
+                bound: self.subst_rewrite(bound, map, rule)?,
             },
             Term::FZ { bound } => Term::FZ {
-                bound: self.subst(bound, map)?,
+                bound: self.subst_rewrite(bound, map, rule)?,
             },
             Term::FS { bound, pred } => Term::FS {
-                bound: self.subst(bound, map)?,
-                pred: self.subst(pred, map)?,
+                bound: self.subst_rewrite(bound, map, rule)?,
+                pred: self.subst_rewrite(pred, map, rule)?,
             },
             Term::VecElim {
                 level,
@@ -137,12 +156,12 @@ impl State {
                 scrutinee,
             } => Term::VecElim {
                 level: *level,
-                ty: self.subst(ty, map)?,
-                motive: self.subst(motive, map)?,
-                nil: self.subst(nil, map)?,
-                cons: self.subst(cons, map)?,
-                len: self.subst(len, map)?,
-                scrutinee: self.subst(scrutinee, map)?,
+                ty: self.subst_rewrite(ty, map, rule)?,
+                motive: self.subst_rewrite(motive, map, rule)?,
+                nil: self.subst_rewrite(nil, map, rule)?,
+                cons: self.subst_rewrite(cons, map, rule)?,
+                len: self.subst_rewrite(len, map, rule)?,
+                scrutinee: self.subst_rewrite(scrutinee, map, rule)?,
             },
             Term::FinElim {
                 level,
@@ -153,17 +172,17 @@ impl State {
                 scrutinee,
             } => Term::FinElim {
                 level: *level,
-                motive: self.subst(motive, map)?,
-                zero: self.subst(zero, map)?,
-                step: self.subst(step, map)?,
-                bound: self.subst(bound, map)?,
-                scrutinee: self.subst(scrutinee, map)?,
+                motive: self.subst_rewrite(motive, map, rule)?,
+                zero: self.subst_rewrite(zero, map, rule)?,
+                step: self.subst_rewrite(step, map, rule)?,
+                bound: self.subst_rewrite(bound, map, rule)?,
+                scrutinee: self.subst_rewrite(scrutinee, map, rule)?,
             },
             Term::Fin0Elim { ty, absurd } => Term::Fin0Elim {
-                ty: self.subst(ty, map)?,
-                absurd: self.subst(absurd, map)?,
+                ty: self.subst_rewrite(ty, map, rule)?,
+                absurd: self.subst_rewrite(absurd, map, rule)?,
             },
-            Term::Succ(n) => Term::Succ(self.subst(n, map)?),
+            Term::Succ(n) => Term::Succ(self.subst_rewrite(n, map, rule)?),
             Term::NatElim {
                 level,
                 motive,
@@ -172,16 +191,19 @@ impl State {
                 scrutinee,
             } => Term::NatElim {
                 level: *level,
-                motive: self.subst(motive, map)?,
-                zero: self.subst(zero, map)?,
-                step: self.subst(step, map)?,
-                scrutinee: self.subst(scrutinee, map)?,
+                motive: self.subst_rewrite(motive, map, rule)?,
+                zero: self.subst_rewrite(zero, map, rule)?,
+                step: self.subst_rewrite(step, map, rule)?,
+                scrutinee: self.subst_rewrite(scrutinee, map, rule)?,
             },
-            Term::App(f, x) => Term::App(self.subst(f, map)?, self.subst(x, map)?),
+            Term::App(f, x) => Term::App(
+                self.subst_rewrite(f, map, rule)?,
+                self.subst_rewrite(x, map, rule)?,
+            ),
             Term::Meta(id, args) => Term::Meta(
                 *id,
                 args.iter()
-                    .map(|x| self.subst(x, map))
+                    .map(|x| self.subst_rewrite(x, map, rule))
                     .collect::<Result<_, _>>()?,
             ),
             Term::Pi {
@@ -196,11 +218,11 @@ impl State {
                 domain,
                 body,
             } => {
-                let domain = self.subst(domain, map)?;
+                let domain = self.subst_rewrite(domain, map, rule)?;
                 let new_id = self.fresh();
                 let mut map = map.clone();
                 map.insert(*id, Term::Local(new_id).arc());
-                let body = self.subst(body, &map)?;
+                let body = self.subst_rewrite(body, &map, rule)?;
                 if matches!(term.as_ref(), Term::Pi { .. }) {
                     Term::Pi {
                         id: new_id,

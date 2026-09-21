@@ -18,38 +18,36 @@ from deppy import (
     J,
     induct,
     absurd,
-    nat_elim,
 )
 from deppy.equality import sym, trans, cong, transport
-from deppy.nat import add, mul, add_zero, add_succ, add_assoc, add_comm, add_swap
-from deppy.nat_order import LE, LEZero, LESucc, le_refl, le_step, le_pred, le_trans
+from deppy.tactics import rewrite, rewrite_in
+from deppy.nat import add, add_swap
 
-# A constructive, single-file development. No axioms or unchecked assertions.
-# Finite enumerations contain each carrier element exactly once. Membership of
-# the subgroup is decidable; no quotient type or choice principle is used.
-# Check with: cargo run -p deppy-python --locked --offline -- \
-#     crates/deppy-python/examples/lagrange.py
-# Opaque lemmas have checked bodies; opacity only prevents their unfolding.
-
+# Shared finite enumeration, group, and finite-product definitions.
+# All theorem bodies are checked; no additional axioms are introduced.
 
 @inductive
 class Empty:
+    r"""The empty type, used to express a contradiction."""
     pass
 
 
 @inductive
 class Unit:
+    r"""The inhabited singleton type, used for a proposition with no obligations."""
     @constructor
     def Unit_() -> Unit: ...
 
 
 @dependent
 def Not(P: Type) -> Type:
+    r"""Express the negation of P as a function from P to Empty."""
     return Pi[P, lambda _: Empty]
 
 
 @inductive
 class Either[A: Type, B: Type]:
+    r"""Evidence for one of two alternatives, with its chosen branch."""
     @constructor
     def Left(value: A) -> Either[A, B]: ...
     @constructor
@@ -58,6 +56,7 @@ class Either[A: Type, B: Type]:
 
 @inductive
 class Decision[P: Type]:
+    r"""A constructive decision carrying either a proof or a refutation."""
     @constructor
     def Yes(proof: P) -> Decision[P]: ...
     @constructor
@@ -66,6 +65,7 @@ class Decision[P: Type]:
 
 @dependent
 def decision_weight[P: Type](d: Decision[P]) -> Nat:
+    r"""Assign weight one to a positive decision and zero to a negative one."""
     match d:
         case Yes(p):
             return 1
@@ -75,6 +75,10 @@ def decision_weight[P: Type](d: Decision[P]) -> Nat:
 
 @dependent(decreases="d")
 def weight_yes[P: Type](d: Decision[P], p: P) -> Eq[Nat, decision_weight(d), 1]:
+    r"""A decision for an inhabited proposition has weight one.
+
+    Case analysis rules out the negative branch using the supplied proof.
+    """
     match d:
         case Yes(q):
             return refl(1)
@@ -84,6 +88,10 @@ def weight_yes[P: Type](d: Decision[P], p: P) -> Eq[Nat, decision_weight(d), 1]:
 
 @dependent(decreases="d")
 def weight_no[P: Type](d: Decision[P], np: Not(P)) -> Eq[Nat, decision_weight(d), 0]:
+    r"""A decision for a refuted proposition has weight zero.
+
+    Case analysis rules out the positive branch using the supplied refutation.
+    """
     match d:
         case Yes(p):
             return absurd(Eq[Nat, 1, 0], np(p))
@@ -93,6 +101,7 @@ def weight_no[P: Type](d: Decision[P], np: Not(P)) -> Eq[Nat, decision_weight(d)
 
 @inductive
 class List[A: Type]:
+    r"""A finite list; repeated elements are permitted."""
     @constructor
     def Nil() -> List[A]: ...
     @constructor
@@ -101,6 +110,7 @@ class List[A: Type]:
 
 @dependent(decreases="xs")
 def length[A: Type](xs: List[A]) -> Nat:
+    r"""Count the list entries by structural recursion."""
     match xs:
         case Nil():
             return 0
@@ -110,6 +120,7 @@ def length[A: Type](xs: List[A]) -> Nat:
 
 @dependent(decreases="xs", motive_level=1)
 def Has[A: Type](x: A, xs: List[A]) -> Type:
+    r"""Express list membership by equality with the head or membership in the tail."""
     match xs:
         case Nil():
             return Empty
@@ -119,6 +130,7 @@ def Has[A: Type](x: A, xs: List[A]) -> Type:
 
 @dependent(decreases="xs", motive_level=1)
 def NoDup[A: Type](xs: List[A]) -> Type:
+    r"""Require each head to be absent from its tail, recursively."""
     match xs:
         case Nil():
             return Unit
@@ -130,6 +142,7 @@ def NoDup[A: Type](xs: List[A]) -> Type:
 def count[A: Type, P: Pi[A, lambda _: Type]](
     dec: Pi[A, lambda x: Decision[P(x)]], xs: List[A]
 ) -> Nat:
+    r"""Count entries satisfying the decidable predicate, including repetitions."""
     match xs:
         case Nil():
             return 0
@@ -139,6 +152,7 @@ def count[A: Type, P: Pi[A, lambda _: Type]](
 
 @dependent
 def reject_head[A: Type, P: Type](x: A, d: Decision[P], tail: List[A]) -> List[A]:
+    r"""Discard the head on a positive decision; otherwise prepend it to the tail."""
     match d:
         case Yes(p):
             return tail
@@ -150,6 +164,7 @@ def reject_head[A: Type, P: Type](x: A, d: Decision[P], tail: List[A]) -> List[A
 def reject[A: Type, P: Pi[A, lambda _: Type]](
     dec: Pi[A, lambda x: Decision[P(x)]], xs: List[A]
 ) -> List[A]:
+    r"""Keep precisely the entries for which the predicate is refuted."""
     match xs:
         case Nil():
             return Nil[A]()
@@ -159,6 +174,7 @@ def reject[A: Type, P: Pi[A, lambda _: Type]](
 
 @dependent(decreases="xs")
 def map[A: Type, B: Type](f: Pi[A, lambda _: B], xs: List[A]) -> List[B]:
+    r"""Apply a function to every entry, preserving list order."""
     match xs:
         case Nil():
             return Nil[B]()
@@ -170,11 +186,13 @@ def map[A: Type, B: Type](f: Pi[A, lambda _: B], xs: List[A]) -> List[B]:
 def either_elim[A: Type, B: Type, C: Type](
     value: Either[A, B], left: Pi[A, lambda _: C], right: Pi[B, lambda _: C]
 ) -> C:
+    r"""Eliminate either alternative using the corresponding branch function."""
     return induct(0, value, lambda _: C, lambda x: left(x), lambda y: right(y))
 
 
 @inductive
 class Removal[A: Type, x: A]:
+    r"""Evidence that deleting one occurrence of x turns source into rest."""
     source: Index[List[A]]
     rest: Index[List[A]]
 
@@ -190,6 +208,10 @@ class Removal[A: Type, x: A]:
 def find_removal[A: Type](
     x: A, xs: List[A], member: Has(x, xs)
 ) -> Sigma[List[A], lambda rest: Removal[A, x, xs, rest]]:
+    r"""Turn membership into a remainder list and a one-occurrence removal proof.
+
+    Recurse through the membership evidence, transporting the head case along equality.
+    """
     match xs:
         case Nil():
             return absurd(Sigma[List[A], lambda rest: Removal[A, x, Nil[A](), rest]], member)
@@ -212,6 +234,10 @@ def find_removal[A: Type](
 def removal_present[A: Type, x: A, ys: List[A], zs: List[A]](r: Removal[A, x, ys, zs]) -> Has(
     x, ys
 ):
+    r"""Recover membership of the removed element in the original list.
+
+    Induct on the removal evidence.
+    """
     match r:
         case RemoveHere(tail):
             return Left(refl(x))
@@ -223,6 +249,10 @@ def removal_present[A: Type, x: A, ys: List[A], zs: List[A]](r: Removal[A, x, ys
 def removal_include[A: Type, x: A, ys: List[A], zs: List[A]](
     q: A, r: Removal[A, x, ys, zs], member: Has(q, zs)
 ) -> Has(q, ys):
+    r"""Lift membership in the remainder to membership in the original list.
+
+    Induct on the removal evidence, restoring the deleted entry.
+    """
     match r:
         case RemoveHere(tail):
             return Right(member)
@@ -236,6 +266,10 @@ def removal_include[A: Type, x: A, ys: List[A], zs: List[A]](
 def removal_keep[A: Type, x: A, ys: List[A], zs: List[A]](
     q: A, r: Removal[A, x, ys, zs], member: Has(q, ys), distinct: Not(Eq[A, q, x])
 ) -> Has(q, zs):
+    r"""Preserve membership of an element distinct from the removed element.
+
+    The head case excludes equality with the removed entry.
+    """
     match r:
         case RemoveHere(tail):
             return either_elim(
@@ -253,6 +287,10 @@ def removal_keep[A: Type, x: A, ys: List[A], zs: List[A]](
 def removal_nodup[A: Type, x: A, ys: List[A], zs: List[A]](
     r: Removal[A, x, ys, zs], unique: NoDup(ys)
 ) -> NoDup(zs):
+    r"""Deleting one occurrence preserves absence of duplicates.
+
+    Lift tail membership back to the original list to reuse its refutation.
+    """
     match r:
         case RemoveHere(tail):
             return unique.snd
@@ -267,15 +305,17 @@ def removal_nodup[A: Type, x: A, ys: List[A], zs: List[A]](
 def removal_absent[A: Type, x: A, ys: List[A], zs: List[A]](
     r: Removal[A, x, ys, zs], unique: NoDup(ys)
 ) -> Not(Has(x, zs)):
+    r"""Removing an entry from a duplicate-free list leaves it absent.
+
+    Induct on the removal evidence and use the original head's absence proof.
+    """
     match r:
         case RemoveHere(tail):
             return unique.fst
         case RemoveThere(head, before, after, step):
             return lambda member: either_elim[Eq[A, x, head], Has(x, after), Empty](
                 member,
-                lambda eq: unique.fst(
-                    transport[A, x, head](lambda q: Has(q, before), eq, removal_present(step))
-                ),
+                lambda eq: unique.fst(rewrite_in(eq, removal_present(step))),
                 lambda later: removal_absent(step, unique.snd)(later),
             )
 
@@ -284,12 +324,16 @@ def removal_absent[A: Type, x: A, ys: List[A], zs: List[A]](
 def removal_count[A: Type, x: A, ys: List[A], zs: List[A], P: Pi[A, lambda _: Type]](
     dec: Pi[A, lambda q: Decision[P(q)]], r: Removal[A, x, ys, zs]
 ) -> Eq[Nat, count(dec, ys), add(decision_weight(dec(x)), count(dec, zs))]:
+    r"""Split a count into the removed entry's weight and the remainder's count.
+
+    Induct on removal and swap the two leading summands in the recursive case.
+    """
     match r:
         case RemoveHere(tail):
             return refl(add(decision_weight(dec(x)), count(dec, tail)))
         case RemoveThere(head, before, after, step):
-            return trans(
-                cong(lambda n: add(decision_weight(dec(head)), n), removal_count(dec, step)),
+            return rewrite(
+                removal_count(dec, step),
                 add_swap(decision_weight(dec(head)), decision_weight(dec(x)), count(dec, after)),
             )
 
@@ -302,11 +346,15 @@ def tail_forward[A: Type, x: A, tail: List[A], ys: List[A], zs: List[A]](
     q: A,
     member: Has(q, tail),
 ) -> Has(q, zs):
+    r"""Restrict a membership map to the lists with their matching head removed.
+
+    Duplicate-freeness ensures that a tail member differs from the removed head.
+    """
     return removal_keep(
         q,
         r,
         forward(q)(Right(member)),
-        lambda eq: unique.fst(transport[A, q, x](lambda z: Has(z, tail), eq, member)),
+        lambda eq: unique.fst(rewrite_in(eq, member)),
     )
 
 
@@ -318,11 +366,15 @@ def tail_backward[A: Type, x: A, tail: List[A], ys: List[A], zs: List[A]](
     q: A,
     member: Has(q, zs),
 ) -> Has(q, tail):
+    r"""Map membership in the remainder back to the original tail.
+
+    Absence of the removed head excludes the head alternative.
+    """
     return either_elim[Eq[A, q, x], Has(q, tail), Has(q, tail)](
         backward(q)(removal_include(q, r, member)),
         lambda eq: absurd(
             Has(q, tail),
-            removal_absent(r, unique)(transport[A, q, x](lambda z: Has(z, zs), eq, member)),
+            removal_absent(r, unique)(rewrite_in(eq, member)),
         ),
         lambda later: later,
     )
@@ -332,6 +384,7 @@ def tail_backward[A: Type, x: A, tail: List[A], ys: List[A], zs: List[A]](
 def SameCountAt[A: Type, P: Pi[A, lambda _: Type]](
     dec: Pi[A, lambda x: Decision[P(x)]], xs: List[A]
 ) -> Type:
+    r"""State count invariance against any duplicate-free list with the same members."""
     return Pi[
         List[A],
         lambda ys: Pi[
@@ -356,6 +409,10 @@ def same_count_nil[A: Type, P: Pi[A, lambda _: Type]](
     ys: List[A],
     backward: Pi[A, lambda x: Pi[Has(x, ys), lambda _: Empty]],
 ) -> Eq[Nat, 0, count(dec, ys)]:
+    r"""A list whose every member yields a contradiction has count zero.
+
+    A nonempty list supplies its head as the contradictory member.
+    """
     match ys:
         case Nil():
             return refl(0)
@@ -375,21 +432,27 @@ def same_count_step[A: Type, P: Pi[A, lambda _: Type]](
     forward: Pi[A, lambda q: Pi[Has(q, Cons(x, tail)), lambda _: Has(q, ys)]],
     backward: Pi[A, lambda q: Pi[Has(q, ys), lambda _: Has(q, Cons(x, tail))]],
 ) -> Eq[Nat, count(dec, Cons(x, tail)), count(dec, ys)]:
+    r"""Prove the inductive step for count invariance under reordering.
+
+    Remove the matching head, apply the tail hypothesis, and restore its weight.
+    """
     found = find_removal(x, ys, forward(x)(Left(refl(x))))
     rest = found.fst
     removal = found.snd
     proof = ih(rest)(ux.snd)(removal_nodup(removal, uy))(
         lambda q: lambda member: tail_forward(removal, ux, forward, q, member)
     )(lambda q: lambda member: tail_backward(removal, uy, backward, q, member))
-    return trans(
-        cong(lambda n: add(decision_weight(dec(x)), n), proof), sym(removal_count(dec, removal))
-    )
+    return rewrite(proof, sym(removal_count(dec, removal)))
 
 
 @theorem
 def same_count[A: Type, P: Pi[A, lambda _: Type]](
     dec: Pi[A, lambda x: Decision[P(x)]], xs: List[A]
 ) -> SameCountAt(dec, xs):
+    r"""Equal membership and no duplicates imply equal predicate counts.
+
+    Induct on the first list, removing one matching entry from the second.
+    """
     return induct(
         0,
         xs,
@@ -417,6 +480,10 @@ def same_count[A: Type, P: Pi[A, lambda _: Type]](
 def map_has[A: Type, B: Type](f: Pi[A, lambda _: B], x: A, xs: List[A], member: Has(x, xs)) -> Has(
     f(x), map(f, xs)
 ):
+    r"""Map a membership proof along the list's mapping function.
+
+    Use congruence in the head case and recursion in the tail case.
+    """
     match xs:
         case Nil():
             return absurd(Has(f(x), Nil[B]()), member)
@@ -436,6 +503,10 @@ def map_injective_has[A: Type, B: Type](
     xs: List[A],
     member: Has(f(x), map(f, xs)),
 ) -> Has(x, xs):
+    r"""Reflect membership in a mapped list along an injective function.
+
+    Injectivity recovers head equality; the tail case recurses.
+    """
     match xs:
         case Nil():
             return absurd(Has(x, Nil[A]()), member)
@@ -454,6 +525,10 @@ def map_nodup[A: Type, B: Type](
     xs: List[A],
     unique: NoDup(xs),
 ) -> NoDup(map(f, xs)):
+    r"""An injective map preserves duplicate-freeness.
+
+    Reflect mapped membership to contradict the original head's absence.
+    """
     match xs:
         case Nil():
             return Unit_()
@@ -473,6 +548,10 @@ def inverse_injective[A: Type](
     y: A,
     eq: Eq[A, f(x), f(y)],
 ) -> Eq[A, x, y]:
+    r"""A function with a left inverse is injective.
+
+    Apply the inverse to the equality and simplify both inverse composites.
+    """
     return trans(sym(inverse(x)), trans(cong(back, eq), inverse(y)))
 
 
@@ -498,6 +577,10 @@ def bijection_count[A: Type, P: Pi[A, lambda _: Type]](
     right_inverse: Pi[A, lambda x: Eq[A, f(back(x)), x]],
     finite: Enumeration[A],
 ) -> Eq[Nat, count(dec, map(f, finite.elements)), count(dec, finite.elements)]:
+    r"""A bijection of a finite carrier preserves predicate counts over its enumeration.
+
+    Its inverse supplies injectivity and completeness for the mapped enumeration.
+    """
     return same_count(dec, map(f, finite.elements))(finite.elements)(
         map_nodup(
             f,
@@ -524,6 +607,10 @@ def count_map[A: Type, B: Type, P: Pi[B, lambda _: Type], Q: Pi[A, lambda _: Typ
     weights: Pi[A, lambda x: Eq[Nat, decision_weight(dp(f(x))), decision_weight(dq(x))]],
     xs: List[A],
 ) -> Eq[Nat, count(dp, map(f, xs)), count(dq, xs)]:
+    r"""Equal pointwise decision weights give equal counts over a mapped list.
+
+    Induct on the list and combine the head equality with the tail equality.
+    """
     match xs:
         case Nil():
             return refl(0)
@@ -538,6 +625,10 @@ def count_map[A: Type, B: Type, P: Pi[B, lambda _: Type], Q: Pi[A, lambda _: Typ
 def weight_unique[P: Type](
     left: Decision[P], right: Decision[P]
 ) -> Eq[Nat, decision_weight(left), decision_weight(right)]:
+    r"""Two decisions of the same proposition have equal weights.
+
+    The first decision supplies the proof or refutation needed to fix the second weight.
+    """
     match left:
         case Yes(p):
             return sym(weight_yes(right, p))
@@ -549,6 +640,10 @@ def weight_unique[P: Type](
 def weight_transport[A: Type, P: Pi[A, lambda _: Type], x: A, y: A](
     eq: Eq[A, x, y], dx: Decision[P(x)], dy: Decision[P(y)]
 ) -> Eq[Nat, decision_weight(dx), decision_weight(dy)]:
+    r"""Equal predicate arguments yield equal decision weights.
+
+    Equality elimination reduces the claim to two decisions of the same proposition.
+    """
     return J(
         0,
         A,
@@ -562,8 +657,7 @@ def weight_transport[A: Type, P: Pi[A, lambda _: Type], x: A, y: A](
     )(dy)
 
 
-# Group laws are inputs to the theorem, not global axioms. The concrete
-# instances below construct all of these proofs.
+# Group laws are inputs, not global axioms.
 @record
 class Group[A: Type]:
     r"""A group structure on carrier ``A``.
@@ -620,6 +714,10 @@ class Subgroup[A: Type, g: Group[A]]:
 
 @theorem
 def left_recover[A: Type](g: Group[A], a: A, x: A) -> Eq[A, g.op(g.inverse(a))(g.op(a)(x)), x]:
+    r"""Cancel left multiplication by a using multiplication by its inverse.
+
+    Reassociate, apply the left inverse law, and remove the identity.
+    """
     return trans(
         sym(g.assoc(g.inverse(a))(a)(x)),
         trans(cong(lambda y: g.op(y)(x), g.left_inverse(a)), g.left_unit(x)),
@@ -628,518 +726,19 @@ def left_recover[A: Type](g: Group[A], a: A, x: A) -> Eq[A, g.op(g.inverse(a))(g
 
 @theorem
 def right_recover[A: Type](g: Group[A], a: A, x: A) -> Eq[A, g.op(a)(g.op(g.inverse(a))(x)), x]:
+    r"""Undo left multiplication by the inverse of a.
+
+    Reassociate, apply the right inverse law, and remove the identity.
+    """
     return trans(
         sym(g.assoc(a)(g.inverse(a))(x)),
         trans(cong(lambda y: g.op(y)(x), g.right_inverse(a)), g.left_unit(x)),
     )
 
 
-@dependent
-def Related[A: Type](g: Group[A], h: Subgroup[A, g], a: A, b: A) -> Type:
-    return h.member(g.op(g.inverse(a))(b))
-
-
-@theorem
-def related_refl[A: Type](g: Group[A], h: Subgroup[A, g], a: A) -> Related(g, h, a, a):
-    return transport[A, g.unit, g.op(g.inverse(a))(a)](
-        h.member, sym(g.left_inverse(a)), h.unit_closed
-    )
-
-
-@theorem
-def related_witness[A: Type](
-    g: Group[A], h: Subgroup[A, g], a: A, b: A, x: A, px: h.member(x), eq: Eq[A, g.op(a)(x), b]
-) -> Related(g, h, a, b):
-    return transport[A, x, g.op(g.inverse(a))(b)](
-        h.member, trans(sym(left_recover(g, a, x)), cong(lambda y: g.op(g.inverse(a))(y), eq)), px
-    )
-
-
-@theorem
-def cancel_right_inverse[A: Type](
-    g: Group[A], a: A, x: A
-) -> Eq[A, g.op(g.op(a)(x))(g.inverse(x)), a]:
-    return trans(
-        g.assoc(a)(x)(g.inverse(x)),
-        trans(cong(lambda y: g.op(a)(y), g.right_inverse(x)), g.right_unit(a)),
-    )
-
-
-@theorem
-def related_sym[A: Type](
-    g: Group[A], h: Subgroup[A, g], a: A, b: A, p: Related(g, h, a, b)
-) -> Related(g, h, b, a):
-    x = g.op(g.inverse(a))(b)
-    return related_witness(
-        g,
-        h,
-        b,
-        a,
-        g.inverse(x),
-        h.inv_closed(x)(p),
-        trans(
-            cong(lambda y: g.op(y)(g.inverse(x)), sym(right_recover(g, a, b))),
-            cancel_right_inverse(g, a, x),
-        ),
-    )
-
-
-@theorem
-def related_trans[A: Type](
-    g: Group[A], h: Subgroup[A, g], a: A, b: A, c: A, p: Related(g, h, a, b), q: Related(g, h, b, c)
-) -> Related(g, h, a, c):
-    x = g.op(g.inverse(a))(b)
-    y = g.op(g.inverse(b))(c)
-    return related_witness(
-        g,
-        h,
-        a,
-        c,
-        g.op(x)(y),
-        h.mul_closed(x)(y)(p)(q),
-        trans(
-            sym(g.assoc(a)(x)(y)),
-            trans(cong(lambda z: g.op(z)(y), right_recover(g, a, b)), right_recover(g, b, c)),
-        ),
-    )
-
-
-@theorem
-def fiber_count[A: Type, P: Pi[A, lambda _: Type]](
-    dec: Pi[A, lambda x: Decision[P(x)]],
-    f: Pi[A, lambda _: A],
-    back: Pi[A, lambda _: A],
-    left_inverse: Pi[A, lambda x: Eq[A, back(f(x)), x]],
-    right_inverse: Pi[A, lambda x: Eq[A, f(back(x)), x]],
-    finite: Enumeration[A],
-) -> Eq[
-    Nat,
-    count[A, lambda x: P(back(x))](lambda x: dec(back(x)), finite.elements),
-    count(dec, finite.elements),
-]:
-    return trans(
-        sym(
-            bijection_count[A, lambda x: P(back(x))](
-                lambda x: dec(back(x)), f, back, left_inverse, right_inverse, finite
-            )
-        ),
-        count_map[A, A, lambda x: P(back(x)), P](
-            lambda x: dec(back(x)),
-            dec,
-            f,
-            lambda x: weight_transport[A, P, back(f(x)), x](
-                left_inverse(x), dec(back(f(x))), dec(x)
-            ),
-            finite.elements,
-        ),
-    )
-
-
-@theorem
-def coset_size[A: Type](
-    g: Group[A], h: Subgroup[A, g], finite: Enumeration[A], a: A
-) -> Eq[
-    Nat,
-    count[A, lambda x: Related(g, h, a, x)](
-        lambda x: h.decide(g.op(g.inverse(a))(x)), finite.elements
-    ),
-    count(h.decide, finite.elements),
-]:
-    return fiber_count[A, h.member](
-        h.decide,
-        lambda x: g.op(a)(x),
-        lambda x: g.op(g.inverse(a))(x),
-        lambda x: left_recover(g, a, x),
-        lambda x: right_recover(g, a, x),
-        finite,
-    )
-
-
-# Removing one complete equivalence class decreases the finite search bound.
-@theorem(decreases="d")
-def reject_bound_head[A: Type, P: Type](
-    x: A, d: Decision[P], tail: List[A], n: Nat, bound: LE[length(tail), n]
-) -> LE[length(reject_head(x, d, tail)), S(n)]:
-    match d:
-        case Yes(p):
-            return le_step(bound)
-        case No(np):
-            return LESucc(length(tail), n, bound)
-
-
-@theorem(decreases="xs")
-def reject_bound[A: Type, P: Pi[A, lambda _: Type]](
-    dec: Pi[A, lambda x: Decision[P(x)]], xs: List[A]
-) -> LE[length(reject(dec, xs)), length(xs)]:
-    match xs:
-        case Nil():
-            return LEZero(0)
-        case Cons(x, tail):
-            return reject_bound_head(
-                x, dec(x), reject(dec, tail), length(tail), reject_bound(dec, tail)
-            )
-
-
-@theorem(decreases="d")
-def split_head[A: Type, P: Type](
-    x: A, d: Decision[P], rest: List[A], n: Nat
-) -> Eq[
-    Nat, add(add(decision_weight(d), n), length(reject_head(x, d, rest))), S(add(n, length(rest)))
-]:
-    match d:
-        case Yes(p):
-            return refl(S(add(n, length(rest))))
-        case No(np):
-            return add_succ(n, length(rest))
-
-
-@theorem(decreases="xs")
-def count_split[A: Type, P: Pi[A, lambda _: Type]](
-    dec: Pi[A, lambda x: Decision[P(x)]], xs: List[A]
-) -> Eq[Nat, add(count(dec, xs), length(reject(dec, xs))), length(xs)]:
-    match xs:
-        case Nil():
-            return refl(0)
-        case Cons(x, tail):
-            return trans(
-                split_head(x, dec(x), reject(dec, tail), count(dec, tail)),
-                cong(lambda n: S(n), count_split(dec, tail)),
-            )
-
-
-@theorem(decreases="d")
-def reject_head_yes[A: Type, P: Type](
-    x: A, d: Decision[P], rest: List[A], proof: P
-) -> Eq[List[A], reject_head(x, d, rest), rest]:
-    match d:
-        case Yes(p):
-            return refl(rest)
-        case No(np):
-            return absurd(Eq[List[A], Cons(x, rest), rest], np(proof))
-
-
-@theorem(decreases="dq")
-def disjoint_head[A: Type, P: Pi[A, lambda _: Type], Q: Type](
-    dp: Pi[A, lambda x: Decision[P(x)]],
-    x: A,
-    dq: Decision[Q],
-    rest: List[A],
-    disjoint: Pi[P(x), lambda _: Not(Q)],
-) -> Eq[Nat, count(dp, reject_head(x, dq, rest)), add(decision_weight(dp(x)), count(dp, rest))]:
-    match dq:
-        case Yes(q):
-            return sym(
-                cong(lambda n: add(n, count(dp, rest)), weight_no(dp(x), lambda p: disjoint(p)(q)))
-            )
-        case No(nq):
-            return refl(add(decision_weight(dp(x)), count(dp, rest)))
-
-
-@theorem(decreases="xs")
-def disjoint_count[A: Type, P: Pi[A, lambda _: Type], Q: Pi[A, lambda _: Type]](
-    dp: Pi[A, lambda x: Decision[P(x)]],
-    dq: Pi[A, lambda x: Decision[Q(x)]],
-    disjoint: Pi[A, lambda x: Pi[P(x), lambda _: Not(Q(x))]],
-    xs: List[A],
-) -> Eq[Nat, count(dp, reject(dq, xs)), count(dp, xs)]:
-    match xs:
-        case Nil():
-            return refl(0)
-        case Cons(x, tail):
-            return trans(
-                disjoint_head(dp, x, dq(x), reject(dq, tail), disjoint(x)),
-                cong(
-                    lambda n: add(decision_weight(dp(x)), n), disjoint_count(dp, dq, disjoint, tail)
-                ),
-            )
-
-
-@theorem(decreases="d")
-def reject_info_head[A: Type, P: Pi[A, lambda _: Type]](
-    x: A,
-    y: A,
-    d: Decision[P(y)],
-    tail: List[A],
-    rest: List[A],
-    info: Pi[Has(x, rest), lambda _: Sigma[Has(x, tail), lambda _: Not(P(x))]],
-    member: Has(x, reject_head(y, d, rest)),
-) -> Sigma[Has(x, Cons(y, tail)), lambda _: Not(P(x))]:
-    match d:
-        case Yes(p):
-            return Pair(Right(info(member).fst), info(member).snd)
-        case No(np):
-            return either_elim[
-                Eq[A, x, y], Has(x, rest), Sigma[Has(x, Cons(y, tail)), lambda _: Not(P(x))]
-            ](
-                member,
-                lambda eq: Pair(Left(eq), lambda px: np(transport[A, x, y](P, eq, px))),
-                lambda later: Pair(Right(info(later).fst), info(later).snd),
-            )
-
-
-@theorem(decreases="xs")
-def reject_info[A: Type, P: Pi[A, lambda _: Type]](
-    dec: Pi[A, lambda x: Decision[P(x)]], x: A, xs: List[A], member: Has(x, reject(dec, xs))
-) -> Sigma[Has(x, xs), lambda _: Not(P(x))]:
-    match xs:
-        case Nil():
-            return absurd(Sigma[Has(x, Nil[A]()), lambda _: Not(P(x))], member)
-        case Cons(y, tail):
-            return reject_info_head[A, P](
-                x,
-                y,
-                dec(y),
-                tail,
-                reject(dec, tail),
-                lambda later: reject_info(dec, x, tail, later),
-                member,
-            )
-
-
-@record
-class Equivalence[A: Type, R: Pi[A, lambda a: Pi[A, lambda b: Type]]]:
-    r"""Proof that ``R`` is an equivalence relation.
-
-    :ivar reflexive: Evidence of :math:`R(a,a)`.
-    :ivar symmetric: A map from :math:`R(a,b)` to :math:`R(b,a)`.
-    :ivar transitive: A map from :math:`R(a,b)` and :math:`R(b,c)` to :math:`R(a,c)`.
-    """
-    reflexive: Pi[A, lambda a: R(a)(a)]
-    symmetric: Pi[A, lambda a: Pi[A, lambda b: Pi[R(a)(b), lambda _: R(b)(a)]]]
-    transitive: Pi[
-        A,
-        lambda a: Pi[
-            A, lambda b: Pi[A, lambda c: Pi[R(a)(b), lambda p: Pi[R(b)(c), lambda q: R(a)(c)]]]
-        ],
-    ]
-
-
-@dependent
-def class_size[A: Type, R: Pi[A, lambda a: Pi[A, lambda b: Type]]](
-    dec: Pi[A, lambda a: Pi[A, lambda b: Decision[R(a)(b)]]], a: A, xs: List[A]
-) -> Nat:
-    return count[A, R(a)](dec(a), xs)
-
-
-@dependent
-def Uniform[A: Type, R: Pi[A, lambda a: Pi[A, lambda b: Type]]](
-    dec: Pi[A, lambda a: Pi[A, lambda b: Decision[R(a)(b)]]], h: Nat, xs: List[A]
-) -> Type:
-    return Pi[A, lambda a: Pi[Has(a, xs), lambda _: Eq[Nat, class_size(dec, a, xs), h]]]
-
-
-@dependent
-def Divisible(h: Nat, n: Nat) -> Type:
-    # The witness is an actual natural number, together with its equality proof.
-    return Sigma[Nat, lambda k: Eq[Nat, n, mul(h, k)]]
-
-
-@theorem
-def class_disjoint[A: Type, R: Pi[A, lambda a: Pi[A, lambda b: Type]]](
-    laws: Equivalence[A, R], a: A, b: A, distinct: Not(R(a)(b)), x: A, p: R(b)(x)
-) -> Not(R(a)(x)):
-    return lambda q: distinct(laws.transitive(a)(x)(b)(q)(laws.symmetric(b)(x)(p)))
-
-
-@theorem
-def uniform_remainder[A: Type, R: Pi[A, lambda a: Pi[A, lambda b: Type]]](
-    dec: Pi[A, lambda a: Pi[A, lambda b: Decision[R(a)(b)]]],
-    laws: Equivalence[A, R],
-    h: Nat,
-    a: A,
-    tail: List[A],
-    uniform: Uniform(dec, h, Cons(a, tail)),
-    b: A,
-    member: Has(b, reject(dec(a), tail)),
-) -> Eq[Nat, class_size(dec, b, reject(dec(a), tail)), h]:
-    info = reject_info(dec(a), b, tail, member)
-    unchanged = disjoint_count[A, R(b), R(a)](
-        dec(b), dec(a), lambda x: lambda p: class_disjoint(laws, a, b, info.snd, x, p), tail
-    )
-    missing = weight_no(dec(b)(a), lambda p: info.snd(laws.symmetric(b)(a)(p)))
-    return trans(
-        unchanged,
-        trans(
-            sym(cong(lambda n: add(n, class_size(dec, b, tail)), missing)),
-            uniform(b)(Right(info.fst)),
-        ),
-    )
-
-
-@theorem
-def split_selected[A: Type, R: Pi[A, lambda a: Pi[A, lambda b: Type]]](
-    dec: Pi[A, lambda a: Pi[A, lambda b: Decision[R(a)(b)]]],
-    laws: Equivalence[A, R],
-    a: A,
-    tail: List[A],
-) -> Eq[
-    Nat, length(Cons(a, tail)), add(class_size(dec, a, Cons(a, tail)), length(reject(dec(a), tail)))
-]:
-    return trans(
-        sym(count_split(dec(a), Cons(a, tail))),
-        cong[List[A], Nat](
-            lambda xs: add(class_size(dec, a, Cons(a, tail)), length(xs)),
-            reject_head_yes(a, dec(a)(a), reject(dec(a), tail), laws.reflexive(a)),
-        ),
-    )
-
-
-@dependent
-def PartitionAt[A: Type, R: Pi[A, lambda a: Pi[A, lambda b: Type]]](
-    dec: Pi[A, lambda a: Pi[A, lambda b: Decision[R(a)(b)]]], h: Nat, fuel: Nat
-) -> Type:
-    return Pi[
-        List[A],
-        lambda xs: Pi[
-            LE[length(xs), fuel],
-            lambda bound: Pi[Uniform(dec, h, xs), lambda uniform: Divisible(h, length(xs))],
-        ],
-    ]
-
-
-@theorem(decreases="xs")
-def partition_zero[A: Type, R: Pi[A, lambda a: Pi[A, lambda b: Type]]](
-    dec: Pi[A, lambda a: Pi[A, lambda b: Decision[R(a)(b)]]],
-    h: Nat,
-    xs: List[A],
-    bound: LE[length(xs), 0],
-) -> Divisible(h, length(xs)):
-    match xs:
-        case Nil():
-            return Pair(0, refl(0))
-        case Cons(x, tail):
-            return absurd(Divisible(h, S(length(tail))), bound)
-
-
-@theorem
-def partition_step[A: Type, R: Pi[A, lambda a: Pi[A, lambda b: Type]]](
-    dec: Pi[A, lambda a: Pi[A, lambda b: Decision[R(a)(b)]]],
-    laws: Equivalence[A, R],
-    h: Nat,
-    fuel: Nat,
-    ih: PartitionAt(dec, h, fuel),
-    a: A,
-    tail: List[A],
-    bound: LE[S(length(tail)), S(fuel)],
-    uniform: Uniform(dec, h, Cons(a, tail)),
-) -> Divisible(h, S(length(tail))):
-    rest = reject(dec(a), tail)
-    smaller = le_trans(reject_bound(dec(a), tail), fuel, le_pred(length(tail), fuel, bound))
-    result = ih(rest)(smaller)(
-        lambda b: lambda member: uniform_remainder(dec, laws, h, a, tail, uniform, b, member)
-    )
-    selected = uniform(a)(Left(refl(a)))
-    proof = trans(
-        split_selected(dec, laws, a, tail),
-        trans(
-            cong(lambda n: add(n, length(rest)), selected), cong(lambda n: add(h, n), result.snd)
-        ),
-    )
-    return Pair(S(result.fst), proof)
-
-
-@theorem(decreases="xs")
-def partition_succ[A: Type, R: Pi[A, lambda a: Pi[A, lambda b: Type]]](
-    dec: Pi[A, lambda a: Pi[A, lambda b: Decision[R(a)(b)]]],
-    laws: Equivalence[A, R],
-    h: Nat,
-    fuel: Nat,
-    ih: PartitionAt(dec, h, fuel),
-    xs: List[A],
-    bound: LE[length(xs), S(fuel)],
-    uniform: Uniform(dec, h, xs),
-) -> Divisible(h, length(xs)):
-    match xs:
-        case Nil():
-            return Pair(0, refl(0))
-        case Cons(a, tail):
-            return partition_step(dec, laws, h, fuel, ih, a, tail, bound, uniform)
-
-
-@theorem
-def partition_fuel[A: Type, R: Pi[A, lambda a: Pi[A, lambda b: Type]]](
-    dec: Pi[A, lambda a: Pi[A, lambda b: Decision[R(a)(b)]]],
-    laws: Equivalence[A, R],
-    h: Nat,
-    fuel: Nat,
-) -> PartitionAt(dec, h, fuel):
-    return nat_elim(
-        0,
-        lambda n: PartitionAt(dec, h, n),
-        lambda xs: lambda bound: lambda uniform: partition_zero(dec, h, xs, bound),
-        lambda n, ih: (
-            lambda xs: (
-                lambda bound: (
-                    lambda uniform: partition_succ(dec, laws, h, n, ih, xs, bound, uniform)
-                )
-            )
-        ),
-        fuel,
-    )
-
-
-@theorem
-def uniform_partition[A: Type, R: Pi[A, lambda a: Pi[A, lambda b: Type]]](
-    dec: Pi[A, lambda a: Pi[A, lambda b: Decision[R(a)(b)]]],
-    laws: Equivalence[A, R],
-    h: Nat,
-    xs: List[A],
-    uniform: Uniform(dec, h, xs),
-) -> Divisible(h, length(xs)):
-    return partition_fuel(dec, laws, h, length(xs))(xs)(le_refl(length(xs)))(uniform)
-
-
-# Every hypothesis below is group structure, a decidable subgroup, or an
-# exhaustive duplicate-free enumeration. No coset partition is supplied.
-@theorem
-def coset_equivalence[A: Type](
-    g: Group[A], h: Subgroup[A, g]
-) -> Equivalence[A, lambda a: lambda b: Related(g, h, a, b)]:
-    return Equivalence[A, lambda a: lambda b: Related(g, h, a, b)](
-        lambda a: related_refl(g, h, a),
-        lambda a: lambda b: lambda p: related_sym(g, h, a, b, p),
-        lambda a: lambda b: lambda c: lambda p: lambda q: related_trans(g, h, a, b, c, p, q),
-    )
-
-
-@theorem
-def enumeration_partition[A: Type, R: Pi[A, lambda a: Pi[A, lambda b: Type]]](
-    dec: Pi[A, lambda a: Pi[A, lambda b: Decision[R(a)(b)]]],
-    laws: Equivalence[A, R],
-    h: Nat,
-    xs: List[A],
-    sizes: Pi[A, lambda a: Eq[Nat, class_size(dec, a, xs), h]],
-) -> Divisible(h, length(xs)):
-    return uniform_partition(dec, laws, h, xs, lambda a: lambda member: sizes(a))
-
-
-@dependent
-def coset_decide[A: Type](
-    g: Group[A], h: Subgroup[A, g], a: A, b: A
-) -> Decision[Related(g, h, a, b)]:
-    return h.decide(g.op(g.inverse(a))(b))
-
-
-@theorem
-def lagrange[A: Type](
-    g: Group[A],
-    h: Subgroup[A, g],
-    finite: Enumeration[A],
-) -> Divisible(count(h.decide, finite.elements), length(finite.elements)):
-    r"""Lagrange's theorem: :math:`|H| \mid |G|` for a finite group ``G`` and subgroup ``H``."""
-    return enumeration_partition[A, lambda a: lambda b: Related(g, h, a, b)](
-        lambda a: lambda b: coset_decide(g, h, a, b),
-        coset_equivalence(g, h),
-        count(h.decide, finite.elements),
-        finite.elements,
-        lambda a: coset_size(g, h, finite, a),
-    )
-
-
-# Concrete instances: the two-element group, with its trivial and whole
-# subgroups. Both conclusions are applications of the general theorem.
 @inductive
 class Bit:
+    r"""The two elements used for the concrete group and nonzero elements of F_3."""
     @constructor
     def B0() -> Bit: ...
     @constructor
@@ -1148,6 +747,7 @@ class Bit:
 
 @dependent
 def flip(x: Bit) -> Bit:
+    r"""Exchange the two elements of Bit."""
     match x:
         case B0():
             return B1()
@@ -1157,6 +757,7 @@ def flip(x: Bit) -> Bit:
 
 @dependent
 def xor(x: Bit, y: Bit) -> Bit:
+    r"""The two-element group operation, with B0 as identity."""
     match x:
         case B0():
             return y
@@ -1166,6 +767,7 @@ def xor(x: Bit, y: Bit) -> Bit:
 
 @theorem
 def xor_assoc(x: Bit, y: Bit, z: Bit) -> Eq[Bit, xor(xor(x, y), z), xor(x, xor(y, z))]:
+    r"""Prove associativity of xor by case analysis on the three arguments."""
     match x:
         case B0():
             return refl(xor(y, z))
@@ -1183,6 +785,7 @@ def xor_assoc(x: Bit, y: Bit, z: Bit) -> Eq[Bit, xor(xor(x, y), z), xor(x, xor(y
 
 @theorem
 def xor_zero(x: Bit) -> Eq[Bit, xor(x, B0()), x]:
+    r"""Prove that B0 is a right identity by case analysis."""
     match x:
         case B0():
             return refl(B0())
@@ -1192,6 +795,7 @@ def xor_zero(x: Bit) -> Eq[Bit, xor(x, B0()), x]:
 
 @theorem
 def xor_self(x: Bit) -> Eq[Bit, xor(x, x), B0()]:
+    r"""Prove that each Bit is its own inverse by case analysis."""
     match x:
         case B0():
             return refl(B0())
@@ -1201,6 +805,7 @@ def xor_self(x: Bit) -> Eq[Bit, xor(x, x), B0()]:
 
 @dependent
 def bit_group() -> Group[Bit]:
+    r"""Construct the two-element group with xor and self-inverse elements."""
     return Group[Bit](
         B0(),
         lambda x: lambda y: xor(x, y),
@@ -1215,6 +820,7 @@ def bit_group() -> Group[Bit]:
 
 @dependent(decreases="x", motive_level=1)
 def IsZero(x: Bit) -> Type:
+    r"""A proposition inhabited for B0 and empty for B1."""
     match x:
         case B0():
             return Unit
@@ -1222,58 +828,21 @@ def IsZero(x: Bit) -> Type:
             return Empty
 
 
-@dependent
-def zero_decide(x: Bit) -> Decision[IsZero(x)]:
-    match x:
-        case B0():
-            return Yes(Unit_())
-        case B1():
-            return No(lambda p: p)
-
-
-@theorem
-def zero_closed(x: Bit, y: Bit, px: IsZero(x), py: IsZero(y)) -> IsZero(xor(x, y)):
-    match x:
-        case B0():
-            return py
-        case B1():
-            return absurd(IsZero(xor(B1(), y)), px)
-
-
-@dependent
-def trivial_subgroup() -> Subgroup[Bit, bit_group()]:
-    return Subgroup[Bit, bit_group()](
-        lambda x: IsZero(x),
-        lambda x: zero_decide(x),
-        Unit_(),
-        lambda x: lambda y: lambda px: lambda py: zero_closed(x, y, px, py),
-        lambda x: lambda px: px,
-    )
-
-
-@dependent
-def whole_subgroup() -> Subgroup[Bit, bit_group()]:
-    return Subgroup[Bit, bit_group()](
-        lambda x: Unit,
-        lambda x: Yes(Unit_()),
-        Unit_(),
-        lambda x: lambda y: lambda px: lambda py: Unit_(),
-        lambda x: lambda px: Unit_(),
-    )
-
-
 @theorem
 def zero_not_one(p: Eq[Bit, B0(), B1()]) -> Empty:
+    r"""Refute equality of the two constructors by transporting Unit into Empty."""
     return transport[Bit, B0(), B1()](lambda x: IsZero(x), p, Unit_())
 
 
 @dependent
 def bit_elements() -> List[Bit]:
+    r"""Enumerate the two elements once each, in B0, B1 order."""
     return Cons(B0(), Cons(B1(), Nil()))
 
 
 @theorem
 def bit_complete(x: Bit) -> Has(x, bit_elements()):
+    r"""Prove that every Bit occurs in bit_elements by case analysis."""
     match x:
         case B0():
             return Left(refl(B0()))
@@ -1283,6 +852,7 @@ def bit_complete(x: Bit) -> Has(x, bit_elements()):
 
 @dependent
 def bit_enumeration() -> Enumeration[Bit]:
+    r"""Package the two-element list with duplicate-freeness and completeness proofs."""
     return Enumeration[Bit](
         bit_elements(),
         Pair(
@@ -1295,11 +865,218 @@ def bit_enumeration() -> Enumeration[Bit]:
     )
 
 
-@theorem
-def lagrange_trivial_example() -> Divisible(1, 2):
-    return lagrange(bit_group(), trivial_subgroup(), bit_enumeration())
+@dependent(decreases="n")
+def power[A: Type](g: Group[A], a: A, n: Nat) -> A:
+    r"""Define a natural power by repeated left multiplication, with exponent zero the identity."""
+    match n:
+        case Z():
+            return g.unit
+        case S(k):
+            return g.op(a)(power(g, a, k))
+
+
+@dependent(decreases="xs")
+def product[A: Type, B: Type](g: Group[B], f: Pi[A, lambda _: B], xs: List[A]) -> B:
+    r"""Multiply mapped list entries in order, using the identity for the empty list."""
+    match xs:
+        case Nil():
+            return g.unit
+        case Cons(x, tail):
+            return g.op(f(x))(product(g, f, tail))
 
 
 @theorem
-def lagrange_whole_example() -> Divisible(2, 2):
-    return lagrange(bit_group(), whole_subgroup(), bit_enumeration())
+def swap_factors[A: Type](
+    g: Group[A], x: A, y: A, z: A, commute: Eq[A, g.op(x)(y), g.op(y)(x)]
+) -> Eq[A, g.op(x)(g.op(y)(z)), g.op(y)(g.op(x)(z))]:
+    r"""Exchange two commuting leading factors under a common right factor.
+
+    Reassociate, rewrite by commutativity, and reassociate back.
+    """
+    return trans(
+        sym(g.assoc(x)(y)(z)),
+        trans(cong(lambda t: g.op(t)(z), commute), g.assoc(y)(x)(z)),
+    )
+
+
+@theorem(decreases="r")
+def removal_product[A: Type, B: Type, x: A, ys: List[A], zs: List[A]](
+    g: Group[B],
+    f: Pi[A, lambda _: B],
+    commute: Pi[A, lambda u: Pi[A, lambda v: Eq[B, g.op(f(u))(f(v)), g.op(f(v))(f(u))]]],
+    r: Removal[A, x, ys, zs],
+) -> Eq[B, product(g, f, ys), g.op(f(x))(product(g, f, zs))]:
+    r"""Separate a removed factor from the product when mapped factors commute.
+
+    Induct on removal and move the removed factor past each preceding factor.
+    """
+    match r:
+        case RemoveHere(tail):
+            return refl(g.op(f(x))(product(g, f, tail)))
+        case RemoveThere(head, before, after, step):
+            return rewrite(
+                removal_product(g, f, commute, step),
+                swap_factors(g, f(head), f(x), product(g, f, after), commute(head)(x)),
+            )
+
+
+@dependent
+def SameProductAt[A: Type, B: Type](g: Group[B], f: Pi[A, lambda _: B], xs: List[A]) -> Type:
+    r"""State product invariance for duplicate-free lists with the same members."""
+    return Pi[
+        List[A],
+        lambda ys: Pi[
+            NoDup(xs),
+            lambda ux: Pi[
+                NoDup(ys),
+                lambda uy: Pi[
+                    Pi[A, lambda q: Pi[Has(q, xs), lambda _: Has(q, ys)]],
+                    lambda forward: Pi[
+                        Pi[A, lambda q: Pi[Has(q, ys), lambda _: Has(q, xs)]],
+                        lambda backward: Eq[B, product(g, f, xs), product(g, f, ys)],
+                    ],
+                ],
+            ],
+        ],
+    ]
+
+
+@theorem
+def same_product_nil[A: Type, B: Type](
+    g: Group[B],
+    f: Pi[A, lambda _: B],
+    ys: List[A],
+    backward: Pi[A, lambda x: Pi[Has(x, ys), lambda _: Empty]],
+) -> Eq[B, g.unit, product(g, f, ys)]:
+    r"""A list with no possible members has the identity as its product.
+
+    The nonempty case contradicts membership of its head.
+    """
+    match ys:
+        case Nil():
+            return refl(g.unit)
+        case Cons(y, tail):
+            return absurd(Eq[B, g.unit, product(g, f, Cons(y, tail))], backward(y)(Left(refl(y))))
+
+
+@theorem
+def same_product_step[A: Type, B: Type](
+    g: Group[B],
+    f: Pi[A, lambda _: B],
+    commute: Pi[A, lambda u: Pi[A, lambda v: Eq[B, g.op(f(u))(f(v)), g.op(f(v))(f(u))]]],
+    x: A,
+    tail: List[A],
+    ih: SameProductAt(g, f, tail),
+    ys: List[A],
+    ux: NoDup(Cons(x, tail)),
+    uy: NoDup(ys),
+    forward: Pi[A, lambda q: Pi[Has(q, Cons(x, tail)), lambda _: Has(q, ys)]],
+    backward: Pi[A, lambda q: Pi[Has(q, ys), lambda _: Has(q, Cons(x, tail))]],
+) -> Eq[B, product(g, f, Cons(x, tail)), product(g, f, ys)]:
+    r"""Prove the inductive step for product invariance under reordering.
+
+    Remove the matching head, use the tail hypothesis, and restore its factor.
+    """
+    found = find_removal(x, ys, forward(x)(Left(refl(x))))
+    removal = found.snd
+    proof = ih(found.fst)(ux.snd)(removal_nodup(removal, uy))(
+        lambda q: lambda member: tail_forward(removal, ux, forward, q, member)
+    )(lambda q: lambda member: tail_backward(removal, uy, backward, q, member))
+    return rewrite(proof, sym(removal_product(g, f, commute, removal)))
+
+
+@theorem
+def same_product[A: Type, B: Type](
+    g: Group[B],
+    f: Pi[A, lambda _: B],
+    commute: Pi[A, lambda u: Pi[A, lambda v: Eq[B, g.op(f(u))(f(v)), g.op(f(v))(f(u))]]],
+    xs: List[A],
+) -> SameProductAt(g, f, xs):
+    r"""Reordering a duplicate-free list preserves a product of commuting factors.
+
+    Induct on the first list and remove its head from the second.
+    """
+    return induct(
+        0,
+        xs,
+        lambda zs: SameProductAt(g, f, zs),
+        lambda ys: (
+            lambda ux: (
+                lambda uy: lambda forward: lambda backward: same_product_nil(g, f, ys, backward)
+            )
+        ),
+        lambda x, tail, ih: (
+            lambda ys: (
+                lambda ux: (
+                    lambda uy: (
+                        lambda forward: (
+                            lambda backward: same_product_step(
+                                g, f, commute, x, tail, ih, ys, ux, uy, forward, backward
+                            )
+                        )
+                    )
+                )
+            )
+        ),
+    )
+
+
+@theorem
+def bijection_product[A: Type, B: Type](
+    g: Group[B],
+    f: Pi[A, lambda _: B],
+    commute: Pi[A, lambda u: Pi[A, lambda v: Eq[B, g.op(f(u))(f(v)), g.op(f(v))(f(u))]]],
+    move: Pi[A, lambda _: A],
+    back: Pi[A, lambda _: A],
+    left: Pi[A, lambda x: Eq[A, back(move(x)), x]],
+    right: Pi[A, lambda x: Eq[A, move(back(x)), x]],
+    finite: Enumeration[A],
+) -> Eq[B, product(g, f, map(move, finite.elements)), product(g, f, finite.elements)]:
+    r"""A carrier bijection preserves the complete product of commuting mapped values.
+
+    Use the inverse to prove the mapped enumeration is complete and duplicate-free.
+    """
+    return same_product(g, f, commute, map(move, finite.elements))(finite.elements)(
+        map_nodup(
+            move,
+            lambda x: lambda y: lambda eq: inverse_injective(move, back, left, x, y, eq),
+            finite.elements,
+            finite.unique,
+        )
+    )(finite.unique)(lambda x: lambda member: finite.complete(x))(
+        lambda x: (
+            lambda member: transport[A, move(back(x)), x](
+                lambda q: Has(q, map(move, finite.elements)),
+                right(x),
+                map_has(move, back(x), finite.elements, finite.complete(back(x))),
+            )
+        )
+    )
+
+
+@theorem
+def cancel_product[A: Type](g: Group[A], x: A, y: A, eq: Eq[A, g.op(x)(y), y]) -> Eq[A, x, g.unit]:
+    r"""From x multiplied by y equaling y, derive that x is the identity.
+
+    Multiply on the right by the inverse of y and simplify using the group laws.
+    """
+    return trans(
+        sym(g.right_unit(x)),
+        trans(
+            cong(lambda t: g.op(x)(t), sym(g.right_inverse(y))),
+            trans(
+                sym(g.assoc(x)(y)(g.inverse(y))),
+                trans(cong(lambda t: g.op(t)(g.inverse(y)), eq), g.right_inverse(y)),
+            ),
+        ),
+    )
+
+
+@dependent
+def predecessor(n: Nat) -> Nat:
+    r"""Subtract one from a natural number, leaving zero unchanged."""
+    match n:
+        case Z():
+            return 0
+        case S(k):
+            return k

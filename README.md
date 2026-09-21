@@ -6,18 +6,22 @@ Rust製kernel、名前付きASTのelaborator、Ruffを使ったPython frontend�
 
 Pythonでの証明項・公理・ライブラリ利用は [証明言語のガイド](docs/proofs.md) を参照してください。[reverse_explicit.py](crates/deppy-python/examples/reverse_explicit.py) はRustに補題を追加せず、Pythonのeliminatorとライブラリだけで証明する例です。
 
-[lagrange.py](crates/deppy-python/examples/lagrange.py) は、有限群のラグランジュの定理を単一ファイルで証明する例です。群の公理を満たす演算、判定可能な部分群、全要素を重複なく列挙したリストを受け取り、`|G| = |H| × k` を満たす自然数 `k` の存在を示します。有限集合の分割と剰余類の要素数の補題も同じファイルに定義し、追加の公理なしで検査します。2元群の自明な部分群・全体部分群への適用例を含みます。
+3つの証明例は `crates/deppy-python/examples/proof_case/` に置き、有限列挙・群・有限積などの共有定義は [common.py](crates/deppy-python/examples/proof_case/common.py) にまとめています。
+
+[lagrange.py](crates/deppy-python/examples/proof_case/lagrange.py) は、有限群のラグランジュの定理を証明する例です。群の公理を満たす演算、判定可能な部分群、全要素を重複なく列挙したリストを受け取り、`|G| = |H| × k` を満たす自然数 `k` の存在を示します。有限集合の分割と剰余類の要素数の補題も定義し、追加の公理なしで検査します。2元群の自明な部分群・全体部分群への適用例を含みます。
 
 ```sh
-cargo run -p deppy-python --locked --offline -- crates/deppy-python/examples/lagrange.py
+cargo run -p deppy-python --locked --offline -- crates/deppy-python/examples/proof_case/lagrange.py
 ```
 
-[fermat.py](crates/deppy-python/examples/fermat.py) は上のラグランジュの定理を使い、有限体の非零元の乗法群について `a^(p−1) = 1` を証明します。入力は乗法群、非零元の全要素列挙、`p = 1 + 非零元の個数` の証拠です。元を含む可換な部分群を構成し、その要素の積とラグランジュの定理から、まず任意の有限群で `a^|G| = 1` を導きます。巡回部分群や元素の位数、累乗の結論は仮定しません。3元体の乗法群への適用例を含み、数学の定義と証明はPythonだけで実装しています。素数判定や整数の剰余演算から体を構成する部分は対象外です。
+[fermat.py](crates/deppy-python/examples/proof_case/fermat.py) は上のラグランジュの定理を使い、有限体の非零元の乗法群について `a^(p−1) = 1` を証明します。入力は乗法群、非零元の全要素列挙、`p = 1 + 非零元の個数` の証拠です。元を含む可換な部分群を構成し、その要素の積とラグランジュの定理から、まず任意の有限群で `a^|G| = 1` を導きます。巡回部分群や元素の位数、累乗の結論は仮定しません。3元体の乗法群への適用例を含み、数学の定義と証明はPythonだけで実装しています。素数判定や整数の剰余演算から体を構成する部分は対象外です。
 
 ```sh
-cargo run -p deppy-python --locked --offline -- --elaboration-steps 100000000 crates/deppy-python/examples/fermat.py
+cargo run -p deppy-python --locked --offline -- --elaboration-steps 100000000 crates/deppy-python/examples/proof_case/fermat.py
 python3 scripts/check_fermat.py
 ```
+
+[fermat2.py](crates/deppy-python/examples/proof_case/fermat2.py) は、非零元の積の並べ替えと消去から直接証明する版です。`common.py` の定義を使い、ラグランジュの定理には依存しません。
 
 `--elaboration-steps N` は各宣言の検査budgetを指定します。省略時は従来どおり1,000,000で、正の整数のみ受け付けます。budgetの増加は型検査や公理の扱いを変更しません。
 

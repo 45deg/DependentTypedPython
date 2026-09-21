@@ -1,6 +1,13 @@
 use super::{Binding, Exports};
 
 const BUILTINS: &[&str] = &[
+    "intro",
+    "exact",
+    "apply",
+    "rewrite",
+    "rewrite_in",
+    "cases",
+    "induction",
     "inductive",
     "constructor",
     "Index",
@@ -48,6 +55,15 @@ const BUILTINS: &[&str] = &[
 
 fn builtin_names(module: &str) -> &'static [&'static str] {
     match module {
+        "deppy.tactics" => &[
+            "intro",
+            "exact",
+            "apply",
+            "rewrite",
+            "rewrite_in",
+            "cases",
+            "induction",
+        ],
         "deppy._builtins" => BUILTINS,
         "deppy.core" => &[
             "dependent",
@@ -80,6 +96,7 @@ pub(super) fn builtin_exports(module: &str) -> Exports {
 
 pub(super) fn standard(name: &str) -> Option<&'static str> {
     match name {
+        "deppy.tactics" => Some(include_str!("../../stdlib/deppy/tactics.py")),
         "deppy.verified_loop" => Some(include_str!("../../stdlib/deppy/verified_loop.py")),
         "deppy.verified" => Some(include_str!("../../stdlib/deppy/verified.py")),
         "deppy.naturals" => Some(include_str!("../../stdlib/deppy/naturals.py")),

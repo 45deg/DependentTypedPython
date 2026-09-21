@@ -11,68 +11,59 @@ from __future__ import annotations
 # Lagrange gives |G| = |H| * k. Hence a^|G| = 1.
 #
 # cargo run -p deppy-python --locked --offline -- \
-#   --elaboration-steps 100000000 crates/deppy-python/examples/fermat.py
+#   --elaboration-steps 100000000 crates/deppy-python/examples/proof_case/fermat.py
 
-from deppy import dependent, theorem, Type, Pi, Sigma, Pair, Nat, Z, S, Eq, refl, induct, absurd
+from deppy import dependent, theorem, Type, Pi, Sigma, Pair, Nat, Z, S, Eq, refl, absurd
 from deppy.equality import sym, trans, cong, transport
+from deppy.tactics import rewrite
 from deppy.nat import add, mul
-from lagrange import (
-    Group,
-    Subgroup,
-    Enumeration,
-    count,
-    length,
-    lagrange,
-    List,
-    Nil,
-    Cons,
-    Has,
-    NoDup,
-    Empty,
-    Unit,
-    Unit_,
-    Not,
-    Left,
-    Right,
-    Decision,
-    Yes,
-    No,
-    Removal,
-    RemoveHere,
-    RemoveThere,
-    find_removal,
-    removal_nodup,
-    tail_forward,
-    tail_backward,
-    map,
-    map_nodup,
-    map_has,
-    inverse_injective,
-    left_recover,
-    right_recover,
-    either_elim,
-    decision_weight,
-    Bit,
+from common import (
     B0,
     B1,
-    bit_group,
+    Bit,
+    Cons,
+    Decision,
+    Enumeration,
+    Group,
+    Has,
+    Left,
+    List,
+    Nil,
+    No,
+    NoDup,
+    Not,
+    Right,
+    Subgroup,
+    Unit,
+    Unit_,
+    Yes,
+    bijection_product,
     bit_enumeration,
+    bit_group,
+    cancel_product,
+    count,
+    decision_weight,
+    either_elim,
+    left_recover,
+    length,
+    map,
+    power,
+    predecessor,
+    product,
+    right_recover,
+    swap_factors,
 )
-
-
-@dependent(decreases="n")
-def power[A: Type](g: Group[A], a: A, n: Nat) -> A:
-    match n:
-        case Z():
-            return g.unit
-        case S(k):
-            return g.op(a)(power(g, a, k))
+from lagrange import lagrange
 
 
 @theorem(decreases="n")
 def power_add[A: Type](
     g: Group[A], a: A, n: Nat, m: Nat
 ) -> Eq[A, power(g, a, add(n, m)), g.op(power(g, a, n))(power(g, a, m))]:
+    r"""Split a power at the sum of its exponents.
+
+    Induct on the first exponent and reassociate the successor case.
+    """
     match n:
         case Z():
             return sym(g.left_unit(power(g, a, m)))
@@ -87,6 +78,10 @@ def power_add[A: Type](
 def period_multiple[A: Type](
     g: Group[A], a: A, d: Nat, period: Eq[A, power(g, a, d), g.unit], k: Nat
 ) -> Eq[A, power(g, a, mul(d, k)), g.unit]:
+    r"""If a to the power d is the identity, so is a to any multiple d*k.
+
+    Induct on k, split the sum of exponents, and use the given period.
+    """
     match k:
         case Z():
             return refl(g.unit)
@@ -113,171 +108,20 @@ def lagrange_power[A: Type](
     a: A,
     period: Eq[A, power(g, a, count(h.decide, finite.elements)), g.unit],
 ) -> Eq[A, power(g, a, length(finite.elements)), g.unit]:
+    r"""Lift a proved subgroup period to the size of the ambient finite group.
+
+    Lagrange supplies the multiplier; rewrite the exponent and apply period_multiple.
+    """
     quotient = lagrange(g, h, finite)
-    return trans(
-        cong(lambda n: power(g, a, n), quotient.snd),
+    return rewrite(
+        quotient.snd,
         period_multiple(g, a, count(h.decide, finite.elements), period, quotient.fst),
-    )
-
-
-@dependent(decreases="xs")
-def product[A: Type, B: Type](g: Group[B], f: Pi[A, lambda _: B], xs: List[A]) -> B:
-    match xs:
-        case Nil():
-            return g.unit
-        case Cons(x, tail):
-            return g.op(f(x))(product(g, f, tail))
-
-
-@theorem
-def swap_factors[A: Type](
-    g: Group[A], x: A, y: A, z: A, commute: Eq[A, g.op(x)(y), g.op(y)(x)]
-) -> Eq[A, g.op(x)(g.op(y)(z)), g.op(y)(g.op(x)(z))]:
-    return trans(
-        sym(g.assoc(x)(y)(z)),
-        trans(cong(lambda t: g.op(t)(z), commute), g.assoc(y)(x)(z)),
-    )
-
-
-@theorem(decreases="r")
-def removal_product[A: Type, B: Type, x: A, ys: List[A], zs: List[A]](
-    g: Group[B],
-    f: Pi[A, lambda _: B],
-    commute: Pi[A, lambda u: Pi[A, lambda v: Eq[B, g.op(f(u))(f(v)), g.op(f(v))(f(u))]]],
-    r: Removal[A, x, ys, zs],
-) -> Eq[B, product(g, f, ys), g.op(f(x))(product(g, f, zs))]:
-    match r:
-        case RemoveHere(tail):
-            return refl(g.op(f(x))(product(g, f, tail)))
-        case RemoveThere(head, before, after, step):
-            return trans(
-                cong(lambda t: g.op(f(head))(t), removal_product(g, f, commute, step)),
-                swap_factors(g, f(head), f(x), product(g, f, after), commute(head)(x)),
-            )
-
-
-@dependent
-def SameProductAt[A: Type, B: Type](g: Group[B], f: Pi[A, lambda _: B], xs: List[A]) -> Type:
-    return Pi[
-        List[A],
-        lambda ys: Pi[
-            NoDup(xs),
-            lambda ux: Pi[
-                NoDup(ys),
-                lambda uy: Pi[
-                    Pi[A, lambda q: Pi[Has(q, xs), lambda _: Has(q, ys)]],
-                    lambda forward: Pi[
-                        Pi[A, lambda q: Pi[Has(q, ys), lambda _: Has(q, xs)]],
-                        lambda backward: Eq[B, product(g, f, xs), product(g, f, ys)],
-                    ],
-                ],
-            ],
-        ],
-    ]
-
-
-@theorem
-def same_product_nil[A: Type, B: Type](
-    g: Group[B],
-    f: Pi[A, lambda _: B],
-    ys: List[A],
-    backward: Pi[A, lambda x: Pi[Has(x, ys), lambda _: Empty]],
-) -> Eq[B, g.unit, product(g, f, ys)]:
-    match ys:
-        case Nil():
-            return refl(g.unit)
-        case Cons(y, tail):
-            return absurd(Eq[B, g.unit, product(g, f, Cons(y, tail))], backward(y)(Left(refl(y))))
-
-
-@theorem
-def same_product_step[A: Type, B: Type](
-    g: Group[B],
-    f: Pi[A, lambda _: B],
-    commute: Pi[A, lambda u: Pi[A, lambda v: Eq[B, g.op(f(u))(f(v)), g.op(f(v))(f(u))]]],
-    x: A,
-    tail: List[A],
-    ih: SameProductAt(g, f, tail),
-    ys: List[A],
-    ux: NoDup(Cons(x, tail)),
-    uy: NoDup(ys),
-    forward: Pi[A, lambda q: Pi[Has(q, Cons(x, tail)), lambda _: Has(q, ys)]],
-    backward: Pi[A, lambda q: Pi[Has(q, ys), lambda _: Has(q, Cons(x, tail))]],
-) -> Eq[B, product(g, f, Cons(x, tail)), product(g, f, ys)]:
-    found = find_removal(x, ys, forward(x)(Left(refl(x))))
-    removal = found.snd
-    proof = ih(found.fst)(ux.snd)(removal_nodup(removal, uy))(
-        lambda q: lambda member: tail_forward(removal, ux, forward, q, member)
-    )(lambda q: lambda member: tail_backward(removal, uy, backward, q, member))
-    return trans(
-        cong(lambda value: g.op(f(x))(value), proof),
-        sym(removal_product(g, f, commute, removal)),
-    )
-
-
-@theorem
-def same_product[A: Type, B: Type](
-    g: Group[B],
-    f: Pi[A, lambda _: B],
-    commute: Pi[A, lambda u: Pi[A, lambda v: Eq[B, g.op(f(u))(f(v)), g.op(f(v))(f(u))]]],
-    xs: List[A],
-) -> SameProductAt(g, f, xs):
-    return induct(
-        0,
-        xs,
-        lambda zs: SameProductAt(g, f, zs),
-        lambda ys: (
-            lambda ux: (
-                lambda uy: lambda forward: lambda backward: same_product_nil(g, f, ys, backward)
-            )
-        ),
-        lambda x, tail, ih: (
-            lambda ys: (
-                lambda ux: (
-                    lambda uy: (
-                        lambda forward: (
-                            lambda backward: same_product_step(
-                                g, f, commute, x, tail, ih, ys, ux, uy, forward, backward
-                            )
-                        )
-                    )
-                )
-            )
-        ),
-    )
-
-
-@theorem
-def bijection_product[A: Type, B: Type](
-    g: Group[B],
-    f: Pi[A, lambda _: B],
-    commute: Pi[A, lambda u: Pi[A, lambda v: Eq[B, g.op(f(u))(f(v)), g.op(f(v))(f(u))]]],
-    move: Pi[A, lambda _: A],
-    back: Pi[A, lambda _: A],
-    left: Pi[A, lambda x: Eq[A, back(move(x)), x]],
-    right: Pi[A, lambda x: Eq[A, move(back(x)), x]],
-    finite: Enumeration[A],
-) -> Eq[B, product(g, f, map(move, finite.elements)), product(g, f, finite.elements)]:
-    return same_product(g, f, commute, map(move, finite.elements))(finite.elements)(
-        map_nodup(
-            move,
-            lambda x: lambda y: lambda eq: inverse_injective(move, back, left, x, y, eq),
-            finite.elements,
-            finite.unique,
-        )
-    )(finite.unique)(lambda x: lambda member: finite.complete(x))(
-        lambda x: (
-            lambda member: transport[A, move(back(x)), x](
-                lambda q: Has(q, map(move, finite.elements)),
-                right(x),
-                map_has(move, back(x), finite.elements, finite.complete(back(x))),
-            )
-        )
     )
 
 
 @dependent
 def selected[A: Type, P: Type](g: Group[A], x: A, d: Decision[P]) -> A:
+    r"""Keep a selected element, replacing an unselected element by the group identity."""
     match d:
         case Yes(p):
             return x
@@ -289,6 +133,10 @@ def selected[A: Type, P: Type](g: Group[A], x: A, d: Decision[P]) -> A:
 def selected_yes[A: Type, P: Type](
     g: Group[A], x: A, d: Decision[P], p: P
 ) -> Eq[A, selected(g, x, d), x]:
+    r"""A proof of the predicate forces selection of the original element.
+
+    The negative decision branch is contradictory.
+    """
     match d:
         case Yes(q):
             return refl(x)
@@ -300,6 +148,10 @@ def selected_yes[A: Type, P: Type](
 def selected_no[A: Type, P: Type](
     g: Group[A], x: A, d: Decision[P], np: Not(P)
 ) -> Eq[A, selected(g, x, d), g.unit]:
+    r"""A refutation forces selection of the group identity.
+
+    The positive decision branch is contradictory.
+    """
     match d:
         case Yes(p):
             return absurd(Eq[A, x, g.unit], np(p))
@@ -311,6 +163,7 @@ def selected_no[A: Type, P: Type](
 def selected_member[A: Type](
     g: Group[A], h: Subgroup[A, g], x: A, d: Decision[h.member(x)]
 ) -> h.member(selected(g, x, d)):
+    r"""The selected value lies in H, whether it is the original member or the identity."""
     match d:
         case Yes(p):
             return p
@@ -338,6 +191,10 @@ def selected_commute[A: Type](
     g.op(selected(g, x, h.decide(x)))(selected(g, y, h.decide(y))),
     g.op(selected(g, y, h.decide(y)))(selected(g, x, h.decide(x))),
 ]:
+    r"""Values selected into an abelian subgroup commute.
+
+    Apply subgroup commutativity to their selection membership proofs.
+    """
     return commute(selected(g, x, h.decide(x)))(selected(g, y, h.decide(y)))(
         selected_member(g, h, x, h.decide(x))
     )(selected_member(g, h, y, h.decide(y)))
@@ -351,6 +208,10 @@ def commute_power[A: Type](
     commute: Eq[A, g.op(x)(a), g.op(a)(x)],
     n: Nat,
 ) -> Eq[A, g.op(x)(power(g, a, n)), g.op(power(g, a, n))(x)]:
+    r"""An element commuting with a also commutes with every natural power of a.
+
+    Induct on the exponent and exchange successive factors using associativity.
+    """
     match n:
         case Z():
             return trans(g.right_unit(x), sym(g.left_unit(x)))
@@ -373,6 +234,10 @@ def left_membership[A: Type](
     x: A,
     moved: h.member(g.op(a)(x)),
 ) -> h.member(x):
+    r"""If a and a*x lie in H, then x lies in H.
+
+    Multiply by inverse(a), use subgroup closure, and cancel a.
+    """
     return transport[A, g.op(g.inverse(a))(g.op(a)(x)), x](
         h.member,
         left_recover(g, a, x),
@@ -396,6 +261,10 @@ def scalar_step[A: Type](
     g.op(selected(g, g.op(a)(x), h.decide(g.op(a)(x))))(g.op(power(g, a, n))(z)),
     g.op(power(g, a, add(decision_weight(d), n)))(g.op(selected(g, x, d))(z)),
 ]:
+    r"""Extract one factor of a exactly when the current entry belongs to H.
+
+    Split membership, using commutation in the positive case and cancellation in the negative.
+    """
     match d:
         case Yes(px):
             return trans(
@@ -447,6 +316,10 @@ def product_translate[A: Type](
     product(g, lambda x: selected(g, x, h.decide(x)), map(lambda x: g.op(a)(x), xs)),
     g.op(power(g, a, count(h.decide, xs)))(product(g, lambda x: selected(g, x, h.decide(x)), xs)),
 ]:
+    r"""Translating a list by a extracts a to the number of subgroup members.
+
+    Assume a lies in H and commutes with its members; induct using scalar_step.
+    """
     match xs:
         case Nil():
             return sym(g.left_unit(g.unit))
@@ -471,20 +344,6 @@ def product_translate[A: Type](
 
 
 @theorem
-def cancel_product[A: Type](g: Group[A], x: A, y: A, eq: Eq[A, g.op(x)(y), y]) -> Eq[A, x, g.unit]:
-    return trans(
-        sym(g.right_unit(x)),
-        trans(
-            cong(lambda t: g.op(x)(t), sym(g.right_inverse(y))),
-            trans(
-                sym(g.assoc(x)(y)(g.inverse(y))),
-                trans(cong(lambda t: g.op(t)(g.inverse(y)), eq), g.right_inverse(y)),
-            ),
-        ),
-    )
-
-
-@theorem
 def abelian_subgroup_period[A: Type](
     g: Group[A],
     h: Subgroup[A, g],
@@ -501,6 +360,10 @@ def abelian_subgroup_period[A: Type](
     a: A,
     pa: h.member(a),
 ) -> Eq[A, power(g, a, count(h.decide, finite.elements)), g.unit]:
+    r"""Every element of a finite abelian subgroup satisfies a to the size of H = e.
+
+    Translation permutes the selected product; extract the power and cancel the product.
+    """
     invariant = bijection_product(
         g,
         lambda x: selected(g, x, h.decide(x)),
@@ -532,6 +395,10 @@ def equality_in_list[A: Type](
     mx: Has(x, xs),
     my: Has(y, xs),
 ) -> Decision[Eq[A, x, y]]:
+    r"""Decide equality of two members of a duplicate-free list.
+
+    Follow both membership proofs; duplicate-freeness excludes unequal positions.
+    """
     match xs:
         case Nil():
             return absurd(Decision[Eq[A, x, y]], mx)
@@ -563,6 +430,10 @@ def equality_in_list[A: Type](
 
 @theorem
 def equality_decide[A: Type](finite: Enumeration[A], x: A, y: A) -> Decision[Eq[A, x, y]]:
+    r"""Derive decidable equality from a complete duplicate-free enumeration.
+
+    Completeness supplies the two membership proofs for equality_in_list.
+    """
     return equality_in_list(
         finite.elements, finite.unique, x, y, finite.complete(x), finite.complete(y)
     )
@@ -570,6 +441,7 @@ def equality_decide[A: Type](finite: Enumeration[A], x: A, y: A) -> Decision[Eq[
 
 @dependent(decreases="xs", motive_level=1)
 def All[A: Type, P: Pi[A, lambda _: Type]](xs: List[A]) -> Type:
+    r"""Store a proof of P for every list entry as nested dependent pairs."""
     match xs:
         case Nil():
             return Unit
@@ -581,6 +453,7 @@ def All[A: Type, P: Pi[A, lambda _: Type]](xs: List[A]) -> Type:
 def decide_pair[P: Type, Q: Type](
     dp: Decision[P], dq: Decision[Q]
 ) -> Decision[Sigma[P, lambda _: Q]]:
+    r"""Decide a conjunction from decisions of its two propositions."""
     match dp:
         case Yes(p):
             match dq:
@@ -597,6 +470,7 @@ def all_decide[A: Type, P: Pi[A, lambda _: Type]](
     dec: Pi[A, lambda x: Decision[P(x)]],
     xs: List[A],
 ) -> Decision[All[A, P](xs)]:
+    r"""Decide a list-wide proposition by combining the decisions for its entries."""
     match xs:
         case Nil():
             return Yes(Unit_())
@@ -609,6 +483,7 @@ def all_intro[A: Type, P: Pi[A, lambda _: Type]](
     each: Pi[A, lambda x: P(x)],
     xs: List[A],
 ) -> All[A, P](xs):
+    r"""Build list-wide evidence from a proof available for every carrier element."""
     match xs:
         case Nil():
             return Unit_()
@@ -623,6 +498,10 @@ def all_get[A: Type, P: Pi[A, lambda _: Type]](
     x: A,
     member: Has(x, xs),
 ) -> P(x):
+    r"""Extract a proof for a member from list-wide evidence.
+
+    Follow membership and transport the head proof along its equality.
+    """
     match xs:
         case Nil():
             return absurd(P(x), member)
@@ -638,6 +517,10 @@ def all_get[A: Type, P: Pi[A, lambda _: Type]](
 def implication_decide[P: Type, Q: Type](
     dp: Decision[P], dq: Decision[Q]
 ) -> Decision[Pi[P, lambda _: Q]]:
+    r"""Decide implication when both its premise and conclusion are decidable.
+
+    A refuted premise gives a vacuous function; a proved premise tests the conclusion.
+    """
     match dp:
         case Yes(p):
             match dq:
@@ -651,6 +534,7 @@ def implication_decide[P: Type, Q: Type](
 
 @dependent
 def Commutes[A: Type](g: Group[A], x: A, y: A) -> Type:
+    r"""Express equality of the two orders of multiplication."""
     return Eq[A, g.op(x)(y), g.op(y)(x)]
 
 
@@ -658,6 +542,10 @@ def Commutes[A: Type](g: Group[A], x: A, y: A) -> Type:
 # This avoids assuming a cyclic-subgroup enumeration or an element order.
 @dependent
 def Central[A: Type](g: Group[A], finite: Enumeration[A], a: A, x: A) -> Type:
+    r"""Express membership in the center of the centralizer of a.
+
+    Require commutation with a and with every enumerated element commuting with a.
+    """
     return Sigma[
         Commutes(g, x, a),
         lambda _: All[A, lambda y: Pi[Commutes(g, y, a), lambda _: Commutes(g, x, y)]](
@@ -670,6 +558,10 @@ def Central[A: Type](g: Group[A], finite: Enumeration[A], a: A, x: A) -> Type:
 def central_decide[A: Type](
     g: Group[A], finite: Enumeration[A], a: A, x: A
 ) -> Decision[Central(g, finite, a, x)]:
+    r"""Decide membership in the center of the centralizer using finite enumeration.
+
+    Combine decidable equality, implication, and the list-wide decision procedure.
+    """
     return decide_pair(
         equality_decide(finite, g.op(x)(a), g.op(a)(x)),
         all_decide[A, lambda y: Pi[Commutes(g, y, a), lambda _: Commutes(g, x, y)]](
@@ -684,6 +576,7 @@ def central_decide[A: Type](
 
 @theorem
 def commute_unit[A: Type](g: Group[A], x: A) -> Commutes(g, g.unit, x):
+    r"""The group identity commutes with every element by the two identity laws."""
     return trans(g.left_unit(x), sym(g.right_unit(x)))
 
 
@@ -696,6 +589,10 @@ def commute_mul[A: Type](
     px: Commutes(g, x, z),
     py: Commutes(g, y, z),
 ) -> Commutes(g, g.op(x)(y), z):
+    r"""The product of two elements commuting with z also commutes with z.
+
+    Reassociate and move z past each factor.
+    """
     return trans[A, g.op(g.op(x)(y))(z), g.op(x)(g.op(y)(z)), g.op(z)(g.op(x)(y))](
         g.assoc(x)(y)(z),
         trans(
@@ -709,6 +606,10 @@ def commute_mul[A: Type](
 def commute_inverse[A: Type](g: Group[A], x: A, z: A, px: Commutes(g, x, z)) -> Commutes(
     g, g.inverse(x), z
 ):
+    r"""An inverse commutes with z whenever the original element does.
+
+    Insert an inverse pair, exchange the commuting factors, and cancel.
+    """
     return trans(
         cong(lambda t: g.op(g.inverse(x))(t), sym(g.right_unit(z))),
         trans(
@@ -731,6 +632,10 @@ def commute_inverse[A: Type](g: Group[A], x: A, z: A, px: Commutes(g, x, z)) -> 
 def central_unit[A: Type](g: Group[A], finite: Enumeration[A], a: A) -> Central(
     g, finite, a, g.unit
 ):
+    r"""The identity lies in the center of the centralizer.
+
+    Use its commutation law for a and every enumerated element.
+    """
     return Pair(
         commute_unit(g, a),
         all_intro[A, lambda y: Pi[Commutes(g, y, a), lambda _: Commutes(g, g.unit, y)]](
@@ -749,6 +654,10 @@ def central_get[A: Type](
     y: A,
     py: Commutes(g, y, a),
 ) -> Commutes(g, x, y):
+    r"""A central element commutes with any element commuting with a.
+
+    Completeness locates that element in the stored list-wide evidence.
+    """
     return all_get[A, lambda y: Pi[Commutes(g, y, a), lambda _: Commutes(g, x, y)]](
         finite.elements, px.snd, y, finite.complete(y)
     )(py)
@@ -764,6 +673,10 @@ def central_mul[A: Type](
     px: Central(g, finite, a, x),
     py: Central(g, finite, a, y),
 ) -> Central(g, finite, a, g.op(x)(y)):
+    r"""The center of the centralizer is closed under multiplication.
+
+    Apply commute_mul to a and to each element of its centralizer.
+    """
     return Pair(
         commute_mul(g, x, y, a, px.fst, py.fst),
         all_intro[A, lambda z: Pi[Commutes(g, z, a), lambda _: Commutes(g, g.op(x)(y), z)]](
@@ -786,6 +699,10 @@ def central_mul[A: Type](
 def central_inverse[A: Type](
     g: Group[A], finite: Enumeration[A], a: A, x: A, px: Central(g, finite, a, x)
 ) -> Central(g, finite, a, g.inverse(x)):
+    r"""The center of the centralizer is closed under inverses.
+
+    Apply commute_inverse to both parts of its membership evidence.
+    """
     return Pair(
         commute_inverse(g, x, a, px.fst),
         all_intro[A, lambda z: Pi[Commutes(g, z, a), lambda _: Commutes(g, g.inverse(x), z)]](
@@ -797,6 +714,10 @@ def central_inverse[A: Type](
 
 @theorem
 def central_self[A: Type](g: Group[A], finite: Enumeration[A], a: A) -> Central(g, finite, a, a):
+    r"""The element a belongs to the center of its own centralizer.
+
+    Self-commutation is reflexive and the remaining requirements follow by symmetry.
+    """
     return Pair(
         refl(g.op(a)(a)),
         all_intro[A, lambda y: Pi[Commutes(g, y, a), lambda _: Commutes(g, a, y)]](
@@ -807,6 +728,10 @@ def central_self[A: Type](g: Group[A], finite: Enumeration[A], a: A) -> Central(
 
 @dependent
 def central_subgroup[A: Type](g: Group[A], finite: Enumeration[A], a: A) -> Subgroup[A, g]:
+    r"""Construct the decidable center-of-centralizer subgroup containing a.
+
+    Package its membership decision, identity, multiplication, and inverse proofs.
+    """
     return Subgroup[A, g](
         lambda x: Central(g, finite, a, x),
         lambda x: central_decide(g, finite, a, x),
@@ -820,7 +745,11 @@ def central_subgroup[A: Type](g: Group[A], finite: Enumeration[A], a: A) -> Subg
 def finite_group_power[A: Type](
     g: Group[A], finite: Enumeration[A], a: A
 ) -> Eq[A, power(g, a, length(finite.elements)), g.unit]:
-    r"""Finite-group power theorem: :math:`a^{|G|}=e` for every :math:`a\in G`."""
+    r"""Finite-group power theorem: :math:`a^{|G|}=e` for every :math:`a\in G`.
+
+    Use the center of the centralizer as an abelian subgroup containing a.
+    Its product proof gives a subgroup period, which Lagrange lifts to the group size.
+    """
     h = central_subgroup(g, finite, a)
     period = abelian_subgroup_period(
         g,
@@ -831,15 +760,6 @@ def finite_group_power[A: Type](
         central_self(g, finite, a),
     )
     return lagrange_power(g, h, finite, a, period)
-
-
-@dependent
-def predecessor(n: Nat) -> Nat:
-    match n:
-        case Z():
-            return 0
-        case S(k):
-            return k
 
 
 # This interface represents F_p^*: zero is not in the carrier A. The field's
@@ -855,22 +775,28 @@ def fermat_little[A: Type](
     r"""Fermat's little theorem in multiplicative-group form.
 
     If :math:`p=1+|G|`, then :math:`a^{p-1}=1` for every nonzero ``a``.
+
+    Rewrite the supplied cardinality equality in the exponent and apply
+    finite_group_power; no construction of a field or primality proof is assumed.
     """
-    exponent = cong(lambda n: predecessor(n), cardinality)
-    return trans(
-        cong(lambda n: power(multiplication, a, n), sym(exponent)),
+    return rewrite(
+        sym(cardinality),
         finite_group_power(multiplication, nonzero, a),
     )
 
 
 # F_3^* has two elements: B0 represents 1, B1 represents -1 = 2.
-# Its multiplication table is the two-element group checked in lagrange.py.
+# Its multiplication table is the two-element group checked in common.py.
 @theorem
 def fermat_three(a: Bit) -> Eq[Bit, power(bit_group(), a, 2), B0()]:
-    r"""Fermat's theorem for the nonzero elements of :math:`\mathbf F_3`."""
+    r"""Fermat's theorem for the nonzero elements of :math:`\mathbf F_3`.
+
+    Instantiate the group theorem with bit_group and its complete enumeration.
+    """
     return fermat_little(bit_group(), bit_enumeration(), 3, refl(3), a)
 
 
 @theorem
 def fermat_three_two() -> Eq[Bit, power(bit_group(), B1(), 2), B0()]:
+    r"""Specialize the F_3 theorem to B1, which represents the nonzero element 2."""
     return fermat_three(B1())

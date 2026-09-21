@@ -7,6 +7,7 @@ mod cases;
 mod core;
 mod infer;
 mod state;
+mod tactics;
 mod term_ops;
 mod unify;
 
