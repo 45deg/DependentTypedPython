@@ -67,6 +67,23 @@ struct State {
 }
 
 impl Lowerer {
+    fn refinement<'a>(
+        &self,
+        annotation: &'a Expr,
+    ) -> Result<Option<(&'a Expr, &'a Expr)>, Diagnostic> {
+        if let Expr::Subscript(subscript) = annotation {
+            if self.builtin(&subscript.value, &Scope::default()) == Some("Refined") {
+                if let Expr::Tuple(arguments) = subscript.slice.as_ref() {
+                    if arguments.elts.len() == 2 {
+                        return Ok(Some((&arguments.elts[0], &arguments.elts[1])));
+                    }
+                }
+                return Err(error(annotation, "use Refined[base, predicate]"));
+            }
+        }
+        Ok(None)
+    }
+
     fn scalar(&self, e: &Expr) -> Result<Scalar, Diagnostic> {
         if self.builtin(e, &Scope::default()) == Some("Nat") {
             return Ok(Scalar::Nat);
@@ -373,38 +390,48 @@ impl Lowerer {
             .transpose()?;
         let mut state = State::default();
         let mut parameters = vec![];
+        let mut refinements = vec![];
+        // Parameter predicates may capture earlier entry arguments, never a
+        // later argument (even if a global has the same spelling).
+        state.scope.assigned.extend(
+            f.parameters
+                .posonlyargs
+                .iter()
+                .chain(&f.parameters.args)
+                .map(|p| p.parameter.name.to_string()),
+        );
         for parameter in f.parameters.posonlyargs.iter().chain(&f.parameters.args) {
             let p = &parameter.parameter;
-            let ty = self.scalar(
-                p.annotation
-                    .as_deref()
-                    .ok_or_else(|| error(p, "verified parameter annotation required"))?,
-            )?;
+            let annotation = p
+                .annotation
+                .as_deref()
+                .ok_or_else(|| error(p, "verified parameter annotation required"))?;
+            let (ty, predicate) = if let Some((base, predicate)) = self.refinement(annotation)? {
+                let ty = self.scalar(base)?;
+                let predicate = self.expr(predicate, &state.scope)?.ann(E::pi(
+                    "$value",
+                    Plicity::Explicit,
+                    ty.expr(),
+                    E::Universe(0),
+                ));
+                (ty, Some(predicate))
+            } else {
+                (self.scalar(annotation)?, None)
+            };
             let name = p.name.to_string();
             self.bind(&mut state.scope, &name, p)?;
             state.types.insert(name.clone(), ty);
 
+            if let Some(predicate) = predicate {
+                refinements.push(predicate.app(E::name(&name)));
+            }
             parameters.push((name, ty));
         }
         let annotation = f
             .returns
             .as_deref()
             .ok_or_else(|| error(f, "verified return annotation required"))?;
-        let refined = if let Expr::Subscript(subscript) = annotation {
-            if self.builtin(&subscript.value, &Scope::default()) == Some("Refined") {
-                let Expr::Tuple(arguments) = subscript.slice.as_ref() else {
-                    return Err(error(annotation, "use Refined[base, predicate]"));
-                };
-                if arguments.elts.len() != 2 {
-                    return Err(error(annotation, "use Refined[base, predicate]"));
-                }
-                Some((&arguments.elts[0], &arguments.elts[1]))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+        let refined = self.refinement(annotation)?;
         let (result, mut post) = if let Some((base, predicate)) = refined {
             if explicit_post.is_some() {
                 return Err(error(
@@ -468,7 +495,15 @@ impl Lowerer {
             post = post.app(E::name(name));
             pre = pre.map(|pre| pre.app(E::name(name)));
         }
-        let pre = pre.unwrap_or_else(|| E::name("deppy.data.Unit"));
+        // One condition is used directly. Multiple conditions form a right-
+        // associated Sigma, in parameter order, with explicit requires last.
+        refinements.extend(pre);
+        let mut pre = refinements
+            .pop()
+            .unwrap_or_else(|| E::name("deppy.data.Unit"));
+        for condition in refinements.into_iter().rev() {
+            pre = E::sigma("$refinement", condition, pre);
+        }
         if loops::contains_loop(&commands) {
             return self.verified_loop(
                 f, &commands, state, result, parameters, pre, post, witness, named,

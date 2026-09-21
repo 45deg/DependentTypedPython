@@ -22,7 +22,7 @@ def twice(n: Nat) -> Nat:
 
 ## 仕様と証明
 
-- `requires` は入力引数を宣言順に受け取り、`Type` の命題を返す。省略時は `deppy.data.Unit`。
+- `requires` は入力引数を宣言順に受け取り、`Type` の命題を返す。Refined引数の条件と合わせて事前条件とし、どちらもなければ `deppy.data.Unit`。
 - `ensures` は入力引数、その後に戻り値を受け取り、`Type` の命題を返す。戻り値を `Refined` で指定する場合は省略する。
 - `proof` は入力引数、その後に事前条件の証拠を受け取り、生成VCを証明する。`proofs` とどちらか一方を指定する。
   ループなしでは事後条件を直接証明し、ループがある場合は後述の四つのVCの組を返す。
@@ -53,9 +53,63 @@ cargo run -p deppy-python --locked --offline -- --goals path/to/proof.py
 述語の `n` は変わらない。述語を既存の事後条件へ変換し、同じVCとkernelで検査する。
 `proof` または `proofs` で証明を指定し、`requires` と `verified_spec` もそのまま使える。
 
-現時点では `@verified` の戻り値専用で、基底型はNat／Boolに限る。
+`@verified` の引数と戻り値で使え、基底型はNat／Boolに限る。
 `ensures` との併記は拒否する。公開関数は基底型の値を返し、Σの包みを作らない。
-引数・局所変数のrefinementやsubtypingは未対応である。
+局所変数のrefinementやsubtypingは未対応である。
+
+## Refined引数
+
+`n: Refined[Nat, lambda value: Eq[Nat, value, 0]]` は、基底型Natの引数と
+入口条件 `Eq[Nat, n, 0]` に変換する。述語は値を一つ受け取って `Type` の命題を返す。
+先行する引数の入口値も参照できる。例えば
+`limit: Nat, n: Refined[Nat, lambda value: LE(value, limit)]` と書ける。
+自分自身の引数名と後続引数は述語の外部変数として参照できない。自分の値は述語の引数で受け取る。
+本文での再代入は入口条件を変更しない。
+
+引数の条件と明示的な `requires` を合わせたものが、関数の事前条件となる。
+既存の `proof`／`proofs` callbackの `pre` と、`verified_spec` の最後の引数に使う証拠は次の形式である。
+
+| 条件 | 事前条件と証拠 |
+|---|---|
+| 条件なし | `Unit` と `MkUnit()` |
+| 条件が一つ | その命題と証拠を直接使う |
+| 条件が二つ | `Sigma[P, lambda _: Q]` と `Pair(p, q)` |
+| 条件が三つ | `Sigma[P, lambda _: Sigma[Q, lambda _: R]]` と `Pair(p, Pair(q, r))` |
+
+条件はRefined引数の宣言順に並べ、明示的な `requires` があれば最後へ加える。
+省略した `requires` のために余分なUnitを追加することはない。
+引数が基底型だけの既存関数は、証拠の形式が変わらない。
+
+[`examples/refined_arguments.py`](../crates/deppy-python/examples/refined_arguments.py) は、
+`n = 0` を要求して `result = 1` を保証する関数と、`n = 1` を要求して `result = 2` を
+保証する関数を合成する。各関数は `rewrite` で入力の証拠を使い、呼び出し元は次のtacticでVCを解く。
+
+```python
+@verified(proofs={
+    "call.first.requires": lambda n, pre: exact(pre),
+    "call.second.requires": lambda n, pre, first, first_spec: exact(first_spec),
+    "return": lambda n, pre, first, first_spec, second, second_spec: exact(second_spec),
+})
+def composed(n: Refined[Nat, lambda value: Eq[Nat, value, 0]]) -> Refined[Nat, lambda result: Eq[Nat, result, 2]]:
+    first = zero_to_one(n)
+    second = one_to_two(first)
+    return second
+```
+
+最初の証明項目を削除すると `composed.call.first.requires` が名前付きgoalとして表示される。
+`exact(pre)` を戻すと、その条件が入口の仮定から証明される。
+呼び出し元を単なる `n: Nat` に変えた場合は、入口に `n = 0` の証拠がないため
+同じtacticでは解けない。未解決goalを残した関数は検証済みとして登録しない。
+
+```sh
+cargo run -p deppy-python --locked --offline -- crates/deppy-python/examples/refined_arguments.py
+```
+
+単一whileを持つ関数でもRefined引数を宣言でき、まとめた証拠を各ループVCの `pre` で使える。
+契約合成の呼び出し元をループなしに限定する制約は変わらない。
+この機能はverifiedの契約注釈であり、一般のΣ型の値や暗黙のsubtypingではない。
+公開Core関数の引数は基底型のままで、保証を利用するには事前条件の証拠が必要となる。
+CPython実行時の引数検査を追加する機能ではない。
 
 ## 契約による関数の合成と名前付きVC
 
@@ -122,7 +176,7 @@ importの別名と再exportでも契約を保持し、公理への依存を合�
 この段階では、契約合成する呼び出し元にwhileは置けない。条件式・演算の途中・引数・
 同時代入の中にあるverified呼び出しは、先に個別の代入へ分ける必要がある。
 `proof=` だけでverified関数を通常の純粋関数として呼び出す経路も拒否する。
-引数のrefinement型、自動証明探索、heap更新は今回の範囲に含めない。
+局所変数のrefinement型、refinement subtyping、自動証明探索、heap更新は未対応である。
 
 ## HIRの意味論とVC
 
@@ -270,7 +324,7 @@ def twice_spec(n: Nat) -> Eq[Nat, twice(n), add(n, n)]:
 ```
 
 `verified_spec(f, 引数..., 事前条件の証拠)` は、検査済みの仕様定理を適用する静的な構文である。
-最後の引数は `requires` の証拠。省略したrequiresはUnitなので `MkUnit()` を渡す。
+最後の引数は、Refined引数の条件と `requires` を合わせた事前条件の証拠。どちらもない場合はUnitなので `MkUnit()` を渡す。
 例えば `advance` の事前条件が `LT(n, limit)` なら、その証拠が必要であり、Unitでは代用できない。
 引数を途中まで適用した場合は、残りの引数を受け取る証明関数となる。
 

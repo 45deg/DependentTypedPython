@@ -44,19 +44,24 @@ Verified specification reuse
 ``verified_spec(function, *inputs, precondition_proof)`` is compiler-provided
 syntax exported by ``deppy.verified``. It applies the opaque, kernel-checked
 theorem associated with a statically resolved verified function. Its result has
-type ``ensures(inputs, function(inputs))``. An omitted ``requires`` means
-``Unit`` and therefore requires ``MkUnit()`` as the final argument. User axiom
+type ``ensures(inputs, function(inputs))``. When there are no refined parameters and no explicit ``requires``, the
+precondition is ``Unit`` and the final argument is ``MkUnit()``. User axiom
 dependencies remain visible when the theorem is reused.
 
 Refined returns and Fibonacci
 -----------------------------
 
-``Refined[A, predicate]`` is compiler-provided return annotation syntax for
+``Refined[A, predicate]`` is compiler-provided parameter and return annotation syntax for
 ``@verified``, exported by ``deppy.verified``. ``A`` is ``Nat`` or ``Bool``;
-the predicate receives the result and may capture entry arguments. It replaces
-``ensures`` and requires the same checked VC proof. The function returns an
+a return predicate receives the result and may capture entry arguments. It
+replaces ``ensures`` and requires the same checked VC proof. The function returns an
 ordinary base value; its refinement theorem is available through ``verified_spec``.
-Parameter refinements, local refinements and subtyping are not supported.
+Parameter predicates receive the argument value and may capture earlier entry
+arguments. Their conditions, in parameter order, followed by an explicit
+``requires`` are combined into a right-associated Sigma. A single condition is
+used directly; no conditions means ``Unit``. The combined evidence is the
+``pre`` argument of proof callbacks and the final argument of ``verified_spec``.
+Local refinements and subtyping are not supported.
 
 .. deppy-api:: crates/deppy-python/examples/fibonacci.py
 
@@ -73,3 +78,12 @@ Single loops separately support ``loop.init``, ``loop.preserve``,
 ``loop.decrease`` and ``loop.exit`` proof entries.
 
 .. deppy-api:: crates/deppy-python/examples/verified_composition.py
+
+Refined argument composition
+----------------------------
+
+Missing call proofs produce named precondition goals. ``exact`` can use an
+entry refinement or an earlier call's postcondition; ``rewrite`` can transform
+the goal using that evidence. Every generated proof is kernel-checked.
+
+.. deppy-api:: crates/deppy-python/examples/refined_arguments.py

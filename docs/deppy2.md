@@ -85,7 +85,7 @@ VCは別の論理式やsolver固有の式で完結させず、dependent coreの�
 
 ## `verified_spec`による接続
 
-検証済み関数の仕様は、`verified_spec(f, 引数..., 事前条件の証拠)` で後続の `@dependent` / `@theorem` から利用できる。戻り値専用の `Refined[Nat/Bool, predicate]` も事後条件へ変換する。
+検証済み関数の仕様は、`verified_spec(f, 引数..., 事前条件の証拠)` で後続の `@dependent` / `@theorem` から利用できる。`Refined[Nat/Bool, predicate]` は戻り値では事後条件へ、引数では事前条件へ変換する。引数の条件と明示的な `requires` の証拠は宣言順のΣでまとめ、呼び出し時に検査する（条件が一つなら直接使う）。
 
 関数登録後に `requires(inputs) → ensures(inputs, f(inputs))` を型とするcompanion theoremをkernelで再検査し、opaqueとして登録する。関数本体のVC証明を使い、ループでは標準ライブラリの `loop_correct` による停止性と事後条件の証明を保持する。無検査の公理は追加しない。
 

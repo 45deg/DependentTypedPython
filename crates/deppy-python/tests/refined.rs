@@ -90,10 +90,6 @@ fn malformed_refinements_and_false_proofs_are_rejected() {
         source.replace("@verified(", "@verified(ensures=lambda n, result: Unit, "),
         source.replace("proof=lambda n, pre: refl(n)", ""),
         source.replace(
-            "identity(n: Nat)",
-            "identity(n: Refined[Nat, lambda x: Unit])",
-        ),
-        source.replace(
             "    return n",
             "    x: Refined[Nat, lambda x: Unit] = n\n    return x",
         ),
