@@ -276,3 +276,14 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - `examples/verified_spec.py` に、別moduleの2倍計算・上限付き更新・カウントダウン・累積の仕様を一般形で再利用する例を追加。ガイド・Sphinx API・設計文書の実装状況を更新。
 
 検証：workspace全体413テスト成功。新規7テストでopaque定理、import/reexport、loopの仕様、事前条件と由来の拒否、nullaryとbuiltin alias、公理依存、snapshot無効化を確認。Clippy全targetの警告エラー化、fmt、diff check、CPython 3.14.7の35ソース構文compile、Sphinx警告エラー化ビルドも成功。元のCPythonソースとの意味保存と新APIの生成Python実行は未検証。
+
+### 2026-09-21：Refinedの戻り値とFibonacci
+
+- `deppy.verified.Refined[A, predicate]` をverifiedの戻り値注釈として追加。基底型はNat／Bool、述語は結果を受け取り入口の引数を参照する。既存の事後条件とVCへ変換し、`requires`・手書き証明・`verified_spec` を維持する。`ensures` との併記、引数・局所型としての使用は拒否する。一般のrefinement subtypingは未実装。
+- 平坦なtupleの同時代入を追加。全右辺を更新前の状態で解釈してから新しい束縛を登録する。ループ内では更新先のstate列挙を要求し、重複名・要素数不一致・入れ子target・型変更を拒否する。
+- `examples/fibonacci.py` に隣接二項を構造的再帰で求める仕様と、その漸化式、命令的ループを追加。残り回数と添字の和、二つのFibonacci値を不変条件にして停止性と結果の一致を公理なしで証明する。`fib_loop_correct` と `fib_loop_twice` が仕様を再利用する。
+- ガイド・数式付きdocstring・Sphinx API・README・設計文書の実装状況を更新。
+
+新規6テストでNat／Boolのrefinement、入口値の保存、述語の束縛、別名import、事前条件、hole、不正な型・証明の拒否、同時代入、Fibonacciの一般形と入力0～3の正規化を確認。更新式・初期値・尺度・戻り値を変更すると元の証明を拒否する。大きな具体値の正規化はelaboration予算に達し得る。元のCPythonソースとの意味保存と新APIの生成Python実行は未検証。
+
+検証：workspace全体419テスト、Clippy全targetの警告エラー化、fmt、diff check、CPython 3.14.7の36ソース構文compile、Sphinx警告エラー化HTMLビルドが成功。

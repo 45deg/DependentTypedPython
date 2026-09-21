@@ -47,3 +47,15 @@ theorem associated with a statically resolved verified function. Its result has
 type ``ensures(inputs, function(inputs))``. An omitted ``requires`` means
 ``Unit`` and therefore requires ``MkUnit()`` as the final argument. User axiom
 dependencies remain visible when the theorem is reused.
+
+Refined returns and Fibonacci
+-----------------------------
+
+``Refined[A, predicate]`` is compiler-provided return annotation syntax for
+``@verified``, exported by ``deppy.verified``. ``A`` is ``Nat`` or ``Bool``;
+the predicate receives the result and may capture entry arguments. It replaces
+``ensures`` and requires the same checked VC proof. The function returns an
+ordinary base value; its refinement theorem is available through ``verified_spec``.
+Parameter refinements, local refinements and subtyping are not supported.
+
+.. deppy-api:: crates/deppy-python/examples/fibonacci.py

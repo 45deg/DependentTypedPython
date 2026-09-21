@@ -153,6 +153,18 @@ impl Lowerer {
             return Ok(pack(names, &state).ann(ty.clone()));
         };
         match command {
+            Command::Parallel(bindings) => {
+                for (name, expr) in bindings {
+                    if !names.iter().any(|n| n == name) {
+                        return Err(error(
+                            *expr,
+                            "every loop assignment must target a declared state variable",
+                        ));
+                    }
+                }
+                let lowered = self.parallel_values(bindings, &mut state)?;
+                Ok(lets(&lowered, self.transition(rest, state, names, ty)?))
+            }
             Command::Assign(name, annotation, expr) => {
                 if !names.iter().any(|n| n == name) {
                     return Err(error(
@@ -206,10 +218,15 @@ impl Lowerer {
         }
         let mut prefix = vec![];
         for command in &commands[..position] {
-            let Command::Assign(name, annotation, expr) = command else {
-                return Err(error(f, "only assignments may precede while"));
-            };
-            prefix.push(self.loop_assign(name, *annotation, expr, &mut state)?);
+            match command {
+                Command::Assign(name, annotation, expr) => {
+                    prefix.push(self.loop_assign(name, *annotation, expr, &mut state)?)
+                }
+                Command::Parallel(bindings) => {
+                    prefix.extend(self.parallel_values(bindings, &mut state)?)
+                }
+                _ => return Err(error(f, "only assignments may precede while")),
+            }
         }
         for name in &loop_.names {
             if !state.types.contains_key(name) {

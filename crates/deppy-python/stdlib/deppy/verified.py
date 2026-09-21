@@ -1,5 +1,5 @@
 from __future__ import annotations
-from deppy._builtins import verified, verified_spec, dependent, theorem, induct, Pi, Type, Nat, Eq, absurd
+from deppy._builtins import Refined, verified, verified_spec, dependent, theorem, induct, Pi, Type, Nat, Eq, absurd
 from deppy.data import Bool, False_, True_, Unit, MkUnit, Empty, Decidable, Yes, No
 from deppy.equality import transport
 from deppy.nat import add, mul

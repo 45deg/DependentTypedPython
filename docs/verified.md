@@ -23,7 +23,7 @@ def twice(n: Nat) -> Nat:
 ## 仕様と証明
 
 - `requires` は入力引数を宣言順に受け取り、`Type` の命題を返す。省略時は `deppy.data.Unit`。
-- `ensures` は入力引数、その後に戻り値を受け取り、`Type` の命題を返す。必須。
+- `ensures` は入力引数、その後に戻り値を受け取り、`Type` の命題を返す。戻り値を `Refined` で指定する場合は省略する。
 - `proof` は入力引数、その後に事前条件の証拠を受け取り、生成VCを証明する。必須。
   ループなしでは事後条件を直接証明し、ループがある場合は後述の四つのVCの組を返す。
 - 仕様の入力引数は入口時点の値。本文で同名の引数へ再代入しても変化しない。
@@ -45,6 +45,18 @@ cargo run -p deppy-python --locked --offline -- crates/deppy-python/examples/ver
 cargo run -p deppy-python --locked --offline -- --goals path/to/proof.py
 ```
 
+## Refinedの戻り値
+
+`deppy.verified` から `Refined` をimportし、戻り値を
+`Refined[Nat, lambda result: Eq[Nat, result, S(n)]]` のように指定できる。
+述語は戻り値を一つ受け取り、入口時点の引数を参照できる。本文で `n` を更新しても、
+述語の `n` は変わらない。述語を既存の事後条件へ変換し、同じVCとkernelで検査する。
+`proof` は必須で、`requires` と `verified_spec` もそのまま使える。
+
+現時点では `@verified` の戻り値専用で、基底型はNat／Boolに限る。
+`ensures` との併記は拒否する。公開関数は基底型の値を返し、Σの包みを作らない。
+引数・局所変数のrefinementやsubtypingは未対応である。
+
 ## HIRの意味論とVC
 
 専用frontendは本文を代入・分岐・returnからなる小さなcommand HIRへ分類する。
@@ -52,6 +64,7 @@ cargo run -p deppy-python --locked --offline -- --goals path/to/proof.py
 状態は局所名からNat／Boolの型と新しいCoreの束縛名への対応である。
 
 - `x = e; c`：更新前の状態で `e` を評価するCore letを作り、`x` を新しい束縛に対応させて `c` を解釈する。
+- `a, b = e1, e2`：全右辺を更新前の状態で解釈してから、各変数を新しい束縛へ対応させる。
 - `if b: c1 else: c2; c`：Boolのeliminatorを作り、それぞれの状態で `c1; c`、`c2; c` を解釈する。
 - `return e`：その状態の `e` を結果とする。後続のcommandは実行しない。
 - いずれかの経路がreturnなしで終われば拒否する。分岐後の未初期化変数の使用も拒否する。
@@ -73,11 +86,12 @@ kernelに新しい規則や公理を追加しない。VC証明がユーザー公
 
 ## 受理範囲
 
-- 引数・戻り値は公開 `Nat` または `deppy.data.Bool`。Natは非負整数であり、Pythonの負数を含むint全体ではない。
+- 引数・戻り値の基底型は公開 `Nat` または `deppy.data.Bool`。Natは非負整数であり、Pythonの負数を含むint全体ではない。
 - 値は初期化済み局所変数、自然数リテラル、`True`／`False`、Natの `+`／`*`／`<`／`<=`。
 - 先に検査した純粋な関数への位置引数による呼び出し。外部Python関数、属性呼び出し、再帰は拒否する。
 - 新しい局所変数は右辺から型を決め、以後の再代入で型を変えない。純粋関数呼び出しの結果は
   期待型がない場合Natとして検査する。Boolを返す呼び出しで新しい局所変数を作る場合は `flag: Bool = f(...)` と書く。
+- 同時代入は、異なる局所名の平坦なtupleと同じ要素数のtuple式に限る。入れ子・starred target・重複名は拒否する。
 - `requires`／`ensures`／`proof` は既存のdependent式の構文を使う。
   仕様内では `add(n, 1)`、`LE[n, limit]` のように書き、本文用の演算子構文とは区別する。
 - 最初のdocstringは許可する。その他の式文、heap更新、例外、I/O、async、型parameter、
@@ -201,3 +215,23 @@ cargo run -p deppy-python --locked --offline -- crates/deppy-python/examples/ver
 
 `f(inputs)` はこのfrontendが定義するHIRの意味関数である。仕様の再利用を追加しても、
 元のCPythonソースとの意味保存や生成Python実行を検証したことにはならない。
+
+## Fibonacciの実例
+
+[`examples/fibonacci.py`](../crates/deppy-python/examples/fibonacci.py) は
+`fib_loop(n) -> Refined[Nat, lambda result: Eq[Nat, result, fib_recursive(n)]]`
+を検査する。純粋な仕様は構造的再帰で隣接する二項 `(F_n, F_(n+1))` を計算し、
+`fib_step` が通常のFibonacci漸化式を証明する。
+
+ループは `a, b = b, a + b` で更新する。不変条件は
+`remaining + index = n`、`a = F_index`、`b = F_(index+1)` の組である。
+`remaining` の厳密な減少と、終了時の `remaining = 0` から、停止性と結果の一致を証明する。
+`fib_loop_correct` と `fib_loop_twice` は `verified_spec` で仕様を取り出し、後続の定理で再利用する。
+これらの証明は公理に依存しない。
+
+```sh
+cargo run -p deppy-python --locked --offline -- crates/deppy-python/examples/fibonacci.py
+```
+
+テストでは一般形の証明に加えて、入力0～3の具体値をCoreの正規化で検査する。
+大きな入力の正規化はelaborationの処理予算に達し得る。これはCPythonでの実行性能の検証ではない。

@@ -53,6 +53,7 @@ impl Scalar {
 /// No host Python expressions or effects are evaluated.
 enum Command<'a> {
     Assign(&'a str, Option<Scalar>, &'a Expr),
+    Parallel(Vec<(&'a str, &'a Expr)>),
     If(&'a Expr, Vec<Command<'a>>, Vec<Command<'a>>),
     Return(&'a Expr),
     While(loops::Loop<'a>),
@@ -86,10 +87,24 @@ impl Lowerer {
             self.tick(statement.range())?;
             commands.push(match statement {
                 Stmt::Assign(a) if a.targets.len() == 1 => {
-                    let Expr::Name(n) = &a.targets[0] else {
-                        return Err(error(a, "verified assignment requires one local name"));
-                    };
-                    Command::Assign(n.id.as_str(), None, &a.value)
+                    match (&a.targets[0], a.value.as_ref()) {
+                        (Expr::Name(n), _) => Command::Assign(n.id.as_str(), None, &a.value),
+                        (Expr::Tuple(targets), Expr::Tuple(values)) if !targets.elts.is_empty() && targets.elts.len() == values.elts.len() => {
+                            let mut bindings = vec![];
+                            let mut seen = HashSet::new();
+                            for (target, value) in targets.elts.iter().zip(&values.elts) {
+                                let Expr::Name(n) = target else {
+                                    return Err(error(target, "parallel assignment requires distinct local names"));
+                                };
+                                if !seen.insert(n.id.as_str()) {
+                                    return Err(error(target, "parallel assignment requires distinct local names"));
+                                }
+                                bindings.push((n.id.as_str(), value));
+                            }
+                            Command::Parallel(bindings)
+                        }
+                        _ => return Err(error(a, "verified assignment requires a local name or equal-length tuples of local names and values")),
+                    }
                 }
                 Stmt::AnnAssign(a) => {
                     let Expr::Name(n) = a.target.as_ref() else {
@@ -211,6 +226,29 @@ impl Lowerer {
         Ok((term.ann(ty.expr()), ty))
     }
 
+    fn parallel_values(
+        &mut self,
+        bindings: &[(&str, &Expr)],
+        state: &mut State,
+    ) -> Result<Vec<(String, E, E)>, Diagnostic> {
+        // Resolve every RHS in the old state, before installing any new names.
+        let mut lowered = vec![];
+        for (name, expr) in bindings {
+            let (value, ty) = self.value(expr, state, state.types.get(*name).copied())?;
+            let fresh = format!("$verified{}", self.wildcard);
+            self.wildcard += 1;
+            lowered.push(((*name).to_owned(), fresh, ty, value));
+        }
+        let mut result = vec![];
+        for (name, fresh, ty, value) in lowered {
+            state.scope.locals.insert(name.clone());
+            state.scope.aliases.insert(name.clone(), fresh.clone());
+            state.types.insert(name, ty);
+            result.push((fresh, ty.expr(), value));
+        }
+        Ok(result)
+    }
+
     fn denote(
         &mut self,
         commands: &[&Command<'_>],
@@ -229,6 +267,14 @@ impl Lowerer {
                 Err(error(loop_.test, "while must be a single top-level loop"))
             }
             Command::Return(e) => self.value(e, &state, Some(result)).map(|(term, _)| term),
+            Command::Parallel(bindings) => {
+                let lowered = self.parallel_values(bindings, &mut state)?;
+                let mut body = self.denote(rest, state, result)?;
+                for (name, ty, value) in lowered.into_iter().rev() {
+                    body = E::let_in(name, Some(ty), value, body);
+                }
+                Ok(body)
+            }
             Command::Assign(name, annotation, e) => {
                 let old = state.types.get(*name).copied();
                 if old.is_some() && annotation.is_some() && old != *annotation {
@@ -293,14 +339,12 @@ impl Lowerer {
                 return Err(error(keyword, "unknown or duplicate verified option"));
             }
         }
-        let ensures = options
-            .get("ensures")
-            .ok_or_else(|| error(f, "verified requires ensures"))?;
+        let ensures = options.get("ensures");
         let proof = options
             .get("proof")
             .ok_or_else(|| error(f, "verified requires proof (use hole to inspect the VC)"))?;
         let outer = Scope::default();
-        let mut post = self.expr(ensures, &outer)?;
+        let explicit_post = ensures.map(|e| self.expr(e, &outer)).transpose()?;
         let witness = self.expr(proof, &outer)?;
         let mut pre = options
             .get("requires")
@@ -321,11 +365,47 @@ impl Lowerer {
 
             parameters.push((name, ty));
         }
-        let result = self.scalar(
-            f.returns
-                .as_deref()
-                .ok_or_else(|| error(f, "verified return annotation required"))?,
-        )?;
+        let annotation = f
+            .returns
+            .as_deref()
+            .ok_or_else(|| error(f, "verified return annotation required"))?;
+        let refined = if let Expr::Subscript(subscript) = annotation {
+            if self.builtin(&subscript.value, &Scope::default()) == Some("Refined") {
+                let Expr::Tuple(arguments) = subscript.slice.as_ref() else {
+                    return Err(error(annotation, "use Refined[base, predicate]"));
+                };
+                if arguments.elts.len() != 2 {
+                    return Err(error(annotation, "use Refined[base, predicate]"));
+                }
+                Some((&arguments.elts[0], &arguments.elts[1]))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        let (result, mut post) = if let Some((base, predicate)) = refined {
+            if explicit_post.is_some() {
+                return Err(error(
+                    annotation,
+                    "use either a Refined return or ensures, not both",
+                ));
+            }
+            let result = self.scalar(base)?;
+            let mut post = self.expr(predicate, &state.scope)?;
+            // The refinement captures entry arguments; the predicate itself
+            // receives only the result. Its type is checked below, in Core.
+            for (name, scalar) in parameters.iter().rev() {
+                post = E::lam(name, Plicity::Explicit, Some(scalar.expr()), post);
+            }
+            (result, post)
+        } else {
+            (
+                self.scalar(annotation)?,
+                explicit_post
+                    .ok_or_else(|| error(f, "verified requires ensures or a Refined return"))?,
+            )
+        };
         let body = if matches!(f.body.first(), Some(Stmt::Expr(e)) if matches!(e.value.as_ref(), Expr::StringLiteral(_)))
         {
             &f.body[1..]
@@ -342,6 +422,11 @@ impl Lowerer {
                     Command::If(_, yes, no) => {
                         capture(yes, assigned);
                         capture(no, assigned);
+                    }
+                    Command::Parallel(bindings) => {
+                        for (name, _) in bindings {
+                            assigned.insert((*name).into());
+                        }
                     }
                     Command::While(loop_) => capture(&loop_.body, assigned),
                     Command::Return(_) => {}
