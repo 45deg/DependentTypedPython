@@ -59,7 +59,7 @@ CLIの検索ルートは入力ファイルの親ディレクトリです。`from
 
 Rust APIでは、`deppy-python`の`check_module_with_resolver`と`deppy-runtime`の`compile_module_with_resolver`に`SourceResolver`を渡せます。`FileResolver`はCLIと同じファイル解決を提供します。resolverを取らない`check_module`・`compile_module`は標準ライブラリだけを解決し、カレントディレクトリを暗黙には読みません。
 
-生成Pythonの `exports` に載るのは入力モジュール自身の宣言です。importした関数を外部から実行したい場合は、入力モジュールでラッパーを定義してください。ライブラリの高階関数は検査済み内部呼び出しとして利用でき、外部Pythonとの高階関数の境界検査は引き続き未対応です。
+生成Pythonの `exports` に載るのは入力モジュール自身の宣言です。importした関数を外部から実行したい場合は、入力モジュールでラッパーを定義してください。ライブラリの高階関数は検査済み内部呼び出しとして利用でき、外部Pythonとの高階関数の境界には、呼び出し時に引数・結果を検査するwrapperを付けます。外部callbackの停止性は証明しません。対応するschemaの制約は[一般帰納型のruntime境界](dependent-phase1.md)を参照してください。
 
 ## 型とλを明示する
 

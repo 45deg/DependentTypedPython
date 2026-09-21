@@ -1,4 +1,4 @@
-# `@dependent` Phase 1の実装状況
+# 一般帰納型と依存pattern matching
 
 Phase 1の実装を完了した。一般帰納型、依存pattern matching、検査済み依存の再利用、stdlibとruntimeの移行を実装し、Nat・Vec・Finの専用core項・型規則・評価規則を削除した。Listの四定理とVecの安全な参照を、定理固有のprimitiveや追加の公理なしで検査できる。受理する構文と境界の制約は以下に記載する。
 
@@ -90,8 +90,4 @@ workspaceに、一般帰納型の型検査・positivity・原子的登録・NbE�
 
 一般帰納型のruntime実行は専用の統合試験で検証する。Listのappend・長さ・和、二分木、関数型の再帰field、証明fieldを経由するJ、IVec/IFinのget、深さ2,000のList、不正なtag・arity・field・添字の拒否を確認する。既存のruntime差分試験とCPythonの構文compile検証も維持する。
 
-2026-09-20の検証: workspace 366件、全targetのClippy（警告をエラー化）、fmt、diff checkが成功。CPython 3.14.7で25ソースの構文compileと既存runtime差分244件が成功。
-
-同日のruntime追加後の検証: workspace 370件、全targetのClippy（警告をエラー化）、fmt、diff checkが成功。一般帰納型の生成Python実行試験に加え、CPython 3.14.7の構文compile 25件と既存runtime差分244件も成功。
-
-同日のPhase 1残実装後の検証: workspace 377件、全targetのClippy（警告をエラー化）、fmt、diff checkが成功。CPython 3.14.3で構文compile 25件、ソース／生成コード比較244件が成功。入れ子pattern・子孫への再帰・固定複合添字・依存matchによるget、依存snapshotの再利用と無効化、interfaceの射影、高階field・値parameterのruntime境界を追加検証した。
+実行コマンドと検証範囲は[開発・検証手順](development.md)を参照。

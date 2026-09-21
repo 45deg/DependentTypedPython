@@ -1,4 +1,4 @@
-# 数学ライブラリの整備案
+# 数学ライブラリの現状と整備計画
 
 ## P0 実装状況
 
@@ -20,10 +20,9 @@ P0 の最初の公開面を stdlib に実装した。基礎型は新しく宣言
 `LE[S(n), 0]` は除去できるが、未確定の `LE[n, 0]` やinhabitedな添字は拒否する。
 この範囲はfrontendとkernelに実装済みであり、順序用の専用規則は追加しない。
 新しい順序の証明補題は `@theorem`、判定手続きは `@dependent` とする。
-乗算の残りの交換・結合・分配・単調性は未実装。今回の範囲は加算とカウントダウンの基礎までで、
-`verified`、ループのVC生成、一般の停止性証明はまだ含まない。
+乗算の残りの交換・結合・分配・単調性は未実装。`verified` と単一whileのVC生成・自然数尺度による停止性証明は実装済みで、詳細は[verifiedガイド](verified.md)で扱う。一般の整礎関係による停止性証明は未対応。
 
-2026-09-20時点のstdlib、`lagrange.py`、`fermat.py`、`fermat2.py`を調査した提案。
+以下はstdlibと `lagrange.py`、`fermat.py`、`fermat2.py` の共通化計画。
 以下のモジュール名・API名は、実装済みと明記したもの以外は提案である。
 
 最優先は、型の統一、自然数の基本補題、有限列挙と並べ替え、有限和・有限積。
@@ -33,10 +32,10 @@ P0 の最初の公開面を stdlib に実装した。基礎型は新しく宣言
 
 | 領域 | 実装済み | 整備上の問題 |
 | --- | --- | --- |
-| 等式 | `deppy.equality` の `sym`, `trans`, `cong`, `transport` | `lagrange.py` が再定義。二引数の合同性や依存関数向けの補題が不足 |
+| 等式 | `deppy.equality` の `sym`, `trans`, `cong`, `transport` | `lagrange.py` が再定義。`cong2` はstdlibに実装済み。例の共通化と依存関数向け補題の整備が残る |
 | 論理・判定 | `deppy.data` の `Empty`, `Unit`, `Sum`, `Option`, `Not`, `Decidable` | examplesに別の `Empty`, `Unit`, `Either`, `Decision` がある |
 | 自然数 | 公開 `deppy.nat.Nat` と、一般帰納型の例である `deppy.naturals.Nat` | 別の名目的な型。後者の `add` は前者へそのまま適用できない |
-| リスト | `deppy.lists` の `List`, `append`, `map`, `reverse` と基本等式 | examplesの `List` は別型。所属・重複なし・個数・除去はexamples内 |
+| リスト | `deppy.lists` の `List`, `append`, `map`, `reverse` と基本等式 | examplesの `List` は別型。所属・重複なし・除去はstdlibにも実装済み。examplesの独自型との共有と個数APIの整備が残る |
 | 有限性 | `lagrange.py` の `Enumeration`, `same_count`, `bijection_count` | 数学の基礎APIがラグランジュの例に依存している |
 | 有限積 | 両Fermatファイルの `product`, `same_product`, `bijection_product` | 重複があり、逆元を使わない部分まで `Group` を要求している |
 | 群 | `Group`, `Subgroup`, 剰余類、ラグランジュ、有限群の累乗定理 | stdlibでは未提供。判定可能性が `Subgroup` の定義に含まれている |
@@ -122,7 +121,7 @@ P0 の最初の公開面を stdlib に実装した。基礎型は新しく宣言
 | P1 | `deppy.monoids` / `deppy.folds` | Monoid、累乗、順序付きfold、可換な因子の並べ替え、有限和・有限積 | `product` にGroupを要求しなくてよくなる |
 | P1 | `deppy.relations` / `deppy.partitions` | 同値関係、判定可能な同値類、分割の個数、等サイズ分割 | `uniform_partition` は群に依存しない |
 | P1 | `deppy.groups` | 群、可換性、消去、逆元、準同型、部分群、剰余類 | 現在の証明をほぼそのまま受け入れられる |
-| P1 | `deppy.finite_groups` | Lagrange、中心化群、有限群の累乗、必要に応じて元素の位数 | 今回の成果を利用者向け定理にする |
+| P1 | `deppy.finite_groups` | Lagrange、中心化群、有限群の累乗、必要に応じて元素の位数 | 既存の例の定理を公開APIにする |
 | P2 | `deppy.divisibility` / `deppy.number_theory` | 整除、除算・剰余、gcd、素数、互いに素 | 自然数のFermatやEulerへ進むための不足 |
 | P2 | `deppy.rings` / `deppy.fields` | 環・体の構造、単元、有限体の非零元の乗法群 | 現状では群と個数の接続を利用者が与えている |
 | P2 | `deppy.zmod` | 有限剰余表現、合同、剰余演算の法則、素数法での逆元 | `Prime(p)` から通常の剰余版Fermatへ到達する |
@@ -135,7 +134,7 @@ P0は型と基本演算の共通化、P1は既存証明の再利用、P2は新�
 `same_count` と `same_product` は、要素を一つ除去して帰納する同じ骨格を持つ。
 並べ替えの証拠とfold保存の補題へまとめれば、個数・和・積を同じ枠組みで扱える。
 ただし非可換な積は任意の並べ替えで保存されない。全体が可換なMonoidの場合と、
-今回のように積に現れる因子だけが互いに可換な場合を区別する。
+Fermatの例のように積に現れる因子だけが互いに可換な場合を区別する。
 
 累乗はMonoidまで一般化する。逆元を使う消去・負の指数はGroupの層に置く。
 まず `Monoid` と `Group` と明示的な変換を用意し、巨大な型クラス階層や暗黙探索を先に作らない。

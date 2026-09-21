@@ -39,13 +39,13 @@ kernelは、完全に明示化した小さな型理論だけを検査する。�
 - 公理依存の追跡
 - 最終的な証明項の再検査
 
-現在はNat、Vec、Finなどを専用のコア項として持つ。これは現行実装であり、最終形ではない。一般の再帰帰納型とindexed familyが実装できた段階で、Nat、Vec、Finを標準ライブラリの定義へ移し、専用の型検査・簡約規則を一般の帰納型機構へ統合する。移行が完了するまでは、既存の証明能力を保つため専用実装を残す。
+一般の再帰帰納型とindexed familyを実装済みで、Nat・Vec・Finは通常の検査済み `DataDecl` として登録する。専用core項・型検査規則・NbE規則は削除済み。公開構文・Rust builder・Pythonのint/tuple表現は互換adapterとして維持する。
 
 ### `@dependent`: 独立した証明支援系
 
 `@dependent`は、`@verified`がなくても利用できる全域な依存型言語として完成させる。現在すでに、具体的なuniverse、Π・Σ・等式、Nat・Vec・Fin、限定された構造的再帰、module、静的import、透明定義、公理依存追跡を利用できる。
 
-Agdaに近い利用体験へ進むため、次を追加する。
+次の基盤は実装済みである。受理範囲の制約は[一般帰納型の仕様](dependent-phase1.md)を参照。
 
 - パラメータとindexを持つユーザー定義帰納型
 - strict positivity checking
@@ -62,18 +62,18 @@ Agdaに近い利用体験へ進むため、次を追加する。
 
 moduleは標準ライブラリとユーザーライブラリの単位として残す。トップレベルの`deppy`をpreludeとし、`deppy.equality`や`deppy.vectors`などの責務別moduleも提供する。kernel primitiveとPythonで記述した派生定義は、利用者からは同じmoduleの定義として見える。
 
-将来のユーザー定義帰納型、opaque theorem、生成VCも同じ名前環境と検査済みinterfaceを通す。Python moduleの実行結果を名前解決に使わず、ソースと検査済みinterfaceを静的に読む方針を維持する。
+ユーザー定義帰納型、opaque theorem、検査済みverified仕様も同じ名前環境と検査済みinterfaceを通す。Python moduleの実行結果を名前解決に使わず、ソースと検査済みinterfaceを静的に読む方針を維持する。
 
 ## `@verified`: 命令的Pythonの検証層
 
 `@verified`は`@dependent`とは別のfrontend層として実装する。対象プログラムをVerified HIRへlowerし、weakest precondition（WP）または同等の規則からVCを生成する。
 
-最初の対象は次の範囲に限定する。
+現在の対象は次の範囲に限定する。構文と制約は[verifiedガイド](verified.md)を参照。
 
 - Nat・Boolなどの値と局所変数
-- 代入
+- 局所再代入と平坦なtupleの同時代入
 - `if`
-- `while`
+- 関数直下の単一 `while`
 - pureな関数呼び出し
 - `requires`と`ensures`
 - loopの`invariant`と`decreases`
@@ -84,22 +84,11 @@ VCは別の論理式やsolver固有の式で完結させず、dependent coreの�
 
 ## `verified_spec`による接続
 
-検証済み関数の仕様は、後続の`@dependent`コードから`verified_spec`として利用できるようにする。
+検証済み関数の仕様は、`verified_spec(f, 引数..., 事前条件の証拠)` で後続の `@dependent` / `@theorem` から利用できる。戻り値専用の `Refined[Nat/Bool, predicate]` も事後条件へ変換する。
 
-```python
-@dependent
-def use_sum_loop(n: Nat) -> Eq[Nat, logical_result(sum_loop, n), triangular(n)]:
-    return verified_spec(sum_loop, n)
-```
+関数登録後に `requires(inputs) → ensures(inputs, f(inputs))` を型とするcompanion theoremをkernelで再検査し、opaqueとして登録する。関数本体のVC証明を使い、ループでは標準ライブラリの `loop_correct` による停止性と事後条件の証明を保持する。無検査の公理は追加しない。
 
-`verified_spec`を無検査の公理として追加してはならない。少なくとも次を結ぶ検査済みの項または証明生成規則として設計する。
-
-- verified functionの仕様と対象となる意味論
-- 生成したVC
-- VCに対するcore proof
-- 公開する定理の型
-
-最終的な定理は通常のcore proofとしてkernelが検査し、公理や未検査のsolver結果への依存も既存の依存追跡で確認できるようにする。この接続がDepPy2の研究上の中心である。
+import alias・再exportでも関数の由来と定理IDを保持し、通常関数や局所変数をverified関数として扱うことは拒否する。ユーザー公理への依存は利用先へ伝播する。具体例は[仕様の再利用](verified.md#verified_specによる仕様の再利用)を参照。
 
 ## Runtimeとextractionの位置づけ
 
@@ -122,35 +111,22 @@ def use_sum_loop(n: Nat) -> Eq[Nat, logical_result(sum_loop, n), triangular(n)]:
 |---|---|
 | `deppy-core` | 明示的なcore term、型検査、NbE、変換判定、公理依存。現在は検査済みtermからruntime IRへのchecked projectionも保持する。TCBの中心。 |
 | `deppy-elab` | 名前付きAST、bidirectional elaboration、meta、定義・帰納型・再帰の検査。 |
-| `deppy-python` | Python構文の解析、module解決、`@dependent` frontend。将来は`@verified`の構文入口とVerified HIRへのloweringも担当する。 |
+| `deppy-python` | Python構文の解析、module解決、`@dependent` frontend、`@verified`の構文入口、Verified HIRへのloweringとVC生成。 |
 | `deppy-runtime` | `deppy-core`のruntime IRを消費するPython生成、runtime shim、境界wrapperとCLI。型検査から分離した任意backend。 |
 
 Verified HIR、WP、VC generationが大きくなった場合は、`deppy-python`の内部moduleから独立crateへ切り出す。最初からcrateを増やすこと自体は目標にしない。
 
-## 整理・分離の判断
+## 実装境界を保つ方針
 
-今回、Pythonコード生成、runtime shim、公開境界wrapper、生成用CLIとruntime統合テストを`deppy-runtime`へ移した。これにより、`deppy-python`は静的検査だけで利用でき、実行backendは証明支援系の成立条件ではなくなった。旧`--emit-python`と`deppy-python`の生成APIは互換層を置かずに削除した。
-
-次の機能は、現時点では削らない。
-
-- Nat・Vec・Finの専用実装：一般のindexed inductiveが同等の例を検査できるまでのbootstrap実装かつ回帰試験である。
-- recordの`InductiveDecl`経路：一般帰納型へ進むための、名目的な宣言・constructor・eliminatorの実装基盤である。
-- `J`、各eliminator、明示lambda、型注釈などの低水準proof-term API：pattern matching、hole、elaborationが未完成な間のescape hatchである。トップレベル`deppy`は引き続き通常のpreludeとして使え、責務別moduleからも明示的にimportできる。
-- 公理依存追跡：将来のVC、solver、ユーザー公理のtrusted boundaryを表示するために必要である。
-- 静的module resolver：Pythonを実行せず、入力サイズ、root逸脱、循環importを制限する信頼境界である。
-
-次の分離は、対応する機能を追加するときに行う。
-
-- 最初のsource分類passで、module内の文を`DependentDecl`、`VerifiedDecl`、host Python、importへ分ける。現在の`@dependent` lowererへ`@verified`の意味論を混在させない。
-- module処理をsource resolver、module graph、builtin registry、各frontendのlinkerへ分け、`@dependent`と`@verified`で同じ静的graphを共有する。
-- Python version指定をfrontend optionへ閉じ込める。複数versionの構文回帰試験は残し、通常のAPIでversion差を過剰に露出しない。
-- kernelには定義IDの依存走査を残し、名前と由来を扱うreport層で`UserAxiom`、検査済みVC、未再構成のsolver結果を区別する。
-
-Nat・Vec・Finの専用core項を削除するのは、一般帰納型へのstdlib移行と回帰試験が完了した後である。先にfeature flagや別crateへ分けると、kernel、NbE、elaboratorに二つの経路を維持することになるため行わない。
+- Python生成・runtime shim・境界wrapper・生成CLIは `deppy-runtime` に置く。`deppy-python` は静的検査だけで利用できる。
+- `J`、eliminator、明示lambda、型注釈は低水準のproof-term APIとして維持する。
+- resolver、module graph、builtin registry、linkerは静的に処理する。Python moduleの実行結果を信頼しない。
+- Python versionと処理予算は `FrontendOptions` に集約する。
+- 公理依存を表示し、将来solverを接続する場合も、証明再構成とkernelの再検査を境界にする。
 
 ## 段階的ロードマップ
 
-### Phase 1: `@dependent`を証明支援系として完成させる
+### Phase 1: 証明支援系の基盤（実装済み）
 
 1. ユーザー定義帰納型とindexed family
 2. positivity、coverage、termination
@@ -162,7 +138,7 @@ Nat・Vec・Finの専用core項を削除するのは、一般帰納型へのstdl
 
 受け入れ例は、Rust側に定理固有のprimitiveを加えず、Listの`append_assoc`、`map_identity`、`map_composition`、`reverse_involution`と、Vecの安全な操作を記述・検査できることとする。
 
-### Phase 2: `@verified`とVC generation
+### Phase 2: `@verified`とVC generation（単一whileまで実装済み）
 
 1. Verified HIRとその明示的な意味論
 2. `requires`、`ensures`
@@ -171,9 +147,9 @@ Nat・Vec・Finの専用core項を削除するのは、一般帰納型へのstdl
 5. WPとVC生成
 6. 生成VCを`@dependent`のgoalとして提示
 
-受け入れ例は、loopで書いた加算、乗算、累積和などの部分正当性と停止性を検証できることとする。
+カウントダウン、累積、Fibonacciの例で、手書き証明による部分正当性と停止性を扱う。ネスト・複数ループ、一般の整礎関係、自動証明探索は範囲外である。
 
-### Phase 3: proof-producing bridge
+### Phase 3: proof-producing bridge（実装済み）
 
 1. VC proofのkernel再検査
 2. 検証済み仕様からcore theoremを構築
@@ -182,7 +158,7 @@ Nat・Vec・Finの専用core項を削除するのは、一般帰納型へのstdl
 
 この段階で、命令的Pythonの検証結果をdependent theoremとして合成できることを示す。
 
-### Phase 4: 任意の自動化とbackend
+### Phase 4: 任意の自動化とbackend（今後の拡張）
 
 - tactic
 - SMT certificateまたはproof reconstruction
@@ -207,6 +183,6 @@ Nat・Vec・Finの専用core項を削除するのは、一般帰納型へのstdl
 
 funextなどは「未実装の定理」ではなく基礎体系の選択として扱う。必要な原理は明示的な公理として宣言し、依存関係を追跡する。
 
-## 現在地の読み方
+## 文書の役割
 
-この文書は目標設計を含む。現在実装済みの範囲は[README](../README.md)と[PROGRESS](../PROGRESS.md)を正とする。Phase 1は実装済みで、一般帰納型・positivity・依存pattern matching・Listの四定理・holeとgoal表示・opaque theorem・検査済み依存snapshotの再利用に対応する。既存Nat・Vec・Finとruntimeも一般帰納型へ移行した。受理する構文と制約は[実装状況](dependent-phase1.md)に記載する。ループなしの `@verified`、command HIRの純粋な意味論、意味論からのWP/VC構築、手書きVC証明のkernel検査は実装済み。受理範囲と境界は[verifiedガイド](verified.md)に記載する。単一の `while` と不変条件・自然数尺度のVC、有限反復がguard偽で終了することの一般定理も実装済み。`verified_spec` は関数自体を参照するopaque定理をkernelで再検査して公開し、import・再export・公理依存の追跡にも対応する。戻り値専用の `Refined[Nat/Bool, predicate]` と同時代入も実装済みで、Fibonacciループの停止性・再帰的仕様との一致・仕様の再利用を検査できる。一般のrefinement引数・局所型・subtyping、ネストしたwhile、自動証明探索、元のCPythonソースとの意味保存は未実装である。
+この文書は構成と設計方針を定める。現在の対応範囲と残件は[PROGRESS](../PROGRESS.md)、正確な構文と制約は[一般帰納型](dependent-phase1.md)・[verified](verified.md)・[実装リファレンス](reference.md)で管理する。元のCPythonソースとの意味保存は未実装であり、Verified HIRの検査成立と区別する。
