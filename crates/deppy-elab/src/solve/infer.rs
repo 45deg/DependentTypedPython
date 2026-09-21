@@ -844,7 +844,9 @@ impl State {
                 let (ty, _) = self.type_expr(ctx, ty)?;
                 Ok((self.check(ctx, term, &ty)?, ty))
             }
-            Expr::Hole | Expr::UserHole(_) | Expr::Cases { .. } => Err(Error::AnnotationRequired),
+            Expr::Hole | Expr::UserHole(_) | Expr::AutoProof { .. } | Expr::Cases { .. } => {
+                Err(Error::AnnotationRequired)
+            }
         }
     }
 
@@ -891,6 +893,12 @@ impl State {
             return self
                 .rewrite_equality(ctx, proof, body, Some(expected))
                 .map(|(term, _)| term);
+        }
+        if let Expr::AutoProof { name, hints } = expr {
+            if let Some(proof) = self.auto_proof(ctx, expected, hints)? {
+                return Ok(proof);
+            }
+            return self.check(ctx, &Expr::UserHole(name.clone()), expected);
         }
         if let Expr::UserHole(name) = expr {
             let id = self.metas.len();

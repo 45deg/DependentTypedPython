@@ -25,8 +25,10 @@ python3 scripts/check_fermat.py
 
 `--elaboration-steps N` は各宣言の検査budgetを指定します。省略時は従来どおり1,000,000で、正の整数のみ受け付けます。budgetの増加は型検査や公理の扱いを変更しません。
 
-`@verified`（局所再代入・分岐・単一while・仕様・手書きVC証明）の構文と検査境界は
-[verifiedガイド](docs/verified.md)を参照してください。whileの不変条件・自然数尺度による停止性を検査できます。`verified_spec` で検査済み仕様を後続の定理から再利用できます。引数・戻り値・局所変数の `Refined[Nat/Bool, predicate]` と同時代入に対応し、[Fibonacciの実例](crates/deppy-python/examples/fibonacci.py)で停止性と再帰的仕様との一致を証明しています。`proofs={...}` で名前付きVCを指定でき、[契約合成の実例](crates/deppy-python/examples/verified_composition.py)では呼び出し先の事後条件から次の呼び出しの事前条件を証明します。[Refined引数の実例](crates/deppy-python/examples/refined_arguments.py)では、名前付きVCを `exact`・`rewrite` で解消します。[Refinedループの実例](crates/deppy-python/examples/refined_loop.py)では、局所変数の条件を維持し、補助関数の契約からループの保存と停止性を証明します。
+`@verified`（型注釈による契約・局所再代入・分岐・単一while・限定した自動証明）の構文と検査境界は
+[verifiedガイド](docs/verified.md)を参照してください。 `proofs` は省略でき、[型注釈中心の実例](crates/deppy-python/examples/verified_annotations.py)では局所Refinedから不変条件候補を生成し、カウントダウンの契約と停止性を自動検証します。解けないVCだけを明示的な証明で補います。
+
+`verified_spec` で検査済み仕様を後続の定理から再利用できます。引数・戻り値・局所変数の `Refined[Nat/Bool, predicate]` と同時代入に対応し、[Fibonacciの実例](crates/deppy-python/examples/fibonacci.py)で停止性と再帰的仕様との一致を証明しています。`proofs={...}` で名前付きVCを指定でき、[契約合成の実例](crates/deppy-python/examples/verified_composition.py)では呼び出し先の事後条件から次の呼び出しの事前条件を証明します。[Refined引数の実例](crates/deppy-python/examples/refined_arguments.py)では、名前付きVCを `exact`・`rewrite` で解消します。[Refinedループの実例](crates/deppy-python/examples/refined_loop.py)では、局所変数の条件を維持し、補助関数の契約からループの保存と停止性を証明します。
 
 ## 実行
 

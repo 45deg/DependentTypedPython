@@ -3,6 +3,7 @@ use crate::{Elaborated, Error, Expr, Plicity};
 use deppy_core::{Kernel, Term as Core, Tm};
 use std::collections::{HashMap, HashSet};
 
+mod auto;
 mod cases;
 mod core;
 mod infer;

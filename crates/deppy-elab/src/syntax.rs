@@ -44,6 +44,12 @@ pub enum Expr {
         branches: Vec<Expr>,
     },
     UserHole(String),
+    /// Bounded proof search using only context evidence and explicit checked hints.
+    /// Failure leaves a named user goal; no search primitive reaches the kernel.
+    AutoProof {
+        name: String,
+        hints: Vec<String>,
+    },
     Located {
         location: crate::SourceLocation,
         expression: Box<Expr>,
@@ -208,7 +214,14 @@ impl Expr {
         let children: std::vec::Vec<&Expr> = match self {
             Rewrite { proof, body, .. } => vec![proof, body],
             Recur(arguments) => arguments.iter().collect(),
-            Core(_) | Name(_) | Universe(_) | Nat | Zero | Hole | UserHole(_) => vec![],
+            Core(_)
+            | Name(_)
+            | Universe(_)
+            | Nat
+            | Zero
+            | Hole
+            | UserHole(_)
+            | AutoProof { .. } => vec![],
             Located { expression, .. } => vec![expression],
             Fst(x)
             | Snd(x)

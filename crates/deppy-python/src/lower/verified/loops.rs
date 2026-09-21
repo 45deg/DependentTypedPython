@@ -4,7 +4,7 @@ use super::*;
 pub(super) struct Loop<'a> {
     pub test: &'a Expr,
     pub body: Vec<Command<'a>>,
-    invariant: &'a Expr,
+    invariant: Option<&'a Expr>,
     measure: &'a Expr,
     names: Vec<String>,
 }
@@ -58,62 +58,96 @@ impl Lowerer {
         &mut self,
         w: &'a ast::StmtWhile,
     ) -> Result<Loop<'a>, Diagnostic> {
-        if !w.orelse.is_empty() || w.body.len() < 3 {
+        if !w.orelse.is_empty() || w.body.len() < 2 {
             return Err(error(
                 w,
-                "while requires invariant, decreases, and a body; while-else is unsupported",
+                "while requires decreases and a body; while-else is unsupported",
             ));
         }
-        let directive = |index: usize, builtin: &str| -> Result<&'a ast::ExprCall, Diagnostic> {
+        let directive = |index: usize, builtin: &str| -> Option<&'a ast::ExprCall> {
             if let Stmt::Expr(e) = &w.body[index] {
                 if let Expr::Call(c) = e.value.as_ref() {
                     if self.builtin(&c.func, &Scope::default()) == Some(builtin)
                         && c.arguments.args.len() == 1
                     {
-                        return Ok(c);
+                        return Some(c);
                     }
                 }
             }
-            Err(error(
-                &w.body[index],
-                format!("expected {builtin}(...) loop annotation"),
-            ))
+            None
         };
-        let invariant = directive(0, "invariant")?;
-        let measure = directive(1, "decreases")?;
-        if !measure.arguments.keywords.is_empty() || invariant.arguments.keywords.len() != 1 {
-            return Err(error(
-                w,
-                "use invariant(predicate, state=(...)) and decreases(measure)",
-            ));
+        let invariant = directive(0, "invariant");
+        let measure_index = usize::from(invariant.is_some());
+        let measure = directive(measure_index, "decreases").ok_or_else(|| {
+            error(
+                &w.body[measure_index],
+                "expected decreases(...) loop annotation",
+            )
+        })?;
+        if !measure.arguments.keywords.is_empty() {
+            return Err(error(measure, "decreases takes one positional measure"));
         }
-        let keyword = &invariant.arguments.keywords[0];
-        if keyword.arg.as_ref().map(|s| s.as_str()) != Some("state") {
-            return Err(error(keyword, "invariant requires state=(local, ...)"));
-        }
-        let Expr::Tuple(tuple) = &keyword.value else {
-            return Err(error(
-                keyword,
-                "loop state must be a tuple of initialized local names",
-            ));
-        };
         let mut names = vec![];
-        for item in &tuple.elts {
-            let Expr::Name(n) = item else {
-                return Err(error(item, "loop state requires local names"));
-            };
-            if names.contains(&n.id.to_string()) {
-                return Err(error(item, "duplicate loop state name"));
+        if let Some(invariant) = invariant {
+            if invariant.arguments.keywords.len() != 1 {
+                return Err(error(invariant, "use invariant(predicate, state=(...))"));
             }
-            names.push(n.id.to_string());
+            let keyword = &invariant.arguments.keywords[0];
+            if keyword.arg.as_ref().map(|s| s.as_str()) != Some("state") {
+                return Err(error(keyword, "invariant requires state=(local, ...)"));
+            }
+            let Expr::Tuple(tuple) = &keyword.value else {
+                return Err(error(
+                    keyword,
+                    "loop state must be a tuple of initialized local names",
+                ));
+            };
+            for item in &tuple.elts {
+                let Expr::Name(n) = item else {
+                    return Err(error(item, "loop state requires local names"));
+                };
+                if names.contains(&n.id.to_string()) {
+                    return Err(error(item, "duplicate loop state name"));
+                }
+                names.push(n.id.to_string());
+            }
+        }
+        let body = self.commands(&w.body[measure_index + 1..])?;
+        if invariant.is_none() {
+            // Stable source order, including both branches. Initialization is
+            // checked below; inference never makes an unbound variable valid.
+            fn writes(commands: &[Command<'_>], names: &mut Vec<String>) {
+                for command in commands {
+                    match command {
+                        Command::Assign(name, _, _) => {
+                            if !names.iter().any(|n| n == name) {
+                                names.push((*name).into());
+                            }
+                        }
+                        Command::Parallel(bindings) => {
+                            for (name, _) in bindings {
+                                if !names.iter().any(|n| n == name) {
+                                    names.push((*name).into());
+                                }
+                            }
+                        }
+                        Command::If(_, yes, no) => {
+                            writes(yes, names);
+                            writes(no, names);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            writes(&body, &mut names);
         }
         if names.is_empty() {
-            return Err(error(tuple, "loop state must not be empty"));
+            return Err(error(w, "loop state must not be empty"));
         }
         Ok(Loop {
             test: &w.test,
-            body: self.commands(&w.body[2..])?,
-            invariant: &invariant.arguments.args[0],
+            body,
+            invariant: invariant.map(|c| &c.arguments.args[0]),
             measure: &measure.arguments.args[0],
             names,
         })
@@ -310,13 +344,45 @@ impl Lowerer {
                 measure_ty,
             );
         }
-        let mut inv = self.expr(loop_.invariant, &state.scope)?.ann(inv_ty);
-        let mut measure = self.expr(loop_.measure, &state.scope)?.ann(measure_ty);
-        for name in &loop_.names {
-            let field = E::name(&symbolic.scope.aliases[name]);
-            inv = inv.app(field.clone());
-            measure = measure.app(field);
-        }
+        let inv = if let Some(predicate) = loop_.invariant {
+            let mut inv = self.expr(predicate, &state.scope)?.ann(inv_ty);
+            for name in &loop_.names {
+                inv = inv.app(E::name(&symbolic.scope.aliases[name]));
+            }
+            inv
+        } else {
+            let mut conditions = loop_
+                .names
+                .iter()
+                .filter_map(|name| {
+                    state.refinements.get(name).map(|predicate| {
+                        predicate
+                            .clone()
+                            .app(E::name(&symbolic.scope.aliases[name]))
+                    })
+                })
+                .collect::<Vec<_>>();
+            let mut inv = conditions
+                .pop()
+                .unwrap_or_else(|| E::name("deppy.data.Unit"));
+            for condition in conditions.into_iter().rev() {
+                inv = E::sigma("$condition", condition, inv);
+            }
+            inv
+        };
+        let measure_is_value = matches!(loop_.measure, Expr::Name(name) if symbolic.types.contains_key(name.id.as_str()))
+            || matches!(loop_.measure, Expr::NumberLiteral(_) | Expr::BinOp(_));
+        let measure = if !measure_is_value
+            && (matches!(loop_.measure, Expr::Lambda(_)) || loop_.invariant.is_some())
+        {
+            let mut measure = self.expr(loop_.measure, &state.scope)?.ann(measure_ty);
+            for name in &loop_.names {
+                measure = measure.app(E::name(&symbolic.scope.aliases[name]));
+            }
+            measure
+        } else {
+            self.value(loop_.measure, &symbolic, Some(Scalar::Nat))?.0
+        };
         let inv = lambda("$state", ty.clone(), lets(&fields, inv));
         let measure = lambda("$state", ty.clone(), lets(&fields, measure));
         let after = self.denote(
@@ -341,7 +407,7 @@ impl Lowerer {
             let init = self.obligation(
                 &mut named,
                 "loop.init",
-                loop_.invariant,
+                loop_.invariant.unwrap_or(loop_.test),
                 &context,
                 inv.clone().app(initial.clone()),
             )?;
@@ -367,7 +433,7 @@ impl Lowerer {
                 let entries = loop_
                     .names
                     .iter()
-                    .map(|n| (n.as_str(), loop_.invariant))
+                    .map(|n| (n.as_str(), loop_.invariant.unwrap_or(loop_.test)))
                     .collect::<Vec<_>>();
                 let facts = self.local_evidence(
                     &entries,
@@ -392,7 +458,7 @@ impl Lowerer {
                         names: &loop_.names,
                         ty: ty.clone(),
                         source: if key == "loop.preserve" {
-                            loop_.invariant
+                            loop_.invariant.unwrap_or(loop_.test)
                         } else {
                             loop_.measure
                         },

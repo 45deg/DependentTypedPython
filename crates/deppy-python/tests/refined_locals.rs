@@ -58,7 +58,8 @@ fn missing_loop_call_and_local_proofs_have_location_and_context() {
             .lines()
             .filter(|line| !line.contains(&format!("\"{key}\":")))
             .collect::<Vec<_>>()
-            .join("\n");
+            .join("\n")
+            .replace("proofs={", "auto=False, proofs={");
         let analysis = analyze_module(&source, TARGET);
         assert!(analysis.checked.is_none());
         let goal = analysis

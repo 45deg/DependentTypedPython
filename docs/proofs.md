@@ -233,4 +233,4 @@ index_is_n = rewrite_in(counter_zero(remaining, test), inv.fst)
 return rewrite(sym(index_is_n), inv.snd.fst)
 ```
 
-`@verified(proofs={...})` の各証明callbackにも同じtacticを使えます。`proofs={}` で未指定の `loop.init`・`loop.preserve`・`loop.decrease`・`loop.exit` は、それぞれ名前・ソース位置・局所文脈・期待型を持つ独立goalになります。`analyze_module` やCLIのgoal表示で確認し、必要なキーだけ順に埋められます。tactic内の `hole` も同じgoal形式を使います。未完成の証明は検査済み宣言として登録されません。
+`@verified(proofs={...})` の各証明callbackにも同じtacticを使えます。`@verified(auto=False, proofs={})` では、自動証明を止めて未指定の `loop.init`・`loop.preserve`・`loop.decrease`・`loop.exit` を確認できます。これらはそれぞれ名前・ソース位置・局所文脈・期待型を持つ独立goalになります。`analyze_module` やCLIのgoal表示で確認し、必要なキーだけ順に埋められます。tactic内の `hole` も同じgoal形式を使います。未完成の証明は検査済み宣言として登録されません。

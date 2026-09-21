@@ -37,7 +37,7 @@ fn missing_proofs_are_separate_named_goals_at_call_and_return_sites() {
     let start = EXAMPLE.find("    proofs={").unwrap();
     let end = start + EXAMPLE[start..].find("    },").unwrap() + 6;
     let mut source = EXAMPLE.to_owned();
-    source.replace_range(start..end, "    proofs={},");
+    source.replace_range(start..end, "    auto=False, proofs={},");
     let analysis = analyze_module(&source, TARGET);
     assert!(analysis.checked.is_none());
     let names = analysis
@@ -159,7 +159,7 @@ fn proof_maps_and_untracked_call_forms_fail_closed() {
 
 #[test]
 fn named_loop_goals_and_proofs_keep_the_four_totality_obligations() {
-    let source = format!("{HEADER}from deppy.verified_loop import invariant, decreases\n@verified(proofs={{}})\ndef loop(n: Nat) -> Refined[Nat, lambda r: Eq[Nat, r, n]]:\n    x = n\n    while False:\n        invariant(lambda x: Eq[Nat, x, n], state=(x,))\n        decreases(lambda x: x)\n        x = x\n    return x\n");
+    let source = format!("{HEADER}from deppy.verified_loop import invariant, decreases\n@verified(auto=False, proofs={{}})\ndef loop(n: Nat) -> Refined[Nat, lambda r: Eq[Nat, r, n]]:\n    x = n\n    while False:\n        invariant(lambda x: Eq[Nat, x, n], state=(x,))\n        decreases(lambda x: x)\n        x = x\n    return x\n");
     let analysis = analyze_module(&source, TARGET);
     assert!(analysis.checked.is_none());
     assert_eq!(

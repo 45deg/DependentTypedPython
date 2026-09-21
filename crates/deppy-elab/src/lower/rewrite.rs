@@ -72,6 +72,10 @@ impl Lowerer {
                     .collect::<Result<_, _>>()?,
             },
             E::UserHole(name) => E::UserHole(name.clone()),
+            E::AutoProof { name, hints } => E::AutoProof {
+                name: name.clone(),
+                hints: hints.clone(),
+            },
             E::Located {
                 location,
                 expression,

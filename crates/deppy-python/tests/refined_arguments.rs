@@ -34,10 +34,12 @@ fn refined_contracts_compose_with_tactics_and_reject_false_evidence() {
 
 #[test]
 fn missing_call_condition_is_a_named_goal_and_tactic_fills_it() {
-    let source = EXAMPLE.replace(
-        "    \"call.first.requires\": lambda n, pre: exact(pre),\n",
-        "",
-    );
+    let source = EXAMPLE
+        .replace(
+            "    \"call.first.requires\": lambda n, pre: exact(pre),\n",
+            "",
+        )
+        .replace("proofs={", "auto=False, proofs={");
     let analysis = analyze_module(&source, TARGET);
     assert!(analysis.checked.is_none());
     assert_eq!(analysis.goals.len(), 1, "{:?}", analysis.diagnostics);

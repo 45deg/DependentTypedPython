@@ -148,7 +148,7 @@ fn a_named_vc_can_be_filled_with_tactics_without_hiding_other_goals() {
         r#"
 from deppy.verified import verified, Refined
 from deppy.verified_loop import invariant, decreases
-@verified(proofs={"loop.init": lambda n, pre: exact(refl(n))})
+@verified(auto=False, proofs={"loop.init": lambda n, pre: exact(refl(n))})
 def pending_loop(n: Nat) -> Refined[Nat, lambda r: Eq[Nat, r, n]]:
     x = n
     while False:

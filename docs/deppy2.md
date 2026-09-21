@@ -75,13 +75,13 @@ moduleは標準ライブラリとユーザーライブラリの単位として�
 - `if`
 - 関数直下の単一 `while`
 - pureな関数呼び出しと、単一whileの本文・終了後を含むverified契約の合成
-- `requires`と`ensures`
-- loopの`invariant`と`decreases`
-- `proofs` による名前付きVCの証明と、未指定goalの表示
+- 型注釈を基本とするRefined契約と、補助的な`requires`／`ensures`
+- 局所Refinedからのloop不変条件候補と、明示的な`invariant`／`decreases`
+- 限定した自動証明、`proofs` による補足証明と、未解決goalの表示
 
 VCには、事前条件、分岐、invariantの初期化・保存、loop終了後の事後条件、decreasesの非負性と減少を含める。heap、alias、例外、I/O、asyncなどの効果は、この最初のVerified HIRには含めない。
 
-VCは別の論理式やsolver固有の式で完結させず、dependent coreの命題へ変換する。VCの証明は、まず`@dependent`で書いた通常の証明項として受け取り、kernelで再検査する。tacticやSMTを追加する場合も、同じ検査境界を変えない。
+VCは別の論理式やsolver固有の式で完結させず、dependent coreの命題へ変換する。自動証明も手書き証明も通常のCore証明項としてkernelで再検査する。自動証明は文脈の証拠・反射律・Σと固定した順序補題に限定し、失敗は未解決goalとして扱う。tacticやSMTを追加する場合も、同じ検査境界を変えない。
 
 ## `verified_spec`による接続
 

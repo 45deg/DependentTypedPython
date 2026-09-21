@@ -1,9 +1,9 @@
 from __future__ import annotations
-from deppy._builtins import Refined, verified, verified_spec, dependent, theorem, induct, Pi, Type, Nat, Eq, refl, absurd
+from deppy._builtins import Refined, verified, verified_spec, dependent, theorem, induct, Pi, Type, Nat, Z, S, Eq, refl, absurd
 from deppy.data import Bool, False_, True_, Unit, MkUnit, Empty, Decidable, Yes, No
-from deppy.equality import transport
+from deppy.equality import transport, sym
 from deppy.nat import add, mul
-from deppy.nat_order import le_decide, lt_decide
+from deppy.nat_order import LE, LT, le_decide, lt_decide, le_trans, le_weaken
 
 
 @dependent
@@ -84,3 +84,31 @@ def select_post_eq[A: Type, P: Pi[A, lambda _: Type]](
             return no_proof(refl(False_()))
         case True_():
             return yes_proof(refl(True_()))
+
+
+@theorem
+def nat_lt_true(n: Nat, m: Nat, test: Eq[Bool, nat_lt(n, m), True_()]) -> LT(n, m):
+    """Recover strict order evidence from a verified guard."""
+    return decision_true(lt_decide(n, m), test)
+
+
+@theorem
+def nat_le_true(n: Nat, m: Nat, test: Eq[Bool, nat_le(n, m), True_()]) -> LE[n, m]:
+    """Recover non-strict order evidence from a verified guard."""
+    return decision_true(le_decide(n, m), test)
+
+
+@theorem(decreases="n")
+def nat_lt_false_zero(n: Nat, test: Eq[Bool, nat_lt(0, n), False_()]) -> Eq[Nat, n, 0]:
+    """A natural number that is not positive is zero."""
+    match n:
+        case Z():
+            return refl(0)
+        case S(k):
+            return absurd(Eq[Nat, S(k), 0], false_ne_true(sym(test)))
+
+
+@theorem
+def lt_le_bound[n: Nat, m: Nat](smaller: LT(n, m), k: Nat, bound: LE[m, k]) -> LE[n, k]:
+    """A strict decrease preserves an existing upper bound."""
+    return le_trans(le_weaken(smaller), k, bound)

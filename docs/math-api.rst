@@ -54,24 +54,30 @@ Refined returns and Fibonacci
 ``Refined[A, predicate]`` is compiler-provided parameter and return annotation syntax for
 ``@verified``, exported by ``deppy.verified``. ``A`` is ``Nat`` or ``Bool``;
 a return predicate receives the result and may capture entry arguments. It
-replaces ``ensures`` and requires the same checked VC proof. The function returns an
+replaces ``ensures`` and generates a VC. Bare ``@verified`` attempts bounded automatic proof;
+``proofs`` can supply evidence for remaining goals. The function returns an
 ordinary base value; its refinement theorem is available through ``verified_spec``.
 Parameter predicates receive the argument value and may capture earlier entry
 arguments. Their conditions, in parameter order, followed by an explicit
 ``requires`` are combined into a right-associated Sigma. A single condition is
 used directly; no conditions means ``Unit``. The combined evidence is the
 ``pre`` argument of proof callbacks and the final argument of ``verified_spec``.
-Local refinements use named assignment VCs; same-base condition conversions require explicit evidence. Implicit subtyping is not supported.
+Local refinements use named assignment VCs; same-base condition conversions require checked evidence,
+produced automatically or supplied explicitly. Implicit subtyping is not supported.
+When ``invariant`` is omitted, loop state is inferred from assignments and its local
+refinements supply an invariant candidate. Initialization and preservation are still proved.
+``decreases(counter)`` specifies the current value as the natural-number measure.
 
 .. deppy-api:: crates/deppy-python/examples/fibonacci.py
 
 Contract composition
 --------------------
 
-``@verified(proofs={...})`` checks each call precondition and proves the
+``@verified`` checks each call precondition and proves the
 continuation for an arbitrary result satisfying the checked callee contract.
 The result and its specification evidence are passed to subsequent proof
-callbacks. Missing entries become named goals with source locations; unfinished
+callbacks when explicitly supplied in ``proofs``. Unsolved entries become named goals
+with source locations; ``auto=False`` disables automatic proof. Unfinished
 proofs are never registered. Calls in a single loop body and after the loop are supported.
 
 Single loops support ``loop.init``, ``loop.preserve``,

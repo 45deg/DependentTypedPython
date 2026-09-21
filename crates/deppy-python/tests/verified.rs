@@ -193,9 +193,7 @@ def caller(n: Nat) -> Nat:
 #[test]
 fn malformed_contracts_and_decorators_cannot_bypass_verification() {
     for decorator in [
-        "@verified",
-        "@verified(ensures=lambda n, result: Unit)",
-        "@verified(proof=lambda n, pre: MkUnit())",
+        "@verified(auto=1)",
         "@verified(ensures=lambda n, result: 0, proof=lambda n, pre: MkUnit())",
         "@verified(requires=lambda n: 0, ensures=lambda n, result: Unit, proof=lambda n, pre: MkUnit())",
         "@verified(ensures=lambda result: Unit, proof=lambda n, pre: MkUnit())",

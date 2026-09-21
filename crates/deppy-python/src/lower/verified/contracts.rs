@@ -71,9 +71,24 @@ pub(super) struct Proofs<'a> {
     used: HashSet<String>,
     counts: HashMap<String, usize>,
     function: String,
+    automatic: bool,
 }
 impl<'a> Proofs<'a> {
-    pub(super) fn parse(expr: &'a Expr, function: &str) -> Result<Self, Diagnostic> {
+    pub(super) fn empty(function: &str, automatic: bool) -> Self {
+        Self {
+            entries: HashMap::new(),
+            used: HashSet::new(),
+            counts: HashMap::new(),
+            function: function.into(),
+            automatic,
+        }
+    }
+
+    pub(super) fn parse(
+        expr: &'a Expr,
+        function: &str,
+        automatic: bool,
+    ) -> Result<Self, Diagnostic> {
         let Expr::Dict(dict) = expr else {
             return Err(error(
                 expr,
@@ -97,6 +112,7 @@ impl<'a> Proofs<'a> {
             used: HashSet::new(),
             counts: HashMap::new(),
             function: function.into(),
+            automatic,
         })
     }
     pub(super) fn finish(&self) -> Result<(), Diagnostic> {
@@ -174,13 +190,33 @@ impl Lowerer {
                 proof
             }
         } else {
-            E::UserHole(format!("{}.{}", proofs.function, key)).located(
-                deppy_elab::SourceLocation {
-                    source: self.namespace.clone(),
-                    start: source.range().start().to_usize(),
-                    end: source.range().end().to_usize(),
-                },
-            )
+            let name = format!("{}.{}", proofs.function, key);
+            let goal = if proofs.automatic {
+                E::AutoProof {
+                    name,
+                    hints: [
+                        "deppy.data.MkUnit",
+                        "deppy.nat_order.le_refl",
+                        "deppy.verified.nat_lt_true",
+                        "deppy.verified.nat_le_true",
+                        "deppy.verified.nat_lt_false_zero",
+                        "deppy.nat_order.pred_lt",
+                        "deppy.verified.lt_le_bound",
+                        "deppy.nat_order.le_weaken",
+                        "deppy.nat_order.le_trans",
+                    ]
+                    .into_iter()
+                    .map(str::to_owned)
+                    .collect(),
+                }
+            } else {
+                E::UserHole(name)
+            };
+            goal.located(deppy_elab::SourceLocation {
+                source: self.namespace.clone(),
+                start: source.range().start().to_usize(),
+                end: source.range().end().to_usize(),
+            })
         };
         Ok(proof.ann(goal))
     }

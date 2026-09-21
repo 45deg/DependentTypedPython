@@ -1,43 +1,89 @@
 # verifiedの仕様と証明
 
 `@verified` は、Nat／Boolの局所変数、再代入、`if`／`elif`／`else`、単一の `while`、`return` を持つ関数を検査する。
-仕様と手書き証明はdecoratorの引数に置く。通常のPythonとしてこのdecoratorを実行するものではなく、
-既存の静的frontendで読み、生成したCore項とVC証明をkernelで検査する。
+仕様は引数・戻り値・局所変数の型注釈を基本とする。`@verified` または `@verified()` で
+VCを生成し、限定した自動証明を試す。解けないVCは名前付きgoalとして残り、検証済みとして登録しない。
+`proof`／`proofs` は明示的な証明を与えるための追加インターフェースである。
+通常のPythonとしてdecoratorや注釈を実行せず、静的frontendで読み、生成したCore項とVC証明をkernelで検査する。
 
 ```python
 from __future__ import annotations
-from deppy import Nat, Eq, refl
+from deppy import Nat, Eq
 from deppy.nat import add
-from deppy.verified import verified
+from deppy.verified import verified, Refined
 
-@verified(
-    ensures=lambda n, result: Eq[Nat, result, add(n, n)],
-    proof=lambda n, pre: refl(add(n, n)),
-)
-def twice(n: Nat) -> Nat:
+@verified
+def twice(n: Nat) -> Refined[Nat, lambda result: Eq[Nat, result, add(n, n)]]:
     x = n
     x = x + n
     return x
 ```
 
+## 型注釈からの自動検証
+
+`proof`／`proofs` の省略自体はエラーにならない。引数と戻り値の `Refined` が事前・事後条件、
+局所変数の `Refined` が各代入で維持する条件になる。戻り値が単なるNat／Boolで `ensures` もなければ、
+事後条件はUnitであり、より強い値の性質は主張しない。本文の型とループの停止性は引き続き検査する。
+
+自動証明は、文脈中の証拠とΣの射影、等式の反射律、Unit・Σの構築、固定した自然数の順序補題を使う。
+順序補題は反射律、厳密順序から非厳密順序への変換、推移律、正の入力に対する `pred_or(0, n)` の減少、
+厳密減少による上界の保存を扱う。`<`／`<=` のTrue側の等式から順序の証拠を取り出し、
+`0 < n` がFalseなら `n = 0` を導ける。補題の前提は既存の証拠・反射律で解き、再帰的な補題探索はしない。
+各VCで探索回数を制限し、Σの分解・構築にも深さの上限を置く。一般の算術solverや完全な証明探索ではない。
+任意のユーザー定理・公理を勝手に探索しない。生成した通常の証明項をkernelで再検査する。
+
+```python
+@verified
+def bounded_countdown(n: Nat) -> Refined[Nat, lambda result: Eq[Nat, result, 0]]:
+    counter: Refined[Nat, lambda value: LE[value, n]] = n
+    while 0 < counter:
+        decreases(counter)
+        counter = decrement(counter)
+    return counter
+```
+
+この例の `decrement` は、正の入力を要求し、入力より小さいNatを返すverified関数である。
+importと補助関数を含む完成例は [`verified_annotations.py`](../crates/deppy-python/examples/verified_annotations.py) にある。
+
+`invariant` を省略すると、本文が更新する変数を出現順にstateとして集め、その局所Refined条件を
+不変条件候補にする。条件がなければUnit、一つならその条件、複数なら右結合のΣとする。
+初期化と保存を証明してから利用し、注釈を無条件に仮定しない。state変数はループ前に初期化する。
+Refined述語が捕捉した外部の値は注釈時点のままであり、不変条件候補の生成で捕捉先を変えない。
+引数のRefinedは入口条件であり、引数への再代入の不変条件へ自動昇格させない。
+`decreases(counter)` は反復時点の値を尺度とする。従来の `decreases(lambda counter: counter)` も使える。
+複数変数の関係など、局所条件だけで足りなければ従来の `invariant(..., state=(...))` を明示する。
+
+解けないVCにだけ `proofs={キー: 証明, ...}` を指定できる。明示した証明は必ず検査し、誤っていても
+自動証明で置き換えない。明示的な `hole` も残す。`proofs={}` は自動証明を有効にしたまま、
+残った課題を表示する。自動証明なしですべての課題を見る場合は `@verified(auto=False)` または
+`@verified(auto=False, proofs={})` を使う。`auto` はTrue／Falseのリテラルに限る。
+
+```sh
+cargo run -p deppy-python --locked --offline -- crates/deppy-python/examples/verified_annotations.py
+cargo run -p deppy-python --locked --offline -- --goals path/to/program.py
+```
+
+Pythonの遅延注釈の実行時評価には依存しない。関数の入口値やSSAの局所値への束縛はDepPyの静的規則であり、
+CPythonの `__annotations__` から局所注釈や呼び出し時の引数値を取得する仕組みではない。
+
 ## 仕様と証明
 
 - `requires` は入力引数を宣言順に受け取り、`Type` の命題を返す。Refined引数の条件と合わせて事前条件とし、どちらもなければ `deppy.data.Unit`。
 - `ensures` は入力引数、その後に戻り値を受け取り、`Type` の命題を返す。戻り値を `Refined` で指定する場合は省略する。
-- `proof` は入力引数、その後に事前条件の証拠を受け取り、生成VCを証明する。`proofs` とどちらか一方を指定する。
+- `proof` は入力引数、その後に事前条件の証拠を受け取り、生成VCを証明する。省略できるが、指定時は `proofs` と併用しない。
   ループなしでは事後条件を直接証明し、ループがある場合は後述の四つのVCの組を返す。
 - 仕様の入力引数は入口時点の値。本文で同名の引数へ再代入しても変化しない。
 - 証明にはlambda、先に検査した定理、`hole("名前")` を使える。holeが残れば検証は未完了であり、
   `--goals`／`--json` で期待する型と文脈を確認できる。
 
-例えば `proof=lambda n, pre: hole("twice_vc")` に置き換えると、
+例えばdecoratorを `@verified(proof=lambda n, pre: hole("twice_vc"))` にすると、
 `Eq[Nat, add(n, n), add(n, n)]` に相当する証明課題が表示される。
-本文の最後を `return n` に変えるとVCも変わり、元の証明は受理されない。
+本文の最後を `return n` に変えるとVCも変わり、自動証明は完成しない。
 
 分岐の証明はBoolの消去に対応する。両分岐で同じ述語を証明する場合には、
 `deppy.verified.select_post` を使える。完成した例は
 [`examples/verified.py`](../crates/deppy-python/examples/verified.py) にある。
-数値比較から順序の証拠を自動的に局所文脈へ導入する機能や自動証明探索はまだない。
+自動証明では、True側の比較の等式を順序の証拠へ変換できる。
 `decision_true` を使えば、判定結果がTrueという等式から元の命題の証拠を取り出せる。
 
 ```sh
@@ -51,7 +97,7 @@ cargo run -p deppy-python --locked --offline -- --goals path/to/proof.py
 `Refined[Nat, lambda result: Eq[Nat, result, S(n)]]` のように指定できる。
 述語は戻り値を一つ受け取り、入口時点の引数を参照できる。本文で `n` を更新しても、
 述語の `n` は変わらない。述語を既存の事後条件へ変換し、同じVCとkernelで検査する。
-`proof` または `proofs` で証明を指定し、`requires` と `verified_spec` もそのまま使える。
+必要なら `proof` または `proofs` で証明を補い、`requires` と `verified_spec` もそのまま使える。
 
 `@verified` の引数と戻り値で使え、基底型はNat／Boolに限る。
 `ensures` との併記は拒否する。公開関数は基底型の値を返し、Σの包みを作らない。
@@ -96,7 +142,7 @@ def composed(n: Refined[Nat, lambda value: Eq[Nat, value, 0]]) -> Refined[Nat, l
     return second
 ```
 
-最初の証明項目を削除すると `composed.call.first.requires` が名前付きgoalとして表示される。
+`auto=False` で最初の証明項目を削除すると `composed.call.first.requires` が名前付きgoalとして表示される。
 `exact(pre)` を戻すと、その条件が入口の仮定から証明される。
 呼び出し元を単なる `n: Nat` に変えた場合は、入口に `n = 0` の証拠がないため
 同じtacticでは解けない。未解決goalを残した関数は検証済みとして登録しない。
@@ -113,7 +159,7 @@ CPython実行時の引数検査を追加する機能ではない。
 
 ## 契約による関数の合成と名前付きVC
 
-`proofs={...}` を指定すると、verified関数への
+`proof` を指定しない通常の検証では、verified関数への
 `y = f(x)` または `return f(x)` を契約で検証する。まず呼び出し時点の引数について
 事前条件を証明し、続きは抽象的な結果 `y` と事後条件の証拠を使って証明する。
 続きの証明を任意の結果について検査した後、実際の呼び出し値と `verified_spec` の証拠を適用する。
@@ -160,7 +206,7 @@ callbackは、この文脈と同じ個数の位置引数を持つlambda、また
 キーは関数ごとに指定し、表示時には `composed.call.first.requires` のように関数名を付ける。
 キーの重複、未知のキー、余った証明は拒否する。
 
-`proofs={}` から始めると、未指定の各項目を独立したgoalとして表示できる。
+`@verified(auto=False)` から始めると、各項目を独立したgoalとして表示できる。
 `--goals` と `--json` は、名前・期待型・文脈・呼び出しやreturn式のソース位置を出力する。
 未解決goalがあれば関数も仕様定理も検証完了として登録しない。
 
@@ -176,11 +222,11 @@ importの別名と再exportでも契約を保持し、公理への依存を合�
 契約呼び出しはループ本体とループ後でも扱う。ループ前の初期化での契約呼び出しは未対応。条件式・演算の途中・引数・
 同時代入の中にあるverified呼び出しは、先に個別の代入へ分ける必要がある。
 `proof=` だけでverified関数を通常の純粋関数として呼び出す経路も拒否する。
-異なる基底型への変換、暗黙のrefinement subtyping、自動証明探索、heap更新は未対応である。
+異なる基底型への変換、暗黙のrefinement subtyping、一般の証明探索、heap更新は未対応である。
 
 ## 局所Refinedと同じ基底型の条件変換
 
-`proofs` を使う関数では、`x: Refined[Nat, predicate] = value` と宣言できる。
+`proof` による一括証明を使わない関数では、`x: Refined[Nat, predicate] = value` と宣言できる。
 基底型はNat／Bool。初期化、再代入、同時代入の各更新で `predicate(新しい値)` のVCを生成する。
 `x: Nat = ...` と再注釈しても既存の条件は消えない。同じ局所名へのRefinedの再宣言は拒否する。
 述語が参照する外部の値は注釈を処理した時点で固定する。例えば `x` の条件に `limit` を
@@ -220,7 +266,7 @@ callbackには更新後の値を追加し、証明後のcallbackにはその証�
 | `loop.exit.entry.local.counter.refined` | 終了状態でも局所条件を復元できる |
 | `loop.exit.call.y.requires` | ループ後の契約呼び出しの事前条件 |
 
-保存と減少は独立したVCなので、呼び出しの証拠もそれぞれ指定する。
+保存と減少は独立したVCである。自動で解けない呼び出しの証拠はそれぞれ指定する。
 callbackは入力・事前条件・ループ前の証拠に続き、状態・不変条件・guardの等式、
 その経路で得た値と証拠を受け取る。不変条件だけでは局所条件を導けなければ
 `entry.local` のgoalが残る。ループ前の初期化の証拠を反復後の値へ流用しない。
@@ -295,7 +341,7 @@ return total
 ```
 
 `invariant` と `decreases` は `deppy.verified_loop` からimportする静的な注釈で、
-必ずwhile本文の先頭に、この順で置く。上の例で `n` はループ入口の値を捕捉し、
+明示する場合はwhile本文の先頭に、この順で置く。不変条件を省略する場合は `decreases` を先頭に置く。上の例で `n` はループ入口の値を捕捉し、
 明示的な引数 `counter` と `total` は各反復の値を表す。
 
 ループを含む関数の `proof` は、次の四つをnested Pairで返す。
@@ -331,7 +377,7 @@ proof=lambda n, pre: Pair(
 状態、不変条件の証拠、guardの等式を受け取る。
 [Fibonacciの実例](../crates/deppy-python/examples/fibonacci.py) がこの形式を使う。
 
-未指定の項目だけが名前付きgoalになる。初期化・保存はinvariant述語、減少はmeasure、
+未指定で自動証明もできない項目が名前付きgoalになる。`auto=False` なら未指定の全項目がgoalになる。初期化・保存はinvariant述語、減少はmeasure、
 終了はreturn式のソース位置を示す。生成した四つの証明は既存の `LoopVC` にまとめ、
 `loop_correct` で関数全体の仕様を導く。分岐があれば経路ごとにgoalを生成する。
 
@@ -362,7 +408,7 @@ CPythonソースとの意味保存や生成Pythonの実行についての境界�
 - 本文は代入と分岐。更新先は `state` に列挙した変数に限る。列挙していない変数は読み取り専用。
 - stateにはNatとBoolを混在させられる。反復中に型は変えられない。
 - 入れ子・複数のwhile、`while ... else`、`break`、`continue`、本文中のreturnは拒否する。
-- 辞書式尺度、一般の整礎関係、自動不変条件推論は未実装。
+- 辞書式尺度、一般の整礎関係、局所Refined以外からの一般的な不変条件推論は未実装。
 
 ## verified_specによる仕様の再利用
 

@@ -375,38 +375,37 @@ impl Lowerer {
             ));
         }
         self.parameters(&f.parameters)?;
-        let Expr::Call(decorator) = &f.decorator_list[0].expression else {
-            return Err(error(
-                f,
-                "use @verified(ensures=..., proof=..., requires=...)",
-            ));
-        };
-        if !decorator.arguments.args.is_empty() {
-            return Err(error(decorator, "verified options must be named"));
-        }
         let mut options = HashMap::new();
-        for keyword in &decorator.arguments.keywords {
-            let name = keyword.arg.as_ref().map(|n| n.as_str()).unwrap_or("");
-            if !matches!(name, "requires" | "ensures" | "proof" | "proofs")
-                || options.insert(name, &keyword.value).is_some()
-            {
-                return Err(error(keyword, "unknown or duplicate verified option"));
+        if let Expr::Call(decorator) = &f.decorator_list[0].expression {
+            if !decorator.arguments.args.is_empty() {
+                return Err(error(decorator, "verified options must be named"));
+            }
+            for keyword in &decorator.arguments.keywords {
+                let name = keyword.arg.as_ref().map(|n| n.as_str()).unwrap_or("");
+                if !matches!(name, "requires" | "ensures" | "proof" | "proofs" | "auto")
+                    || options.insert(name, &keyword.value).is_some()
+                {
+                    return Err(error(keyword, "unknown or duplicate verified option"));
+                }
             }
         }
+        let automatic = match options.get("auto") {
+            None => true,
+            Some(Expr::BooleanLiteral(value)) => value.value,
+            Some(expr) => return Err(error(*expr, "verified auto must be True or False")),
+        };
         let ensures = options.get("ensures");
         if options.contains_key("proof") && options.contains_key("proofs") {
             return Err(error(f, "use either proof= or proofs=, not both"));
         }
-        if !options.contains_key("proof") && !options.contains_key("proofs") {
-            return Err(error(
-                f,
-                "verified requires proof or proofs={} to inspect named VCs",
-            ));
-        }
-        let named = options
-            .get("proofs")
-            .map(|e| contracts::Proofs::parse(e, f.name.as_str()))
-            .transpose()?;
+        let named = if options.contains_key("proof") {
+            None
+        } else {
+            Some(match options.get("proofs") {
+                Some(expr) => contracts::Proofs::parse(expr, f.name.as_str(), automatic)?,
+                None => contracts::Proofs::empty(f.name.as_str(), automatic),
+            })
+        };
         let outer = Scope::default();
         let explicit_post = ensures.map(|e| self.expr(e, &outer)).transpose()?;
         let witness = options
@@ -477,11 +476,20 @@ impl Lowerer {
             }
             (result, post)
         } else {
-            (
-                self.scalar(annotation)?,
-                explicit_post
-                    .ok_or_else(|| error(f, "verified requires ensures or a Refined return"))?,
-            )
+            let result = self.scalar(annotation)?;
+            let post = explicit_post.unwrap_or_else(|| {
+                let mut post = E::lam(
+                    "$result",
+                    Plicity::Explicit,
+                    Some(result.expr()),
+                    E::name("deppy.data.Unit"),
+                );
+                for (name, scalar) in parameters.iter().rev() {
+                    post = E::lam(name, Plicity::Explicit, Some(scalar.expr()), post);
+                }
+                post
+            });
+            (result, post)
         };
         let body = if matches!(f.body.first(), Some(Stmt::Expr(e)) if matches!(e.value.as_ref(), Expr::StringLiteral(_)))
         {
