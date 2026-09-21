@@ -21,6 +21,9 @@ python3 scripts/check_fermat.py
 
 `--elaboration-steps N` は各宣言の検査budgetを指定します。省略時は従来どおり1,000,000で、正の整数のみ受け付けます。budgetの増加は型検査や公理の扱いを変更しません。
 
+`@verified`（局所再代入・分岐・単一while・仕様・手書きVC証明）の構文と検査境界は
+[verifiedガイド](docs/verified.md)を参照してください。whileの不変条件・自然数尺度による停止性を検査できます。`verified_spec` は未実装です。
+
 ## 実行
 
 RustのCargoを使用します。kernelとelaboratorに外部crate依存はありません。Python frontendはRuffのparser・AST・text size crateを `=0.0.12` に固定し、推移的な依存はCargo.lockで固定しています。初回は `cargo fetch --locked` で依存を取得してください。検証環境はRust 1.97.1です。

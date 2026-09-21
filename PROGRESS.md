@@ -245,3 +245,24 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - 数式付きdocstringとSphinx公開API、`math-library.md` の実装状況を更新。乗算の残りの法則とverified本体は今回の範囲外。
 
 検証：`cargo test --workspace --locked --offline`で389テスト成功（新規3テスト内で大小判定32通り、一般形の補題利用、不正な証明の拒否を確認）。全targetのClippy（警告をエラー化）、fmt、CPython 3.14.7で30ソースの構文compile、Sphinxの警告をエラー扱いするHTMLビルドが成功。新APIの生成Pythonでの実行は未検証。
+
+### 2026-09-21：ループなしのverifiedと手書きVC証明
+
+- `deppy.verified` の `@verified(requires=..., ensures=..., proof=...)` を追加。専用のcommand HIRで局所代入・逐次実行・if/elif/else・returnを表し、Nat／Boolの値、加算・乗算・大小比較、検査済み純粋関数の呼び出しを扱う。
+- 再代入を新しいCore letへ変換し、分岐はBoolのeliminatorで解釈する。仕様の引数は入口時点の値として固定。経路ごとに未初期化変数、型変更、return不足を拒否する。
+- 純粋な全域の意味関数Dから `WP(Q, body) = Q(D(inputs))` を構築し、`requires → WP` の手書き証明を同じCore定義内でkernel検査する。公理は追加せず、ユーザー公理への依存は通常のレポートに残す。未解決VCは既存のhole／goal表示に接続。
+- `select_post` で分岐の事後条件の証明を合成できる。2倍計算、上限内の更新、分岐の例を `examples/verified.py` に追加し、[ガイド](docs/verified.md)に構文・意味論・受理範囲を記載。数式付きdocstringをSphinx APIへ登録。
+- `while`、invariant/decreases、`verified_spec`、比較からの証拠の自動導入は未実装。検査対象は明示したHIR意味論であり、CPythonの元ソースとの意味保存や新APIの生成Python実行は今回の検証対象に含めない。
+
+検証：workspace全体398テスト、新規verified 9テスト（本文・仕様・証明の変更による拒否、型・経路・構文の拒否、import、公理依存、Coreでの具体値計算）、Clippy全targetの警告エラー化、fmt、CPython 3.14.7の32ソース構文compile、Sphinx警告エラー化ビルドが成功。例の事前条件を厳密上限へ変更した後もverified 9テストを再実行して成功。
+
+### 2026-09-21：単一whileの不変条件と停止性
+
+- `invariant(predicate, state=(...))` と `decreases(measure)` をwhile本文先頭の静的注釈として追加。初期化済みのNat／Bool変数を明示的な状態tupleにまとめ、代入・分岐から状態遷移を生成する。
+- ループを含む関数の手書き証明は、初期化・保存・厳密減少・終了後の事後条件の四つをnested Pairで返す。更新先の列挙漏れ、型変更、未初期化状態、return不足、本文中のreturn、break/continue、while-else、ネスト・複数ループは拒否する。
+- `deppy.verified_loop` に `iterate`、`LoopVC`、不変条件保存定理、終了定理、`loop_correct` を通常のPython証明として追加。初期尺度を反復上限とし、減少証明からguardがFalseとなることを証明して事後条件へ接続する。単なる有限回数での打ち切りを停止性として扱わない。kernelへの規則・公理追加はない。
+- 判定結果から命題の証拠を取り出す `decision_true` とBoolのconstructorの不一致補題を追加。lambda引数が局所変数の別名を正しく隠すよう名前解決を修正し、再代入後の環境で不変条件・尺度の引数を束縛できるようにした。
+- カウントダウンと二変数の累積の例を `examples/verified_loop.py` に追加。ガイド・数式付きdocstring・Sphinx・設計文書の実装状況を更新。
+- 対象は関数直下の単一while。前置部分は代入、後置部分は代入・分岐・return。辞書式尺度、一般の整礎関係、自動不変条件推論、`verified_spec` は未実装。CPythonの元ソースとの意味保存や新APIの生成Python実行は未検証。
+
+検証：workspace全体406テスト成功。新規loop 8テストで具体値0・1・2・5の計算、四VCの誤り、非停止更新、未対応構文、混合状態、hole、公理依存を確認。Clippy全targetの警告エラー化、fmt、diff check、CPython 3.14.7の34ソース構文compile、Sphinx警告エラー化ビルドも成功。

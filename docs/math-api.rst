@@ -27,3 +27,13 @@ Lists
 -----
 
 .. deppy-api:: crates/deppy-python/stdlib/deppy/lists.py
+
+Verified branch helpers
+-----------------------
+
+.. deppy-api:: crates/deppy-python/stdlib/deppy/verified.py
+
+Verified loop obligations
+-------------------------
+
+.. deppy-api:: crates/deppy-python/stdlib/deppy/verified_loop.py

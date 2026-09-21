@@ -462,6 +462,7 @@ impl Lowerer {
         let mut inner = scope.clone();
         for p in &params {
             inner.locals.insert(p.parameter.name.to_string());
+            inner.aliases.remove(p.parameter.name.as_str());
         }
         let mut body = self.expr(&lambda.body, &inner)?;
         for p in params.into_iter().rev() {

@@ -6,6 +6,9 @@ const BUILTINS: &[&str] = &[
     "Index",
     "induct",
     "absurd",
+    "verified",
+    "invariant",
+    "decreases",
     "dependent",
     "theorem",
     "hole",
@@ -75,6 +78,8 @@ pub(super) fn builtin_exports(module: &str) -> Exports {
 
 pub(super) fn standard(name: &str) -> Option<&'static str> {
     match name {
+        "deppy.verified_loop" => Some(include_str!("../../stdlib/deppy/verified_loop.py")),
+        "deppy.verified" => Some(include_str!("../../stdlib/deppy/verified.py")),
         "deppy.naturals" => Some(include_str!("../../stdlib/deppy/naturals.py")),
         "deppy.indexed" => Some(include_str!("../../stdlib/deppy/indexed.py")),
         "deppy.data" => Some(include_str!("../../stdlib/deppy/data.py")),

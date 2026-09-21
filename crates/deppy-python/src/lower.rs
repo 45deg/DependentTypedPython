@@ -3,6 +3,7 @@ mod expression;
 mod matrix;
 mod record;
 mod structural;
+mod verified;
 use crate::{Declaration, DeclarationBody, Diagnostic};
 use deppy_elab::{Expr as E, Plicity};
 pub(crate) use record::constructor_name;
@@ -117,16 +118,26 @@ pub(super) fn module(
                 if !future {
                     return Err(error(f, "from __future__ import annotations is required"));
                 }
-                let is_axiom = f.decorator_list.len() == 1
-                    && l.builtin(&f.decorator_list[0].expression, &Scope::default())
-                        == Some("axiom");
-                let (decreases, opaque) = if is_axiom {
-                    (None, false)
-                } else {
-                    l.decorator(f)?
+                let decorator = match &f.decorator_list[0].expression {
+                    Expr::Call(c) => c.func.as_ref(),
+                    e => e,
                 };
-                let mut declaration = l.function(f, decreases)?;
-                declaration.opaque = opaque;
+                let mut declaration = if l.builtin(decorator, &Scope::default()) == Some("verified")
+                {
+                    l.verified(f)?
+                } else {
+                    let is_axiom = f.decorator_list.len() == 1
+                        && l.builtin(&f.decorator_list[0].expression, &Scope::default())
+                            == Some("axiom");
+                    let (decreases, opaque) = if is_axiom {
+                        (None, false)
+                    } else {
+                        l.decorator(f)?
+                    };
+                    let mut declaration = l.function(f, decreases)?;
+                    declaration.opaque = opaque;
+                    declaration
+                };
                 declaration.name = l.qualified(f.name.as_str());
                 l.globals.insert(
                     f.name.to_string(),
