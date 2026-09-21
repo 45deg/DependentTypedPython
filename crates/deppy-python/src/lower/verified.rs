@@ -382,8 +382,10 @@ impl Lowerer {
             }
             for keyword in &decorator.arguments.keywords {
                 let name = keyword.arg.as_ref().map(|n| n.as_str()).unwrap_or("");
-                if !matches!(name, "requires" | "ensures" | "proof" | "proofs" | "auto")
-                    || options.insert(name, &keyword.value).is_some()
+                if !matches!(
+                    name,
+                    "requires" | "ensures" | "proof" | "proofs" | "auto" | "using"
+                ) || options.insert(name, &keyword.value).is_some()
                 {
                     return Err(error(keyword, "unknown or duplicate verified option"));
                 }
@@ -398,7 +400,7 @@ impl Lowerer {
         if options.contains_key("proof") && options.contains_key("proofs") {
             return Err(error(f, "use either proof= or proofs=, not both"));
         }
-        let named = if options.contains_key("proof") {
+        let mut named = if options.contains_key("proof") {
             None
         } else {
             Some(match options.get("proofs") {
@@ -406,6 +408,32 @@ impl Lowerer {
                 None => contracts::Proofs::empty(f.name.as_str(), automatic),
             })
         };
+        if let Some(using) = options.get("using") {
+            let Expr::Tuple(items) = using else {
+                return Err(error(
+                    *using,
+                    "verified using requires a tuple of checked lemma names",
+                ));
+            };
+            if !automatic || options.contains_key("proof") {
+                return Err(error(
+                    *using,
+                    "using requires automatic verification without proof=",
+                ));
+            }
+            let proofs = named.as_mut().unwrap();
+            for item in &items.elts {
+                let Expr::Name(name) = item else {
+                    return Err(error(item, "using entries must be checked lemma names"));
+                };
+                let binding = self.globals.get(name.id.as_str()).ok_or_else(|| {
+                    error(item, format!("unknown or unchecked lemma: {}", name.id))
+                })?;
+                if !proofs.hints.contains(&binding.name) {
+                    proofs.hints.push(binding.name.clone());
+                }
+            }
+        }
         let outer = Scope::default();
         let explicit_post = ensures.map(|e| self.expr(e, &outer)).transpose()?;
         let witness = options

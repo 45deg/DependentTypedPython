@@ -2,8 +2,8 @@ from __future__ import annotations
 from deppy._builtins import Refined, verified, verified_spec, dependent, theorem, induct, Pi, Type, Nat, Z, S, Eq, refl, absurd
 from deppy.data import Bool, False_, True_, Unit, MkUnit, Empty, Decidable, Yes, No
 from deppy.equality import transport, sym
-from deppy.nat import add, mul
-from deppy.nat_order import LE, LT, le_decide, lt_decide, le_trans, le_weaken
+from deppy.nat import add, mul, pred_or
+from deppy.nat_order import pred_lt, LE, LT, le_decide, lt_decide, le_trans, le_weaken
 
 
 @dependent
@@ -112,3 +112,9 @@ def nat_lt_false_zero(n: Nat, test: Eq[Bool, nat_lt(0, n), False_()]) -> Eq[Nat,
 def lt_le_bound[n: Nat, m: Nat](smaller: LT(n, m), k: Nat, bound: LE[m, k]) -> LE[n, k]:
     """A strict decrease preserves an existing upper bound."""
     return le_trans(le_weaken(smaller), k, bound)
+
+
+@theorem
+def pred_lt_true(n: Nat, test: Eq[Bool, nat_lt(0, n), True_()]) -> LT(pred_or(0, n), n):
+    """A positive loop guard justifies decrementing the counter."""
+    return pred_lt(n, nat_lt_true(0, n, test))

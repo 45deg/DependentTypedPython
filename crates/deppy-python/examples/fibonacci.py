@@ -4,8 +4,7 @@ from deppy.data import Bool, False_, True_, MkUnit
 from deppy.equality import cong2, trans, sym
 from deppy.tactics import rewrite, rewrite_in
 from deppy.nat import add, add_zero, add_succ, pred_or
-from deppy.nat_order import lt_decide, pred_lt
-from deppy.verified import verified, Refined, verified_spec, nat_lt, decision_true, false_ne_true
+from deppy.verified import verified, Refined, verified_spec, nat_lt, false_ne_true
 from deppy.verified_loop import invariant, decreases
 
 
@@ -75,14 +74,7 @@ def fib_exit(n: Nat, remaining: Nat, index: Nat, a: Nat, b: Nat, inv: FibInvaria
     return rewrite(sym(index_is_n), inv.snd.fst)
 
 
-@verified(
-    proofs={
-        "loop.init": lambda n, pre: Pair(add_zero(n), Pair(refl(0), refl(1))),
-        "loop.preserve": lambda n, pre, state, inv, test: fib_preserve(n, state.fst, state.snd.fst, state.snd.snd.fst, state.snd.snd.snd.fst, inv, test),
-        "loop.decrease": lambda n, pre, state, inv, test: pred_lt(state.fst, decision_true(lt_decide(0, state.fst), test)),
-        "loop.exit": lambda n, pre, state, inv, test: fib_exit(n, state.fst, state.snd.fst, state.snd.snd.fst, state.snd.snd.snd.fst, inv, test),
-    },
-)
+@verified(using=(add_zero, fib_preserve, fib_exit))
 def fib_loop(n: Nat) -> Refined[Nat, lambda result: Eq[Nat, result, fib_recursive(n)]]:
     r"""Compute Fibonacci by a loop, proving :math:`\operatorname{fib\_loop}(n)=F_n` and termination."""
     remaining = n
@@ -90,7 +82,7 @@ def fib_loop(n: Nat) -> Refined[Nat, lambda result: Eq[Nat, result, fib_recursiv
     a, b = 0, 1
     while 0 < remaining:
         invariant(lambda remaining, index, a, b: FibInvariant(n, remaining, index, a, b), state=(remaining, index, a, b))
-        decreases(lambda remaining, index, a, b: remaining)
+        decreases(remaining)
         a, b = b, a + b
         index = S(index)
         remaining = pred_or(0, remaining)

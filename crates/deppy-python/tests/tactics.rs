@@ -81,10 +81,10 @@ fn fibonacci_rewrites_and_independent_loop_goals_are_checked() {
     let source = include_str!("../examples/fibonacci.py");
     let checked = check_module(source, TARGET).unwrap_or_else(|e| panic!("{e}"));
     assert!(checked.axiom_dependencies.values().all(Vec::is_empty));
-    let start = source.find("    proofs={").unwrap();
-    let end = start + source[start..].find("    },").unwrap() + "    },".len();
-    let mut incomplete = source.to_owned();
-    incomplete.replace_range(start..end, "    proofs={},");
+    let mut incomplete = source.replace(
+        "@verified(using=(add_zero, fib_preserve, fib_exit))",
+        "@verified(auto=False)",
+    );
     // Stop before clients of the deliberately unfinished declaration.
     incomplete.truncate(incomplete.find("@theorem\ndef fib_loop_correct").unwrap());
     let analysis = analyze_module(&incomplete, TARGET);
@@ -103,7 +103,7 @@ fn fibonacci_rewrites_and_independent_loop_goals_are_checked() {
         let snippet = &incomplete[location.start..location.end];
         match suffix {
             "init" | "preserve" => assert!(snippet.contains("FibInvariant")),
-            "decrease" => assert_eq!(snippet, "lambda remaining, index, a, b: remaining"),
+            "decrease" => assert_eq!(snippet, "remaining"),
             "exit" => assert_eq!(snippet, "a"),
             _ => unreachable!(),
         }

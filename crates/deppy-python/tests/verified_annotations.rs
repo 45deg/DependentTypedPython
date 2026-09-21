@@ -220,3 +220,49 @@ def capture(n: Nat) -> Refined[Nat, lambda r: LE[r, n]]:
         .replace("        decreases(counter)", "        invariant(lambda counter: LE[counter, n], state=(counter,))\n        decreases(counter)");
     check_module(&explicit, TARGET).unwrap_or_else(|e| panic!("{e}"));
 }
+
+#[test]
+fn using_resolves_import_aliases_and_preserves_explicit_proofs() {
+    let source = format!("{HEADER}from deppy.nat import add_zero as zero_right\n@verified(using=(zero_right,))\ndef keep(n: Nat) -> Refined[Nat, lambda r: Eq[Nat, r, n]]:\n    return n + 0\n");
+    let checked = check_module(&source, TARGET).unwrap_or_else(|e| panic!("{e}"));
+    assert!(checked.axiom_dependencies.values().all(Vec::is_empty));
+    for replacement in [
+        "@verified",
+        "@verified(using=(zero_right,), proofs={'return': lambda n, pre: hole('manual')})",
+        "@verified(using=(zero_right,), proofs={'return': lambda n, pre: refl(0)})",
+    ] {
+        assert!(check_module(
+            &source.replace("@verified(using=(zero_right,))", replacement),
+            TARGET
+        )
+        .is_err());
+    }
+    for option in [
+        "using=zero_right",
+        "using=(missing,)",
+        "using=(zero_right(0),)",
+        "using=(zero_right,), auto=False",
+        "using=(zero_right,), proof=lambda n, pre: refl(n)",
+    ] {
+        assert!(
+            check_module(&source.replace("using=(zero_right,)", option), TARGET).is_err(),
+            "{option}"
+        );
+    }
+}
+
+#[test]
+fn using_tracks_explicit_axioms_and_does_not_assume_missing_premises() {
+    let source = format!("{HEADER}from deppy import axiom\n@axiom\ndef trust(n: Nat) -> Eq[Nat, n, 0]:\n    ...\n@verified(using=(trust,))\ndef zero(n: Nat) -> Refined[Nat, lambda r: Eq[Nat, r, 0]]:\n    return n\n");
+    let checked = check_module(&source, TARGET).unwrap_or_else(|e| panic!("{e}"));
+    assert!(checked.axiom_dependencies["zero"]
+        .iter()
+        .any(|name| name.contains("trust")));
+    assert!(check_module(
+        &source.replace("@verified(using=(trust,))", "@verified"),
+        TARGET
+    )
+    .is_err());
+    let conditional = source.replace("trust(n: Nat)", "trust(n: Nat, premise: Eq[Nat, n, 0])");
+    assert!(check_module(&conditional, TARGET).is_err());
+}

@@ -32,6 +32,15 @@ def twice(n: Nat) -> Refined[Nat, lambda result: Eq[Nat, result, add(n, n)]]:
 各VCで探索回数を制限し、Σの分解・構築にも深さの上限を置く。一般の算術solverや完全な証明探索ではない。
 任意のユーザー定理・公理を勝手に探索しない。生成した通常の証明項をkernelで再検査する。
 
+`@verified(using=(add_zero, fib_preserve, fib_exit))` のように、使用する補題を追加できる。
+`using` は既に検査された宣言名のタプルで、import時の別名にも対応する。
+補題の結論をVCの型と照合して引数を推論し、残る前提を文脈中の証拠・反射律で解く。
+推論できない引数や前提は未解決goalとして残す。補題同士の再帰的な連鎖は行わない。
+明示した `proofs` が優先され、`using` は残りのVCにだけ適用される。
+`auto=False` または単一の `proof=` と `using` の併用はエラーになる。
+公理を明示した場合は、実際に生成された証明が使う公理への依存を記録する。
+
+
 ```python
 @verified
 def bounded_countdown(n: Nat) -> Refined[Nat, lambda result: Eq[Nat, result, 0]]:
@@ -375,7 +384,7 @@ proof=lambda n, pre: Pair(
 キーは `loop.init`、`loop.preserve`、`loop.decrease`、`loop.exit` の四つ。
 初期化のcallbackは入力引数、事前条件の証拠、ループ前のRefined代入で得た値と証拠を受け取り、残りの三つは続けて
 状態、不変条件の証拠、guardの等式を受け取る。
-[Fibonacciの実例](../crates/deppy-python/examples/fibonacci.py) がこの形式を使う。
+[Fibonacciの実例](../crates/deppy-python/examples/fibonacci.py) は `using` による補題適用でこの辞書を省略する。
 
 未指定で自動証明もできない項目が名前付きgoalになる。`auto=False` なら未指定の全項目がgoalになる。初期化・保存はinvariant述語、減少はmeasure、
 終了はreturn式のソース位置を示す。生成した四つの証明は既存の `LoopVC` にまとめ、
@@ -457,6 +466,7 @@ cargo run -p deppy-python --locked --offline -- crates/deppy-python/examples/ver
 を検査する。純粋な仕様は構造的再帰で隣接する二項 `(F_n, F_(n+1))` を計算し、
 `fib_step` が通常のFibonacci漸化式を証明する。
 
+`@verified(using=(add_zero, fib_preserve, fib_exit))` で必要な補題を指定し、証明辞書は使わない。
 ループは `a, b = b, a + b` で更新する。不変条件は
 `remaining + index = n`、`a = F_index`、`b = F_(index+1)` の組である。
 `remaining` の厳密な減少と、終了時の `remaining = 0` から、停止性と結果の一致を証明する。

@@ -152,10 +152,7 @@ fn fibonacci_mutations_do_not_reuse_stale_proofs() {
     for (from, to) in [
         ("a, b = b, a + b", "a = b\n        b = a + b"),
         ("a, b = 0, 1", "a, b = 1, 1"),
-        (
-            "decreases(lambda remaining, index, a, b: remaining)",
-            "decreases(lambda remaining, index, a, b: 0)",
-        ),
+        ("decreases(remaining)", "decreases(0)"),
         ("    return a", "    return b"),
     ] {
         assert!(

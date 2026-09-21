@@ -72,6 +72,7 @@ pub(super) struct Proofs<'a> {
     counts: HashMap<String, usize>,
     function: String,
     automatic: bool,
+    pub(super) hints: Vec<String>,
 }
 impl<'a> Proofs<'a> {
     pub(super) fn empty(function: &str, automatic: bool) -> Self {
@@ -81,6 +82,7 @@ impl<'a> Proofs<'a> {
             counts: HashMap::new(),
             function: function.into(),
             automatic,
+            hints: vec![],
         }
     }
 
@@ -113,6 +115,7 @@ impl<'a> Proofs<'a> {
             counts: HashMap::new(),
             function: function.into(),
             automatic,
+            hints: vec![],
         })
     }
     pub(super) fn finish(&self) -> Result<(), Diagnostic> {
@@ -201,12 +204,14 @@ impl Lowerer {
                         "deppy.verified.nat_le_true",
                         "deppy.verified.nat_lt_false_zero",
                         "deppy.nat_order.pred_lt",
+                        "deppy.verified.pred_lt_true",
                         "deppy.verified.lt_le_bound",
                         "deppy.nat_order.le_weaken",
                         "deppy.nat_order.le_trans",
                     ]
                     .into_iter()
                     .map(str::to_owned)
+                    .chain(proofs.hints.iter().cloned())
                     .collect(),
                 }
             } else {
