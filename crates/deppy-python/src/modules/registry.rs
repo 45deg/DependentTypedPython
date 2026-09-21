@@ -7,6 +7,7 @@ const BUILTINS: &[&str] = &[
     "induct",
     "absurd",
     "verified",
+    "verified_spec",
     "invariant",
     "decreases",
     "dependent",

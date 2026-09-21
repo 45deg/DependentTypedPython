@@ -69,7 +69,7 @@ kernelに新しい規則や公理を追加しない。VC証明がユーザー公
 
 これは定義したHIR意味論に対する検証である。元のCPython実行との意味保存や
 生成Pythonでの新APIの実行検証は含まない。公開される関数の型は通常の引数・戻り値の型であり、
-仕様を後続の証明から直接取り出す `verified_spec` はまだ提供しない。
+仕様は `verified_spec` で後続の証明から再利用できる。
 
 ## 受理範囲
 
@@ -160,4 +160,44 @@ CPythonソースとの意味保存や生成Pythonの実行についての境界�
 - 本文は代入と分岐。更新先は `state` に列挙した変数に限る。列挙していない変数は読み取り専用。
 - stateにはNatとBoolを混在させられる。反復中に型は変えられない。
 - 入れ子・複数のwhile、`while ... else`、`break`、`continue`、本文中のreturnは拒否する。
-- 辞書式尺度、一般の整礎関係、自動不変条件推論、`verified_spec` は未実装。
+- 辞書式尺度、一般の整礎関係、自動不変条件推論は未実装。
+
+## verified_specによる仕様の再利用
+
+```python
+from deppy.verified import verified_spec
+from deppy.data import MkUnit
+
+@theorem
+def twice_spec(n: Nat) -> Eq[Nat, twice(n), add(n, n)]:
+    return verified_spec(twice, n, MkUnit())
+```
+
+`verified_spec(f, 引数..., 事前条件の証拠)` は、検査済みの仕様定理を適用する静的な構文である。
+最後の引数は `requires` の証拠。省略したrequiresはUnitなので `MkUnit()` を渡す。
+例えば `advance` の事前条件が `LT(n, limit)` なら、その証拠が必要であり、Unitでは代用できない。
+引数を途中まで適用した場合は、残りの引数を受け取る証明関数となる。
+
+仕様定理の型は `Π inputs. requires(inputs) → ensures(inputs, f(inputs))`。
+関数を登録した後、その関数自体を参照するこの型に対して、VCから得た証明を改めてkernelで検査し、
+opaqueな定理として登録する。ループについては四つのVCと `loop_correct` による停止性の証明を
+そのまま利用する。未検査の公理やsolverの成功フラグへ置き換える経路はない。
+
+最初の引数は静的に解決できる `@verified` 関数名に限る。通常の `@dependent` 関数、
+局所変数、式の結果を渡すと拒否する。関数を別名でimportした場合や再exportした場合も、
+元の検査済み関数に対応する仕様定理を参照する。
+
+`CheckedInterface` の関数entryには `verified_spec` IDを保存する。同じinterfaceのkernel snapshotで
+その定理の型・本体・opaque属性を調べられる。生成定理の内部名はPythonの名前として公開しない。
+moduleの本体・仕様・証明・事前条件が変われば、依存snapshotを無効化して再検査する。
+仕様定理を利用した証明にも、元のユーザー公理への依存が通常のレポートとして伝播する。
+
+[`examples/verified_spec.py`](../crates/deppy-python/examples/verified_spec.py) では、
+別moduleの通常関数とループ関数の仕様を、任意の自然数について再利用している。
+
+```sh
+cargo run -p deppy-python --locked --offline -- crates/deppy-python/examples/verified_spec.py
+```
+
+`f(inputs)` はこのfrontendが定義するHIRの意味関数である。仕様の再利用を追加しても、
+元のCPythonソースとの意味保存や生成Python実行を検証したことにはならない。

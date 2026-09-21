@@ -209,4 +209,4 @@ funextなどは「未実装の定理」ではなく基礎体系の選択とし�
 
 ## 現在地の読み方
 
-この文書は目標設計を含む。現在実装済みの範囲は[README](../README.md)と[PROGRESS](../PROGRESS.md)を正とする。Phase 1は実装済みで、一般帰納型・positivity・依存pattern matching・Listの四定理・holeとgoal表示・opaque theorem・検査済み依存snapshotの再利用に対応する。既存Nat・Vec・Finとruntimeも一般帰納型へ移行した。受理する構文と制約は[実装状況](dependent-phase1.md)に記載する。ループなしの `@verified`、command HIRの純粋な意味論、意味論からのWP/VC構築、手書きVC証明のkernel検査は実装済み。受理範囲と境界は[verifiedガイド](verified.md)に記載する。単一の `while` と不変条件・自然数尺度のVC、有限反復がguard偽で終了することの一般定理も実装済み。ネストしたwhileと `verified_spec` は未実装である。
+この文書は目標設計を含む。現在実装済みの範囲は[README](../README.md)と[PROGRESS](../PROGRESS.md)を正とする。Phase 1は実装済みで、一般帰納型・positivity・依存pattern matching・Listの四定理・holeとgoal表示・opaque theorem・検査済み依存snapshotの再利用に対応する。既存Nat・Vec・Finとruntimeも一般帰納型へ移行した。受理する構文と制約は[実装状況](dependent-phase1.md)に記載する。ループなしの `@verified`、command HIRの純粋な意味論、意味論からのWP/VC構築、手書きVC証明のkernel検査は実装済み。受理範囲と境界は[verifiedガイド](verified.md)に記載する。単一の `while` と不変条件・自然数尺度のVC、有限反復がguard偽で終了することの一般定理も実装済み。`verified_spec` は関数自体を参照するopaque定理をkernelで再検査して公開し、import・再export・公理依存の追跡にも対応する。ネストしたwhile、自動証明探索、元のCPythonソースとの意味保存は未実装である。

@@ -37,3 +37,13 @@ Verified loop obligations
 -------------------------
 
 .. deppy-api:: crates/deppy-python/stdlib/deppy/verified_loop.py
+
+Verified specification reuse
+----------------------------
+
+``verified_spec(function, *inputs, precondition_proof)`` is compiler-provided
+syntax exported by ``deppy.verified``. It applies the opaque, kernel-checked
+theorem associated with a statically resolved verified function. Its result has
+type ``ensures(inputs, function(inputs))``. An omitted ``requires`` means
+``Unit`` and therefore requires ``MkUnit()`` as the final argument. User axiom
+dependencies remain visible when the theorem is reused.

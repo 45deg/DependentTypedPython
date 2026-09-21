@@ -266,3 +266,13 @@ Chatlog.md第19節の順序に沿ったチェックリストです。チェッ�
 - 対象は関数直下の単一while。前置部分は代入、後置部分は代入・分岐・return。辞書式尺度、一般の整礎関係、自動不変条件推論、`verified_spec` は未実装。CPythonの元ソースとの意味保存や新APIの生成Python実行は未検証。
 
 検証：workspace全体406テスト成功。新規loop 8テストで具体値0・1・2・5の計算、四VCの誤り、非停止更新、未対応構文、混合状態、hole、公理依存を確認。Clippy全targetの警告エラー化、fmt、diff check、CPython 3.14.7の34ソース構文compile、Sphinx警告エラー化ビルドも成功。
+
+### 2026-09-21：verified_specによる検証済み仕様の再利用
+
+- `deppy.verified.verified_spec(f, 引数..., 事前条件の証拠)` を追加。通常のverified関数と単一whileの仕様を、後続のdependent/theoremから利用できる。
+- 関数登録後、`requires(inputs) → ensures(inputs, f(inputs))` を型とするcompanion theoremをkernelで再検査し、opaqueとして登録する。関数本体内のVC証明を取り出して使い、ループでは既存の `loop_correct` による証明を保持する。kernel規則や公理の追加はない。
+- source bindingにverified由来の情報を保持し、import alias・再exportで引き継ぐ。通常関数、局所変数、式の結果は `verified_spec` の対象として拒否する。内部定理名はPython識別子と衝突しない名前とし、checked interfaceには同じkernel snapshot上の定理IDを格納する。
+- 事前条件の証拠を型検査し、ユーザー公理への依存を再利用先へ伝播する。依存元の本体・仕様・事前条件の変更でキャッシュを無効化し、古い仕様を参照する証明が通らないことを確認。
+- `examples/verified_spec.py` に、別moduleの2倍計算・上限付き更新・カウントダウン・累積の仕様を一般形で再利用する例を追加。ガイド・Sphinx API・設計文書の実装状況を更新。
+
+検証：workspace全体413テスト成功。新規7テストでopaque定理、import/reexport、loopの仕様、事前条件と由来の拒否、nullaryとbuiltin alias、公理依存、snapshot無効化を確認。Clippy全targetの警告エラー化、fmt、diff check、CPython 3.14.7の35ソース構文compile、Sphinx警告エラー化ビルドも成功。元のCPythonソースとの意味保存と新APIの生成Python実行は未検証。

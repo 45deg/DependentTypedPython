@@ -292,6 +292,16 @@ impl Lowerer {
         evidence = evidence.app(E::name("$pre"));
         let correct = lets(&prefix, correct.app(evidence));
         let mut certificate_ty = E::pi("$pre", Plicity::Explicit, pre.clone(), certificate);
+        let mut call = E::name(self.qualified(f.name.as_str()));
+        for (name, _) in &parameters {
+            call = call.app(E::name(name));
+        }
+        let mut specification = E::pi(
+            "$pre",
+            Plicity::Explicit,
+            pre.clone(),
+            post.clone().app(call),
+        );
         let mut vc_ty = E::pi(
             "$pre",
             Plicity::Explicit,
@@ -306,6 +316,7 @@ impl Lowerer {
             vc = lambda(&name, scalar.expr(), vc);
             certificate_ty = E::pi(&name, Plicity::Explicit, scalar.expr(), certificate_ty);
             vc_ty = E::pi(&name, Plicity::Explicit, scalar.expr(), vc_ty);
+            specification = E::pi(&name, Plicity::Explicit, scalar.expr(), specification);
             function_ty = E::pi(name, Plicity::Explicit, scalar.expr(), function_ty);
         }
         let body = E::let_in(
@@ -319,7 +330,11 @@ impl Lowerer {
             name: self.qualified(f.name.as_str()),
             span: f.range.into(),
             ty: function_ty,
-            body: DeclarationBody::Expression(body),
+            body: DeclarationBody::Verified {
+                proof: specification_proof(&body),
+                implementation: body,
+                specification,
+            },
         })
     }
 }

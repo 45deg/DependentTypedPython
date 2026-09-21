@@ -122,6 +122,12 @@ pub enum DeclarationBody {
     Data(deppy_elab::NamedDataDecl),
     Axiom,
     Expression(Expr),
+    /// The companion theorem is checked against the registered function itself.
+    Verified {
+        implementation: Expr,
+        specification: Expr,
+        proof: Expr,
+    },
     Structural(deppy_elab::lower::Function),
     Record {
         declaration: deppy_elab::RecordDecl,

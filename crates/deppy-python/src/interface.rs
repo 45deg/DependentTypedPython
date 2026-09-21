@@ -25,6 +25,8 @@ pub struct InterfaceEntry {
     pub ty: Tm,
     pub kind: DeclarationKind,
     pub constructor: Option<DefId>,
+    /// Opaque, kernel-checked specification theorem in this same snapshot.
+    pub verified_spec: Option<DefId>,
     pub inductive: Option<InductiveMetadata>,
     /// Checked projection functions in the same kernel snapshot.
     pub projections: BTreeMap<String, Tm>,
@@ -94,6 +96,7 @@ impl CheckedInterface {
                         ty: definition.ty.clone(),
                         kind,
                         constructor,
+                        verified_spec: None,
                         inductive,
                         projections: BTreeMap::new(),
                         axiom_dependencies: dependencies[name].clone(),
@@ -102,6 +105,11 @@ impl CheckedInterface {
             })
             .collect();
         Self { kernel, exports }
+    }
+    pub(crate) fn set_verified_spec(&mut self, name: &str, id: DefId) {
+        if let Some(entry) = self.exports.get_mut(name) {
+            entry.verified_spec = Some(id);
+        }
     }
     pub(crate) fn set_projections(&mut self, name: &str, projections: BTreeMap<String, Tm>) {
         if let Some(entry) = self.exports.get_mut(name) {

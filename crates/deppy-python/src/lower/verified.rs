@@ -8,6 +8,33 @@
 use super::*;
 mod loops;
 
+pub(crate) fn specification_name(function: &str) -> String {
+    // Not a Python identifier, so source declarations cannot spoof this name.
+    format!("$verified_spec:{function}")
+}
+
+fn specification_proof(body: &E) -> E {
+    let E::Let {
+        name,
+        ty,
+        value,
+        body,
+    } = body
+    else {
+        unreachable!("verified definitions contain a checked VC let")
+    };
+    E::let_in(
+        name,
+        ty.as_deref().cloned(),
+        *value.clone(),
+        if name == "$vc" {
+            E::name(name)
+        } else {
+            specification_proof(body)
+        },
+    )
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Scalar {
     Nat,
@@ -340,12 +367,23 @@ impl Lowerer {
             return self.verified_loop(f, &commands, state, result, parameters, pre, post, witness);
         }
         let denotation = self.denote(&commands.iter().collect::<Vec<_>>(), state, result)?;
+        let mut call = E::name(self.qualified(f.name.as_str()));
+        for (name, _) in &parameters {
+            call = call.app(E::name(name));
+        }
+        let mut specification = E::pi(
+            "$pre",
+            Plicity::Explicit,
+            pre.clone(),
+            post.clone().app(call),
+        );
         let mut vc = E::pi("$pre", Plicity::Explicit, pre, post.app(denotation.clone()));
         let mut body = denotation;
         let mut ty = result.expr();
         for (name, scalar) in parameters.into_iter().rev() {
             body = E::lam(&name, Plicity::Explicit, Some(scalar.expr()), body);
             vc = E::pi(&name, Plicity::Explicit, scalar.expr(), vc);
+            specification = E::pi(&name, Plicity::Explicit, scalar.expr(), specification);
             ty = E::pi(name, Plicity::Explicit, scalar.expr(), ty);
         }
         body = E::let_in("$vc", Some(vc), witness, body);
@@ -354,7 +392,11 @@ impl Lowerer {
             name: self.qualified(f.name.as_str()),
             span: f.range.into(),
             ty,
-            body: DeclarationBody::Expression(body),
+            body: DeclarationBody::Verified {
+                proof: specification_proof(&body),
+                implementation: body,
+                specification,
+            },
         })
     }
 }

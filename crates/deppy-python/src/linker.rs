@@ -216,6 +216,7 @@ pub(crate) fn check_lowered_cached(
                 }
             },
             DeclarationBody::Expression(body) => body.clone(),
+            DeclarationBody::Verified { implementation, .. } => implementation.clone(),
             DeclarationBody::Record { .. } | DeclarationBody::Axiom | DeclarationBody::Data(_) => {
                 unreachable!()
             }
@@ -232,6 +233,21 @@ pub(crate) fn check_lowered_cached(
                 continue;
             }
         };
+        if let DeclarationBody::Verified {
+            specification,
+            proof,
+            ..
+        } = &d.body
+        {
+            if let Err(error) = elaborator.define_opaque(
+                lower::specification_name(&d.name),
+                Some(specification),
+                proof,
+            ) {
+                diagnostics.push(elab_diagnostic(error));
+                continue;
+            }
+        }
         if module.public_names.contains(&d.name) {
             definitions.push((d.name, id, d.span));
         }
@@ -294,6 +310,9 @@ pub(crate) fn check_lowered_cached(
         &exported_data,
     );
     for (alias, canonical) in &module.public_bindings {
+        if let Some(id) = elaborator.definition_id(&lower::specification_name(canonical)) {
+            interface.set_verified_spec(alias, id);
+        }
         if let Some(fields) = projections.get(canonical) {
             interface.set_projections(alias, fields.clone());
         }

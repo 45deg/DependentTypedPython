@@ -148,6 +148,38 @@ impl Lowerer {
                 }
             }
             Expr::Call(call) => {
+                if self.builtin(&call.func, scope) == Some("verified_spec") {
+                    if !call.arguments.keywords.is_empty() || call.arguments.args.is_empty() {
+                        return Err(error(
+                            call,
+                            "verified_spec requires a verified function and positional arguments",
+                        ));
+                    }
+                    let Expr::Name(function) = &call.arguments.args[0] else {
+                        return Err(error(
+                            call,
+                            "verified_spec requires a statically resolved function name",
+                        ));
+                    };
+                    let name = function.id.as_str();
+                    let binding = self
+                        .globals
+                        .get(name)
+                        .filter(|b| b.verified)
+                        .filter(|_| !scope.locals.contains(name) && !scope.assigned.contains(name))
+                        .ok_or_else(|| {
+                            error(
+                                function,
+                                "verified_spec requires a checked @verified declaration",
+                            )
+                        })?;
+                    let mut proof = E::name(super::specification_name(&binding.name));
+                    for argument in &call.arguments.args[1..] {
+                        proof = proof.app(self.expr(argument, scope)?);
+                    }
+                    return Ok(proof);
+                }
+
                 if self.builtin(&call.func, scope) == Some("induct") {
                     let args = &call.arguments.args;
                     if args.len() < 3 || !call.arguments.keywords.is_empty() {

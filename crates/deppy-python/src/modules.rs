@@ -21,6 +21,7 @@ pub(crate) struct Binding {
     pub builtin: Option<String>,
     pub record: Option<(usize, usize)>,
     pub nullary: bool,
+    pub verified: bool,
     pub data: Option<DataBinding>,
 }
 type Exports = HashMap<String, Binding>;
@@ -31,6 +32,7 @@ impl Binding {
             name: name.into(),
             builtin: Some(name.into()),
             record: None,
+            verified: false,
             nullary: false,
             data: None,
         }
@@ -228,6 +230,7 @@ impl<R: SourceResolver> Loader<'_, R> {
                     builtin: None,
                     record,
                     nullary,
+                    verified: matches!(d.body, DeclarationBody::Verified { .. }),
                     data: match &d.body {
                         DeclarationBody::Data(decl) => Some(DataBinding {
                             family: decl.name.clone(),
@@ -258,6 +261,7 @@ impl<R: SourceResolver> Loader<'_, R> {
                             name: ctor.name.clone(),
                             builtin: None,
                             record: None,
+                            verified: false,
                             nullary: ctor.fields.is_empty(),
                             data: Some(DataBinding {
                                 family: decl.name.clone(),

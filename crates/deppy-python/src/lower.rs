@@ -10,6 +10,7 @@ pub(crate) use record::constructor_name;
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_text_size::{Ranged, TextRange};
 use std::collections::{HashMap, HashSet};
+pub(crate) use verified::specification_name;
 fn error(node: &impl Ranged, message: impl Into<String>) -> Diagnostic {
     Diagnostic {
         details: Default::default(),
@@ -146,6 +147,7 @@ pub(super) fn module(
                         builtin: None,
                         record: None,
                         data: None,
+                        verified: matches!(declaration.body, DeclarationBody::Verified { .. }),
                         nullary: f.parameters.posonlyargs.is_empty()
                             && f.parameters.args.is_empty(),
                     },
@@ -181,6 +183,7 @@ pub(super) fn module(
                         builtin: None,
                         record: l.records.get(class.name.as_str()).copied(),
                         data: None,
+                        verified: false,
                         nullary: false,
                     },
                 );

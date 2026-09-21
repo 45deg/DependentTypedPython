@@ -93,6 +93,7 @@ impl Lowerer {
                 name: name.clone(),
                 builtin: None,
                 record: None,
+                verified: false,
                 nullary: false,
                 data: Some(DataBinding {
                     family: name.clone(),
@@ -164,6 +165,7 @@ impl Lowerer {
                     name: ctor_name.clone(),
                     builtin: None,
                     record: None,
+                    verified: false,
                     nullary: fields.is_empty(),
                     data: Some(DataBinding {
                         family: name.clone(),
