@@ -55,7 +55,7 @@ cargo run -p deppy-python --locked --offline -- --goals path/to/proof.py
 
 `@verified` の引数と戻り値で使え、基底型はNat／Boolに限る。
 `ensures` との併記は拒否する。公開関数は基底型の値を返し、Σの包みを作らない。
-局所変数のrefinementやsubtypingは未対応である。
+局所変数では後述の名前付きVCを使う。同じ基底型の条件変換もVCとして検査し、暗黙のsubtypingは行わない。
 
 ## Refined引数
 
@@ -106,14 +106,14 @@ cargo run -p deppy-python --locked --offline -- crates/deppy-python/examples/ref
 ```
 
 単一whileを持つ関数でもRefined引数を宣言でき、まとめた証拠を各ループVCの `pre` で使える。
-契約合成の呼び出し元をループなしに限定する制約は変わらない。
+ループ本体とループ後の継続でも、`proofs` による契約合成を使える。
 この機能はverifiedの契約注釈であり、一般のΣ型の値や暗黙のsubtypingではない。
 公開Core関数の引数は基底型のままで、保証を利用するには事前条件の証拠が必要となる。
 CPython実行時の引数検査を追加する機能ではない。
 
 ## 契約による関数の合成と名前付きVC
 
-ループなしの呼び出し元で `proofs={...}` を指定すると、verified関数への
+`proofs={...}` を指定すると、verified関数への
 `y = f(x)` または `return f(x)` を契約で検証する。まず呼び出し時点の引数について
 事前条件を証明し、続きは抽象的な結果 `y` と事後条件の証拠を使って証明する。
 続きの証明を任意の結果について検査した後、実際の呼び出し値と `verified_spec` の証拠を適用する。
@@ -173,10 +173,62 @@ cargo run -p deppy-python --locked --offline -- --json path/to/program.py
 importの別名と再exportでも契約を保持し、公理への依存を合成先へ伝える。
 呼び出し先の本体・契約が変われば依存snapshotを無効化する。
 
-この段階では、契約合成する呼び出し元にwhileは置けない。条件式・演算の途中・引数・
+契約呼び出しはループ本体とループ後でも扱う。ループ前の初期化での契約呼び出しは未対応。条件式・演算の途中・引数・
 同時代入の中にあるverified呼び出しは、先に個別の代入へ分ける必要がある。
 `proof=` だけでverified関数を通常の純粋関数として呼び出す経路も拒否する。
-局所変数のrefinement型、refinement subtyping、自動証明探索、heap更新は未対応である。
+異なる基底型への変換、暗黙のrefinement subtyping、自動証明探索、heap更新は未対応である。
+
+## 局所Refinedと同じ基底型の条件変換
+
+`proofs` を使う関数では、`x: Refined[Nat, predicate] = value` と宣言できる。
+基底型はNat／Bool。初期化、再代入、同時代入の各更新で `predicate(新しい値)` のVCを生成する。
+`x: Nat = ...` と再注釈しても既存の条件は消えない。同じ局所名へのRefinedの再宣言は拒否する。
+述語が参照する外部の値は注釈を処理した時点で固定する。例えば `x` の条件に `limit` を
+参照した後で `limit` を更新しても、`x` の条件は元の値を参照する。
+
+| VCのキー | 証明する内容 |
+|---|---|
+| `local.x.refined` | 初期化後の `x` が宣言した条件を満たす |
+| `local.x.2.refined` | 二回目の代入後もその条件を満たす |
+| `then.local.x.refined` | True側での代入後の条件 |
+
+callbackには更新後の値を追加し、証明後のcallbackにはその証拠も追加する。
+契約呼び出しの戻り値がすでに文脈にある場合、同じ値は重複して追加しない。
+同時代入は全右辺を更新前の状態で評価し、左辺の順に条件を検査する。
+過去の値と証拠は残るが、新しい値の条件を無条件に仮定することはない。
+
+同じNatについて `Eq[Nat, x, 0]` から `LE[x, 0]` に変換する場合も、
+代入先または呼び出し先の条件を証明するVCを使う。例えば前者の証拠 `zero` があれば、
+`rewrite(zero, le_refl(0))` で後者を証明できる。基底型は変えず、条件の含意を
+手書き補題やtacticで明示する。変換用の新しいkernel規則や実行時の包装は追加しない。
+
+### ループ内の契約合成
+
+[Refinedループの実例](../crates/deppy-python/examples/refined_loop.py) は、
+`counter ≤ n` を局所変数の条件と不変条件にし、正の入力から小さい値を返す
+`decrement` の契約だけで保存と減少を証明する。
+[別moduleの証明](../crates/deppy-python/examples/refined_loop_client.py) は
+`verified_spec` でその結果を再利用する。
+
+| VCのキー | 証明する内容 |
+|---|---|
+| `loop.preserve.call.counter.requires` | 保存の証明中に呼び出す補助関数の事前条件 |
+| `loop.decrease.call.counter.requires` | 減少の証明中の同じ呼び出しの事前条件 |
+| `loop.preserve.local.counter.refined` | 更新後の局所条件 |
+| `loop.preserve.entry.local.counter.refined` | 任意の反復状態で、不変条件から局所条件を復元できる |
+| `loop.decrease.entry.local.counter.refined` | 減少の証明の入口で同じ条件を復元できる |
+| `loop.exit.entry.local.counter.refined` | 終了状態でも局所条件を復元できる |
+| `loop.exit.call.y.requires` | ループ後の契約呼び出しの事前条件 |
+
+保存と減少は独立したVCなので、呼び出しの証拠もそれぞれ指定する。
+callbackは入力・事前条件・ループ前の証拠に続き、状態・不変条件・guardの等式、
+その経路で得た値と証拠を受け取る。不変条件だけでは局所条件を導けなければ
+`entry.local` のgoalが残る。ループ前の初期化の証拠を反復後の値へ流用しない。
+
+本文の分岐は `loop.preserve.then.call.x.requires` のように経路名を含め、
+末尾の保存・減少は `loop.preserve.then`、`loop.decrease.else` などになる。
+ループ後の分岐の事後条件は `loop.exit.then.return` などで指定する。
+手書き証明とtacticはどちらも通常のCore証明項になり、同じkernel検査を通る。
 
 ## HIRの意味論とVC
 
@@ -275,13 +327,13 @@ proof=lambda n, pre: Pair(
 
 単一whileでは、従来のnested Pairの代わりに `proofs` を使える。
 キーは `loop.init`、`loop.preserve`、`loop.decrease`、`loop.exit` の四つ。
-初期化のcallbackは入力引数と事前条件の証拠を受け取り、残りの三つは続けて
+初期化のcallbackは入力引数、事前条件の証拠、ループ前のRefined代入で得た値と証拠を受け取り、残りの三つは続けて
 状態、不変条件の証拠、guardの等式を受け取る。
 [Fibonacciの実例](../crates/deppy-python/examples/fibonacci.py) がこの形式を使う。
 
 未指定の項目だけが名前付きgoalになる。初期化・保存はinvariant述語、減少はmeasure、
-終了はguardのソース位置を示す。生成した四つの証明は既存の `LoopVC` にまとめ、
-`loop_correct` で関数全体の仕様を導く。whileを含む関数内での契約呼び出しは未対応である。
+終了はreturn式のソース位置を示す。生成した四つの証明は既存の `LoopVC` にまとめ、
+`loop_correct` で関数全体の仕様を導く。分岐があれば経路ごとにgoalを生成する。
 
 ### 有限反復とwhileの接続
 

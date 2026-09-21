@@ -71,10 +71,10 @@ moduleは標準ライブラリとユーザーライブラリの単位として�
 現在の対象は次の範囲に限定する。構文と制約は[verifiedガイド](verified.md)を参照。
 
 - Nat・Boolなどの値と局所変数
-- 局所再代入と平坦なtupleの同時代入
+- 局所再代入と平坦なtupleの同時代入、局所Refinedの代入VC、同じ基底型の条件変換
 - `if`
 - 関数直下の単一 `while`
-- pureな関数呼び出しと、ループなしの呼び出し元でのverified契約の合成
+- pureな関数呼び出しと、単一whileの本文・終了後を含むverified契約の合成
 - `requires`と`ensures`
 - loopの`invariant`と`decreases`
 - `proofs` による名前付きVCの証明と、未指定goalの表示

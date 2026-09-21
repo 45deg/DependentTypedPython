@@ -56,6 +56,7 @@ impl Scalar {
 enum Command<'a> {
     Assign(&'a str, Option<Scalar>, &'a Expr),
     Parallel(Vec<(&'a str, &'a Expr)>),
+    Refine(&'a str, Scalar, &'a Expr),
     If(&'a Expr, Vec<Command<'a>>, Vec<Command<'a>>),
     Return(&'a Expr),
     While(loops::Loop<'a>),
@@ -64,6 +65,10 @@ enum Command<'a> {
 struct State {
     scope: Scope,
     types: HashMap<String, Scalar>,
+    // Only the pure loop denotation may contain unresolved contract calls.
+    // Named composition separately checks every call; it always clears this flag.
+    allow_contracts: bool,
+    refinements: HashMap<String, E>,
 }
 
 impl Lowerer {
@@ -104,9 +109,10 @@ impl Lowerer {
         let mut commands = vec![];
         for statement in body {
             self.tick(statement.range())?;
-            commands.push(match statement {
-                Stmt::Assign(a) if a.targets.len() == 1 => {
-                    match (&a.targets[0], a.value.as_ref()) {
+            let command =
+                match statement {
+                    Stmt::Assign(a) if a.targets.len() == 1 => {
+                        match (&a.targets[0], a.value.as_ref()) {
                         (Expr::Name(n), _) => Command::Assign(n.id.as_str(), None, &a.value),
                         (Expr::Tuple(targets), Expr::Tuple(values)) if !targets.elts.is_empty() && targets.elts.len() == values.elts.len() => {
                             let mut bindings = vec![];
@@ -124,44 +130,53 @@ impl Lowerer {
                         }
                         _ => return Err(error(a, "verified assignment requires a local name or equal-length tuples of local names and values")),
                     }
-                }
-                Stmt::AnnAssign(a) => {
-                    let Expr::Name(n) = a.target.as_ref() else {
-                        return Err(error(a, "verified assignment requires one local name"));
-                    };
-                    Command::Assign(
-                        n.id.as_str(),
-                        Some(self.scalar(&a.annotation)?),
-                        a.value
-                            .as_deref()
-                            .ok_or_else(|| error(a, "verified local requires a value"))?,
-                    )
-                }
-                Stmt::If(branch) => {
-                    let mut otherwise = vec![];
-                    for clause in branch.elif_else_clauses.iter().rev() {
-                        let body = self.commands(&clause.body)?;
-                        otherwise = if let Some(test) = &clause.test {
-                            vec![Command::If(test, body, otherwise)]
-                        } else {
-                            body
-                        };
                     }
-                    Command::If(&branch.test, self.commands(&branch.body)?, otherwise)
-                }
-                Stmt::While(w) => Command::While(self.loop_command(w)?),
-                Stmt::Return(r) => Command::Return(
-                    r.value
-                        .as_deref()
-                        .ok_or_else(|| error(r, "verified return requires a value"))?,
-                ),
-                _ => {
-                    return Err(error(
-                        statement,
-                        "verified supports local assignment, if, while, and return",
-                    ))
-                }
-            });
+                    Stmt::AnnAssign(a) => {
+                        let Expr::Name(n) = a.target.as_ref() else {
+                            return Err(error(a, "verified assignment requires one local name"));
+                        };
+                        let scalar =
+                            if let Some((base, predicate)) = self.refinement(&a.annotation)? {
+                                let scalar = self.scalar(base)?;
+                                commands.push(Command::Refine(n.id.as_str(), scalar, predicate));
+                                scalar
+                            } else {
+                                self.scalar(&a.annotation)?
+                            };
+                        Command::Assign(
+                            n.id.as_str(),
+                            Some(scalar),
+                            a.value
+                                .as_deref()
+                                .ok_or_else(|| error(a, "verified local requires a value"))?,
+                        )
+                    }
+                    Stmt::If(branch) => {
+                        let mut otherwise = vec![];
+                        for clause in branch.elif_else_clauses.iter().rev() {
+                            let body = self.commands(&clause.body)?;
+                            otherwise = if let Some(test) = &clause.test {
+                                vec![Command::If(test, body, otherwise)]
+                            } else {
+                                body
+                            };
+                        }
+                        Command::If(&branch.test, self.commands(&branch.body)?, otherwise)
+                    }
+                    Stmt::While(w) => Command::While(self.loop_command(w)?),
+                    Stmt::Return(r) => Command::Return(
+                        r.value
+                            .as_deref()
+                            .ok_or_else(|| error(r, "verified return requires a value"))?,
+                    ),
+                    _ => {
+                        return Err(error(
+                            statement,
+                            "verified supports local assignment, if, while, and return",
+                        ))
+                    }
+                };
+            commands.push(command);
         }
         Ok(commands)
     }
@@ -227,10 +242,12 @@ impl Lowerer {
                 {
                     return Err(error(c, "verified calls require a checked pure function"));
                 }
-                if self.globals.get(n.id.as_str()).is_some_and(|b| b.verified) {
+                if !state.allow_contracts
+                    && self.globals.get(n.id.as_str()).is_some_and(|b| b.verified)
+                {
                     return Err(error(
                         c,
-                        "contract calls require direct assignments/returns in loop-free functions using proofs=",
+                        "contract calls require direct assignments/returns using proofs=",
                     ));
                 }
                 if !c.arguments.keywords.is_empty() {
@@ -240,7 +257,12 @@ impl Lowerer {
                 for argument in &c.arguments.args {
                     term = term.app(self.value(argument, state, None)?.0);
                 }
-                (term, expected.unwrap_or(Scalar::Nat))
+                let contract_result = self
+                    .globals
+                    .get(n.id.as_str())
+                    .and_then(|binding| binding.contract.as_ref())
+                    .map(|contract| contract.result);
+                (term, expected.or(contract_result).unwrap_or(Scalar::Nat))
             }
             _ => return Err(error(e, "unsupported verified value expression")),
         };
@@ -288,6 +310,13 @@ impl Lowerer {
             });
         };
         match command {
+            Command::Refine(name, scalar, predicate) => {
+                if !state.allow_contracts {
+                    return Err(error(*predicate, "local Refined requires proofs="));
+                }
+                self.local_condition(name, *scalar, predicate, &mut state)?;
+                self.denote(rest, state, result)
+            }
             Command::While(loop_) => {
                 Err(error(loop_.test, "while must be a single top-level loop"))
             }
@@ -477,7 +506,7 @@ impl Lowerer {
                         }
                     }
                     Command::While(loop_) => capture(&loop_.body, assigned),
-                    Command::Return(_) => {}
+                    Command::Return(_) | Command::Refine(_, _, _) => {}
                 }
             }
         }
@@ -523,6 +552,7 @@ impl Lowerer {
                 &context,
                 "",
                 &mut named,
+                None,
             )?;
             named.finish()?;
             for (name, ty) in context.into_iter().rev() {

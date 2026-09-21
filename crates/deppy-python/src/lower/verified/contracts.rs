@@ -5,7 +5,7 @@ use super::*;
 #[derive(Clone, Debug)]
 pub(crate) struct Contract {
     parameters: Vec<Scalar>,
-    result: Scalar,
+    pub(super) result: Scalar,
     pre: E,
     post: E,
 }
@@ -60,6 +60,12 @@ impl Contract {
     }
 }
 
+pub(super) struct Completion<'a> {
+    pub names: &'a [String],
+    pub ty: E,
+    pub source: &'a Expr,
+}
+
 pub(super) struct Proofs<'a> {
     entries: HashMap<String, &'a Expr>,
     used: HashSet<String>,
@@ -104,14 +110,17 @@ impl<'a> Proofs<'a> {
         }
         Ok(())
     }
-    fn call_key(&mut self, path: &str, name: &str) -> String {
-        let base = format!("{path}call.{name}");
+    pub(super) fn call_key(&mut self, path: &str, name: &str) -> String {
+        self.assignment_key(path, "call", name, "requires")
+    }
+    fn assignment_key(&mut self, path: &str, kind: &str, name: &str, suffix: &str) -> String {
+        let base = format!("{path}{kind}.{name}");
         let count = self.counts.entry(base.clone()).or_default();
         *count += 1;
         if *count == 1 {
-            format!("{base}.requires")
+            format!("{base}.{suffix}")
         } else {
-            format!("{base}.{}.requires", *count)
+            format!("{base}.{}.{suffix}", *count)
         }
     }
 }
@@ -176,6 +185,62 @@ impl Lowerer {
         Ok(proof.ann(goal))
     }
 
+    pub(super) fn local_condition(
+        &mut self,
+        name: &str,
+        scalar: Scalar,
+        predicate: &Expr,
+        state: &mut State,
+    ) -> Result<(), Diagnostic> {
+        if state.refinements.contains_key(name) {
+            return Err(error(
+                predicate,
+                "a local refinement may only be declared once",
+            ));
+        }
+        if state.types.get(name).is_some_and(|old| *old != scalar) {
+            return Err(error(
+                predicate,
+                "verified reassignment cannot change a local's type",
+            ));
+        }
+        let condition = self.expr(predicate, &state.scope)?.ann(E::pi(
+            "$value",
+            Plicity::Explicit,
+            scalar.expr(),
+            E::Universe(0),
+        ));
+        state.refinements.insert(name.into(), condition);
+        Ok(())
+    }
+
+    pub(super) fn local_evidence(
+        &mut self,
+        names: &[(&str, &Expr)],
+        state: &State,
+        context: &mut Vec<(String, E)>,
+        path: &str,
+        proofs: &mut Proofs<'_>,
+    ) -> Result<Vec<(String, E, E)>, Diagnostic> {
+        let mut bindings = vec![];
+        for (name, source) in names {
+            if let Some(predicate) = state.refinements.get(*name) {
+                let value_name = state.scope.aliases.get(*name).unwrap();
+                if !context.iter().any(|(n, _)| n == value_name) {
+                    context.push((value_name.clone(), state.types[*name].expr()));
+                }
+                let goal = predicate.clone().app(E::name(value_name));
+                let key = proofs.assignment_key(path, "local", name, "refined");
+                let proof = self.obligation(proofs, &key, source, context, goal.clone())?;
+                let fact = format!("$local_fact{}", self.wildcard);
+                self.wildcard += 1;
+                context.push((fact.clone(), goal.clone()));
+                bindings.push((fact, goal, proof));
+            }
+        }
+        Ok(bindings)
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(super) fn compose(
         &mut self,
@@ -186,14 +251,30 @@ impl Lowerer {
         context: &[(String, E)],
         path: &str,
         proofs: &mut Proofs<'_>,
+        completion: Option<&Completion<'_>>,
     ) -> Result<(E, E), Diagnostic> {
+        state.allow_contracts = false;
         let Some((command, rest)) = commands.split_first() else {
+            if let Some(end) = completion {
+                let value = loops::pack(end.names, &state).ann(end.ty.clone());
+                let proof = self.obligation(
+                    proofs,
+                    path.trim_end_matches('.'),
+                    end.source,
+                    context,
+                    post.clone().app(value.clone()),
+                )?;
+                return Ok((value, proof));
+            }
             return Err(Diagnostic {
                 details: Default::default(),
                 span: crate::Span { start: 0, end: 0 },
                 message: "every verified path must return a value".into(),
             });
         };
+        if let (Some(end), Command::Return(_)) = (completion, command) {
+            return Err(error(end.source, "return inside a loop is unsupported"));
+        }
         // A direct verified call is a modular proof boundary. Nested calls must
         // be named by an assignment, so evaluation order and goals are explicit.
         let candidate = match command {
@@ -268,11 +349,32 @@ impl Lowerer {
                         state.scope.locals.insert(name.into());
                         state.scope.aliases.insert(name.into(), value_name.clone());
                         state.types.insert(name.into(), contract.result);
-                        self.compose(rest, state, result, post, &next_context, path, proofs)?
+                        let facts = self.local_evidence(
+                            &[(name, source)],
+                            &state,
+                            &mut next_context,
+                            path,
+                            proofs,
+                        )?;
+                        let (tail, proof) = self.compose(
+                            rest,
+                            state,
+                            result,
+                            post,
+                            &next_context,
+                            path,
+                            proofs,
+                            completion,
+                        )?;
+                        (tail, loops::lets(&facts, proof))
                     } else {
                         let proof = self.obligation(
                             proofs,
-                            &format!("{path}return"),
+                            &if path == "loop.exit." {
+                                "loop.exit".into()
+                            } else {
+                                format!("{path}return")
+                            },
                             source,
                             &next_context,
                             post.clone().app(value.clone()),
@@ -318,11 +420,19 @@ impl Lowerer {
             }
         }
         match command {
+            Command::Refine(name, scalar, predicate) => {
+                self.local_condition(name, *scalar, predicate, &mut state)?;
+                self.compose(rest, state, result, post, context, path, proofs, completion)
+            }
             Command::Return(expr) => {
                 let value = self.value(expr, &state, Some(result))?.0;
                 let proof = self.obligation(
                     proofs,
-                    &format!("{path}return"),
+                    &if path == "loop.exit." {
+                        "loop.exit".into()
+                    } else {
+                        format!("{path}return")
+                    },
                     expr,
                     context,
                     post.clone().app(value.clone()),
@@ -331,8 +441,13 @@ impl Lowerer {
             }
             Command::Assign(name, annotation, expr) => {
                 let binding = self.loop_assign(name, *annotation, expr, &mut state)?;
-                let (value, proof) =
-                    self.compose(rest, state, result, post, context, path, proofs)?;
+                let mut context = context.to_vec();
+                let facts =
+                    self.local_evidence(&[(name, expr)], &state, &mut context, path, proofs)?;
+                let (value, proof) = self.compose(
+                    rest, state, result, post, &context, path, proofs, completion,
+                )?;
+                let proof = loops::lets(&facts, proof);
                 let (name, ty, rhs) = binding;
                 Ok((
                     E::let_in(&name, Some(ty.clone()), rhs.clone(), value),
@@ -340,9 +455,14 @@ impl Lowerer {
                 ))
             }
             Command::Parallel(bindings) => {
-                let bindings = self.parallel_values(bindings, &mut state)?;
-                let (mut value, mut proof) =
-                    self.compose(rest, state, result, post, context, path, proofs)?;
+                let lowered = self.parallel_values(bindings, &mut state)?;
+                let mut context = context.to_vec();
+                let facts = self.local_evidence(bindings, &state, &mut context, path, proofs)?;
+                let (mut value, proof) = self.compose(
+                    rest, state, result, post, &context, path, proofs, completion,
+                )?;
+                let mut proof = loops::lets(&facts, proof);
+                let bindings = lowered;
                 for (name, ty, rhs) in bindings.into_iter().rev() {
                     value = E::let_in(&name, Some(ty.clone()), rhs.clone(), value);
                     proof = E::let_in(name, Some(ty), rhs, proof);
@@ -379,6 +499,7 @@ impl Lowerer {
                             &context,
                             &format!("{path}{}.", if truth { "then" } else { "else" }),
                             proofs,
+                            completion,
                         )?;
                         Ok((
                             value,
@@ -388,12 +509,12 @@ impl Lowerer {
                 let (no, no_proof) = branch(no, false)?;
                 let (yes, yes_proof) = branch(yes, true)?;
                 let value = E::name("deppy.verified.select")
-                    .implicit(result.expr())
+                    .implicit(completion.map_or_else(|| result.expr(), |end| end.ty.clone()))
                     .app(guard.clone())
                     .app(no.clone())
                     .app(yes.clone());
                 let proof = E::name("deppy.verified.select_post_eq")
-                    .implicit(result.expr())
+                    .implicit(completion.map_or_else(|| result.expr(), |end| end.ty.clone()))
                     .implicit(post.clone())
                     .app(guard)
                     .app(no)

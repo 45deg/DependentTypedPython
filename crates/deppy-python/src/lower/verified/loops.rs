@@ -18,7 +18,7 @@ pub(super) fn contains_loop(commands: &[Command<'_>]) -> bool {
 fn lambda(name: &str, ty: E, body: E) -> E {
     E::lam(name, Plicity::Explicit, Some(ty), body)
 }
-fn pack(names: &[String], state: &State) -> E {
+pub(super) fn pack(names: &[String], state: &State) -> E {
     names
         .iter()
         .rev()
@@ -46,7 +46,7 @@ fn project(names: &[String], state: &State, value: E) -> (State, Vec<(String, E,
     }
     (state, bindings)
 }
-fn lets(bindings: &[(String, E, E)], mut body: E) -> E {
+pub(super) fn lets(bindings: &[(String, E, E)], mut body: E) -> E {
     for (name, ty, value) in bindings.iter().rev() {
         body = E::let_in(name, Some(ty.clone()), value.clone(), body);
     }
@@ -187,6 +187,13 @@ impl Lowerer {
                     .app(no)
                     .app(yes))
             }
+            Command::Refine(name, scalar, predicate) => {
+                if !state.allow_contracts {
+                    return Err(error(*predicate, "local Refined requires proofs="));
+                }
+                self.local_condition(name, *scalar, predicate, &mut state)?;
+                self.transition(rest, state, names, ty)
+            }
             Command::Return(expr) => Err(error(*expr, "return inside a loop is unsupported")),
             Command::While(loop_) => Err(error(loop_.test, "nested while is unsupported")),
         }
@@ -205,7 +212,7 @@ impl Lowerer {
         pre: E,
         post: E,
         witness: Option<E>,
-        named: Option<contracts::Proofs<'_>>,
+        mut named: Option<contracts::Proofs<'_>>,
     ) -> Result<Declaration, Diagnostic> {
         let position = commands
             .iter()
@@ -217,14 +224,48 @@ impl Lowerer {
         if contains_loop(&loop_.body) || contains_loop(&commands[position + 1..]) {
             return Err(error(f, "only one non-nested while is supported"));
         }
+        let mut context = parameters
+            .iter()
+            .map(|(n, s)| (n.clone(), s.expr()))
+            .collect::<Vec<_>>();
+        context.push(("$pre".into(), pre.clone()));
         let mut prefix = vec![];
+        let mut proof_prefix = vec![];
         for command in &commands[..position] {
             match command {
+                Command::Refine(name, scalar, predicate) => {
+                    if named.is_none() {
+                        return Err(error(*predicate, "local Refined requires proofs="));
+                    }
+                    self.local_condition(name, *scalar, predicate, &mut state)?;
+                }
                 Command::Assign(name, annotation, expr) => {
-                    prefix.push(self.loop_assign(name, *annotation, expr, &mut state)?)
+                    let binding = self.loop_assign(name, *annotation, expr, &mut state)?;
+                    prefix.push(binding.clone());
+                    proof_prefix.push(binding);
+                    if let Some(named) = &mut named {
+                        proof_prefix.extend(self.local_evidence(
+                            &[(name, expr)],
+                            &state,
+                            &mut context,
+                            "",
+                            named,
+                        )?);
+                    }
                 }
                 Command::Parallel(bindings) => {
-                    prefix.extend(self.parallel_values(bindings, &mut state)?)
+                    let lowered = self.parallel_values(bindings, &mut state)?;
+                    prefix.extend(lowered.clone());
+                    proof_prefix.extend(lowered);
+                    if let Some(named) = &mut named {
+                        proof_prefix.extend(self.local_evidence(
+                            bindings,
+                            &state,
+                            &mut context,
+                            "",
+                            named,
+                        )?);
+                    }
                 }
                 _ => return Err(error(f, "only assignments may precede while")),
             }
@@ -239,7 +280,7 @@ impl Lowerer {
         }
         let ty = state_type(&loop_.names, &state);
         let initial = pack(&loop_.names, &state).ann(ty.clone());
-        let (symbolic, fields) = project(&loop_.names, &state, E::name("$state"));
+        let (mut symbolic, fields) = project(&loop_.names, &state, E::name("$state"));
         let guard = lambda(
             "$state",
             ty.clone(),
@@ -248,6 +289,7 @@ impl Lowerer {
                 self.value(loop_.test, &symbolic, Some(Scalar::Bool))?.0,
             ),
         );
+        symbolic.allow_contracts = named.is_some();
         let next = self.transition(
             &loop_.body.iter().collect::<Vec<_>>(),
             symbolic.clone(),
@@ -279,7 +321,7 @@ impl Lowerer {
         let measure = lambda("$state", ty.clone(), lets(&fields, measure));
         let after = self.denote(
             &commands[position + 1..].iter().collect::<Vec<_>>(),
-            symbolic,
+            symbolic.clone(),
             result,
         )?;
         let finish = lambda("$state", ty.clone(), lets(&fields, after));
@@ -296,11 +338,6 @@ impl Lowerer {
             .app(initial.clone());
         let denotation = lets(&prefix, finish.app(end));
         let witness = if let Some(mut named) = named {
-            let mut context = parameters
-                .iter()
-                .map(|(n, s)| (n.clone(), s.expr()))
-                .collect::<Vec<_>>();
-            context.push(("$pre".into(), pre.clone()));
             let init = self.obligation(
                 &mut named,
                 "loop.init",
@@ -308,7 +345,7 @@ impl Lowerer {
                 &context,
                 inv.clone().app(initial.clone()),
             )?;
-            let mut component = |key: &str, truth: bool, goal: E| -> Result<E, Diagnostic> {
+            let mut component = |key: &str, truth: bool| -> Result<E, Diagnostic> {
                 let mut context = context.clone();
                 let locals = vec![
                     ("$state".into(), ty.clone()),
@@ -327,47 +364,79 @@ impl Lowerer {
                     ),
                 ];
                 context.extend(locals.clone());
-                let mut proof = self.obligation(
+                let entries = loop_
+                    .names
+                    .iter()
+                    .map(|n| (n.as_str(), loop_.invariant))
+                    .collect::<Vec<_>>();
+                let facts = self.local_evidence(
+                    &entries,
+                    &symbolic,
+                    &mut context,
+                    &format!("{key}.entry."),
                     &mut named,
-                    key,
-                    if key == "loop.decrease" {
-                        loop_.measure
-                    } else if key == "loop.preserve" {
-                        loop_.invariant
-                    } else {
-                        loop_.test
-                    },
-                    &context,
-                    goal,
                 )?;
+                let proof = if truth {
+                    let output_post = if key == "loop.preserve" {
+                        inv.clone()
+                    } else {
+                        lambda(
+                            "$next",
+                            ty.clone(),
+                            E::name("deppy.nat_order.LT")
+                                .app(measure.clone().app(E::name("$next")))
+                                .app(measure.clone().app(E::name("$state"))),
+                        )
+                    };
+                    let completion = contracts::Completion {
+                        names: &loop_.names,
+                        ty: ty.clone(),
+                        source: if key == "loop.preserve" {
+                            loop_.invariant
+                        } else {
+                            loop_.measure
+                        },
+                    };
+                    let (_, proof) = self.compose(
+                        &loop_.body.iter().collect::<Vec<_>>(),
+                        symbolic.clone(),
+                        result,
+                        &output_post,
+                        &context,
+                        &format!("{key}."),
+                        &mut named,
+                        Some(&completion),
+                    )?;
+                    proof
+                } else {
+                    // The exit continuation is also checked against contract-only results.
+                    self.compose(
+                        &commands[position + 1..].iter().collect::<Vec<_>>(),
+                        symbolic.clone(),
+                        result,
+                        &post,
+                        &context,
+                        "loop.exit.",
+                        &mut named,
+                        None,
+                    )?
+                    .1
+                };
+                let mut proof = lets(&fields, lets(&facts, proof));
                 for (name, ty) in locals.into_iter().rev() {
                     proof = lambda(&name, ty, proof);
                 }
                 Ok(proof)
             };
-            let preserve = component(
-                "loop.preserve",
-                true,
-                inv.clone().app(step.clone().app(E::name("$state"))),
-            )?;
-            let decrease = component(
-                "loop.decrease",
-                true,
-                E::name("deppy.nat_order.LT")
-                    .app(measure.clone().app(step.clone().app(E::name("$state"))))
-                    .app(measure.clone().app(E::name("$state"))),
-            )?;
-            let exit = component(
-                "loop.exit",
-                false,
-                final_post.clone().app(E::name("$state")),
-            )?;
+            let preserve = component("loop.preserve", true)?;
+            let decrease = component("loop.decrease", true)?;
+            let exit = component("loop.exit", false)?;
             named.finish()?;
             let mut proof = lets(
-                &prefix,
+                &proof_prefix,
                 E::pair(init, E::pair(preserve, E::pair(decrease, exit))),
             );
-            for (name, ty) in context.into_iter().rev() {
+            for (name, ty) in context.into_iter().take(parameters.len() + 1).rev() {
                 proof = lambda(&name, ty, proof);
             }
             proof

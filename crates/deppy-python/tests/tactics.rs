@@ -104,7 +104,7 @@ fn fibonacci_rewrites_and_independent_loop_goals_are_checked() {
         match suffix {
             "init" | "preserve" => assert!(snippet.contains("FibInvariant")),
             "decrease" => assert_eq!(snippet, "lambda remaining, index, a, b: remaining"),
-            "exit" => assert_eq!(snippet, "0 < remaining"),
+            "exit" => assert_eq!(snippet, "a"),
             _ => unreachable!(),
         }
     }

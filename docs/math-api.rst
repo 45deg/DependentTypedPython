@@ -61,7 +61,7 @@ arguments. Their conditions, in parameter order, followed by an explicit
 ``requires`` are combined into a right-associated Sigma. A single condition is
 used directly; no conditions means ``Unit``. The combined evidence is the
 ``pre`` argument of proof callbacks and the final argument of ``verified_spec``.
-Local refinements and subtyping are not supported.
+Local refinements use named assignment VCs; same-base condition conversions require explicit evidence. Implicit subtyping is not supported.
 
 .. deppy-api:: crates/deppy-python/examples/fibonacci.py
 
@@ -72,9 +72,9 @@ Contract composition
 continuation for an arbitrary result satisfying the checked callee contract.
 The result and its specification evidence are passed to subsequent proof
 callbacks. Missing entries become named goals with source locations; unfinished
-proofs are never registered. The current caller must be loop-free.
+proofs are never registered. Calls in a single loop body and after the loop are supported.
 
-Single loops separately support ``loop.init``, ``loop.preserve``,
+Single loops support ``loop.init``, ``loop.preserve``,
 ``loop.decrease`` and ``loop.exit`` proof entries.
 
 .. deppy-api:: crates/deppy-python/examples/verified_composition.py
@@ -87,3 +87,20 @@ entry refinement or an earlier call's postcondition; ``rewrite`` can transform
 the goal using that evidence. Every generated proof is kernel-checked.
 
 .. deppy-api:: crates/deppy-python/examples/refined_arguments.py
+
+Local refinements and modular loops
+-----------------------------------
+
+Local ``Refined[Nat/Bool, predicate]`` annotations capture their environment at
+annotation time. Initialization and reassignment generate ``local.x.refined``
+VCs, with numeric suffixes for later assignments. Conversions between conditions
+on the same base type use these VCs or a callee's precondition VC.
+
+Loop preservation and decrease proofs independently compose helper contracts.
+Refined state variables also require ``loop.preserve.entry.local.x.refined``
+(and decrease/exit counterparts), deriving their conditions from the invariant.
+No new kernel rules or implicit subtyping are introduced.
+
+.. deppy-api:: crates/deppy-python/examples/refined_loop.py
+
+.. deppy-api:: crates/deppy-python/examples/refined_loop_client.py
