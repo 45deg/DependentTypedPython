@@ -2,21 +2,7 @@ from __future__ import annotations
 from deppy._builtins import invariant, decreases, dependent, theorem, Sigma, Type, Pi, Nat, Z, S, Eq, refl, absurd
 from deppy.data import Bool, False_, True_
 from deppy.nat_order import LE, LT, le_refl, le_pred, le_trans
-from deppy.verified import select
-
-
-@theorem(decreases="flag")
-def select_post_eq[A: Type, P: Pi[A, lambda _: Type]](
-    flag: Bool, no: A, yes: A,
-    no_proof: Pi[Eq[Bool, flag, False_()], lambda _: P(no)],
-    yes_proof: Pi[Eq[Bool, flag, True_()], lambda _: P(yes)],
-) -> P(select[A](flag, no, yes)):
-    r"""Prove a selected result, assuming the corresponding boolean branch equation."""
-    match flag:
-        case False_():
-            return no_proof(refl(False_()))
-        case True_():
-            return yes_proof(refl(True_()))
+from deppy.verified import select, select_post_eq
 
 
 @dependent(decreases="fuel")

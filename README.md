@@ -22,7 +22,7 @@ python3 scripts/check_fermat.py
 `--elaboration-steps N` は各宣言の検査budgetを指定します。省略時は従来どおり1,000,000で、正の整数のみ受け付けます。budgetの増加は型検査や公理の扱いを変更しません。
 
 `@verified`（局所再代入・分岐・単一while・仕様・手書きVC証明）の構文と検査境界は
-[verifiedガイド](docs/verified.md)を参照してください。whileの不変条件・自然数尺度による停止性を検査できます。`verified_spec` で検査済み仕様を後続の定理から再利用できます。戻り値の `Refined[Nat/Bool, predicate]` と同時代入に対応し、[Fibonacciの実例](crates/deppy-python/examples/fibonacci.py)で停止性と再帰的仕様との一致を証明しています。
+[verifiedガイド](docs/verified.md)を参照してください。whileの不変条件・自然数尺度による停止性を検査できます。`verified_spec` で検査済み仕様を後続の定理から再利用できます。戻り値の `Refined[Nat/Bool, predicate]` と同時代入に対応し、[Fibonacciの実例](crates/deppy-python/examples/fibonacci.py)で停止性と再帰的仕様との一致を証明しています。`proofs={...}` で名前付きVCを指定でき、[契約合成の実例](crates/deppy-python/examples/verified_composition.py)では呼び出し先の事後条件から次の呼び出しの事前条件を証明します。
 
 ## 実行
 

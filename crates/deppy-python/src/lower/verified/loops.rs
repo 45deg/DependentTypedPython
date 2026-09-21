@@ -119,7 +119,7 @@ impl Lowerer {
         })
     }
 
-    fn loop_assign(
+    pub(super) fn loop_assign(
         &mut self,
         name: &str,
         annotation: Option<Scalar>,
@@ -204,7 +204,8 @@ impl Lowerer {
         parameters: Vec<(String, Scalar)>,
         pre: E,
         post: E,
-        witness: E,
+        witness: Option<E>,
+        named: Option<contracts::Proofs<'_>>,
     ) -> Result<Declaration, Diagnostic> {
         let position = commands
             .iter()
@@ -294,6 +295,85 @@ impl Lowerer {
             .app(measure.clone().app(initial.clone()))
             .app(initial.clone());
         let denotation = lets(&prefix, finish.app(end));
+        let witness = if let Some(mut named) = named {
+            let mut context = parameters
+                .iter()
+                .map(|(n, s)| (n.clone(), s.expr()))
+                .collect::<Vec<_>>();
+            context.push(("$pre".into(), pre.clone()));
+            let init = self.obligation(
+                &mut named,
+                "loop.init",
+                loop_.invariant,
+                &context,
+                inv.clone().app(initial.clone()),
+            )?;
+            let mut component = |key: &str, truth: bool, goal: E| -> Result<E, Diagnostic> {
+                let mut context = context.clone();
+                let locals = vec![
+                    ("$state".into(), ty.clone()),
+                    ("$invariant".into(), inv.clone().app(E::name("$state"))),
+                    (
+                        "$test".into(),
+                        E::eq(
+                            Scalar::Bool.expr(),
+                            guard.clone().app(E::name("$state")),
+                            E::name(if truth {
+                                "deppy.data.True_"
+                            } else {
+                                "deppy.data.False_"
+                            }),
+                        ),
+                    ),
+                ];
+                context.extend(locals.clone());
+                let mut proof = self.obligation(
+                    &mut named,
+                    key,
+                    if key == "loop.decrease" {
+                        loop_.measure
+                    } else if key == "loop.preserve" {
+                        loop_.invariant
+                    } else {
+                        loop_.test
+                    },
+                    &context,
+                    goal,
+                )?;
+                for (name, ty) in locals.into_iter().rev() {
+                    proof = lambda(&name, ty, proof);
+                }
+                Ok(proof)
+            };
+            let preserve = component(
+                "loop.preserve",
+                true,
+                inv.clone().app(step.clone().app(E::name("$state"))),
+            )?;
+            let decrease = component(
+                "loop.decrease",
+                true,
+                E::name("deppy.nat_order.LT")
+                    .app(measure.clone().app(step.clone().app(E::name("$state"))))
+                    .app(measure.clone().app(E::name("$state"))),
+            )?;
+            let exit = component(
+                "loop.exit",
+                false,
+                final_post.clone().app(E::name("$state")),
+            )?;
+            named.finish()?;
+            let mut proof = lets(
+                &prefix,
+                E::pair(init, E::pair(preserve, E::pair(decrease, exit))),
+            );
+            for (name, ty) in context.into_iter().rev() {
+                proof = lambda(&name, ty, proof);
+            }
+            proof
+        } else {
+            witness.unwrap()
+        };
         let arguments = [ty, guard, step, measure, inv, final_post, initial];
         let mut certificate = E::name("deppy.verified_loop.LoopVC");
         let mut correct = E::name("deppy.verified_loop.loop_correct");

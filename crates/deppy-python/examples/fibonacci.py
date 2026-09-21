@@ -75,16 +75,12 @@ def fib_exit(n: Nat, remaining: Nat, index: Nat, a: Nat, b: Nat, inv: FibInvaria
 
 
 @verified(
-    proof=lambda n, pre: Pair(
-        Pair(add_zero(n), Pair(refl(0), refl(1))),
-        Pair(
-            lambda state, inv, test: fib_preserve(n, state.fst, state.snd.fst, state.snd.snd.fst, state.snd.snd.snd.fst, inv, test),
-            Pair(
-                lambda state, inv, test: pred_lt(state.fst, decision_true(lt_decide(0, state.fst), test)),
-                lambda state, inv, test: fib_exit(n, state.fst, state.snd.fst, state.snd.snd.fst, state.snd.snd.snd.fst, inv, test),
-            ),
-        ),
-    ),
+    proofs={
+        "loop.init": lambda n, pre: Pair(add_zero(n), Pair(refl(0), refl(1))),
+        "loop.preserve": lambda n, pre, state, inv, test: fib_preserve(n, state.fst, state.snd.fst, state.snd.snd.fst, state.snd.snd.snd.fst, inv, test),
+        "loop.decrease": lambda n, pre, state, inv, test: pred_lt(state.fst, decision_true(lt_decide(0, state.fst), test)),
+        "loop.exit": lambda n, pre, state, inv, test: fib_exit(n, state.fst, state.snd.fst, state.snd.snd.fst, state.snd.snd.snd.fst, inv, test),
+    },
 )
 def fib_loop(n: Nat) -> Refined[Nat, lambda result: Eq[Nat, result, fib_recursive(n)]]:
     r"""Compute Fibonacci by a loop, proving :math:`\operatorname{fib\_loop}(n)=F_n` and termination."""

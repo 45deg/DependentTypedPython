@@ -74,9 +74,10 @@ moduleは標準ライブラリとユーザーライブラリの単位として�
 - 局所再代入と平坦なtupleの同時代入
 - `if`
 - 関数直下の単一 `while`
-- pureな関数呼び出し
+- pureな関数呼び出しと、ループなしの呼び出し元でのverified契約の合成
 - `requires`と`ensures`
 - loopの`invariant`と`decreases`
+- `proofs` による名前付きVCの証明と、未指定goalの表示
 
 VCには、事前条件、分岐、invariantの初期化・保存、loop終了後の事後条件、decreasesの非負性と減少を含める。heap、alias、例外、I/O、asyncなどの効果は、この最初のVerified HIRには含めない。
 
@@ -89,6 +90,11 @@ VCは別の論理式やsolver固有の式で完結させず、dependent coreの�
 関数登録後に `requires(inputs) → ensures(inputs, f(inputs))` を型とするcompanion theoremをkernelで再検査し、opaqueとして登録する。関数本体のVC証明を使い、ループでは標準ライブラリの `loop_correct` による停止性と事後条件の証明を保持する。無検査の公理は追加しない。
 
 import alias・再exportでも関数の由来と定理IDを保持し、通常関数や局所変数をverified関数として扱うことは拒否する。ユーザー公理への依存は利用先へ伝播する。具体例は[仕様の再利用](verified.md#verified_specによる仕様の再利用)を参照。
+
+呼び出し元のverifiedコードでも、このcompanion theoremを使う。呼び出し時の事前条件を証明した上で、
+続きの証明を任意の結果とその事後条件について構成し、実際の結果と仕様の証拠へ適用する。
+これにより呼び出し先の本体に依存せず契約を合成する。現在の構文と制約は
+[契約合成](verified.md#契約による関数の合成と名前付きvc)で管理する。
 
 ## Runtimeとextractionの位置づけ
 

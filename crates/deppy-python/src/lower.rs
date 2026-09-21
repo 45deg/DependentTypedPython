@@ -10,7 +10,7 @@ pub(crate) use record::constructor_name;
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_text_size::{Ranged, TextRange};
 use std::collections::{HashMap, HashSet};
-pub(crate) use verified::specification_name;
+pub(crate) use verified::{specification_name, Contract};
 fn error(node: &impl Ranged, message: impl Into<String>) -> Diagnostic {
     Diagnostic {
         details: Default::default(),
@@ -148,6 +148,7 @@ pub(super) fn module(
                         record: None,
                         data: None,
                         verified: matches!(declaration.body, DeclarationBody::Verified { .. }),
+                        contract: crate::lower::Contract::from_declaration(&declaration),
                         nullary: f.parameters.posonlyargs.is_empty()
                             && f.parameters.args.is_empty(),
                     },
@@ -184,6 +185,7 @@ pub(super) fn module(
                         record: l.records.get(class.name.as_str()).copied(),
                         data: None,
                         verified: false,
+                        contract: None,
                         nullary: false,
                     },
                 );

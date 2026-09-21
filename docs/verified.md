@@ -24,7 +24,7 @@ def twice(n: Nat) -> Nat:
 
 - `requires` は入力引数を宣言順に受け取り、`Type` の命題を返す。省略時は `deppy.data.Unit`。
 - `ensures` は入力引数、その後に戻り値を受け取り、`Type` の命題を返す。戻り値を `Refined` で指定する場合は省略する。
-- `proof` は入力引数、その後に事前条件の証拠を受け取り、生成VCを証明する。必須。
+- `proof` は入力引数、その後に事前条件の証拠を受け取り、生成VCを証明する。`proofs` とどちらか一方を指定する。
   ループなしでは事後条件を直接証明し、ループがある場合は後述の四つのVCの組を返す。
 - 仕様の入力引数は入口時点の値。本文で同名の引数へ再代入しても変化しない。
 - 証明にはlambda、先に検査した定理、`hole("名前")` を使える。holeが残れば検証は未完了であり、
@@ -51,11 +51,78 @@ cargo run -p deppy-python --locked --offline -- --goals path/to/proof.py
 `Refined[Nat, lambda result: Eq[Nat, result, S(n)]]` のように指定できる。
 述語は戻り値を一つ受け取り、入口時点の引数を参照できる。本文で `n` を更新しても、
 述語の `n` は変わらない。述語を既存の事後条件へ変換し、同じVCとkernelで検査する。
-`proof` は必須で、`requires` と `verified_spec` もそのまま使える。
+`proof` または `proofs` で証明を指定し、`requires` と `verified_spec` もそのまま使える。
 
 現時点では `@verified` の戻り値専用で、基底型はNat／Boolに限る。
 `ensures` との併記は拒否する。公開関数は基底型の値を返し、Σの包みを作らない。
 引数・局所変数のrefinementやsubtypingは未対応である。
+
+## 契約による関数の合成と名前付きVC
+
+ループなしの呼び出し元で `proofs={...}` を指定すると、verified関数への
+`y = f(x)` または `return f(x)` を契約で検証する。まず呼び出し時点の引数について
+事前条件を証明し、続きは抽象的な結果 `y` と事後条件の証拠を使って証明する。
+続きの証明を任意の結果について検査した後、実際の呼び出し値と `verified_spec` の証拠を適用する。
+呼び出し先の本体を展開して続きの証明を済ませることはできない。
+最終的な仕様定理は従来と同じkernelで再検査する。
+
+[`examples/verified_composition.py`](../crates/deppy-python/examples/verified_composition.py) では、
+`zero_to_one` の事前条件が `n = 0`、事後条件が `result = 1`、
+`one_to_two` の事前条件が `n = 1`、事後条件が `result = 2` である。
+二つを次のように合成できる。
+
+```python
+@verified(
+    requires=lambda n: Eq[Nat, n, 0],
+    proofs={
+        "call.first.requires": lambda n, pre: pre,
+        "call.second.requires": lambda n, pre, first, first_spec: first_spec,
+        "return": lambda n, pre, first, first_spec, second, second_spec: second_spec,
+    },
+)
+def composed(n: Nat) -> Refined[Nat, lambda result: Eq[Nat, result, 2]]:
+    first = zero_to_one(n)
+    second = one_to_two(first)
+    return second
+```
+
+証明callbackの引数は、入口の入力引数、事前条件の証拠、経路上で得た証拠の順である。
+各契約呼び出しは「結果・その事後条件の証拠」を追加し、各分岐は
+`Eq[Bool, condition, True_()]` または `Eq[Bool, condition, False_()]` を追加する。
+通常の局所代入はcallbackの引数を増やさない。再代入後も過去の呼び出しの証拠は
+その時点の結果についての証拠であり、更新後の変数の条件としては使えない。
+callbackは、この文脈と同じ個数の位置引数を持つlambda、または同じ順序で適用できる検査済みの補題とする。
+
+| VCのキー | 証明する内容 |
+|---|---|
+| `call.y.requires` | `y = f(...)` の事前条件 |
+| `call.y.2.requires` | 同じ経路での二回目の `y = f(...)` の事前条件 |
+| `call.return.requires` | `return f(...)` の事前条件 |
+| `return` | 関数の事後条件 |
+| `then.return` / `else.return` | 各分岐経路の事後条件 |
+| `then.call.y.requires` | True側の経路にある呼び出しの事前条件 |
+
+入れ子の分岐では `then.else.` のように経路名を重ねる。分岐後の継続も各経路に展開する。
+キーは関数ごとに指定し、表示時には `composed.call.first.requires` のように関数名を付ける。
+キーの重複、未知のキー、余った証明は拒否する。
+
+`proofs={}` から始めると、未指定の各項目を独立したgoalとして表示できる。
+`--goals` と `--json` は、名前・期待型・文脈・呼び出しやreturn式のソース位置を出力する。
+未解決goalがあれば関数も仕様定理も検証完了として登録しない。
+
+```sh
+cargo run -p deppy-python --locked --offline -- --goals path/to/program.py
+cargo run -p deppy-python --locked --offline -- --json path/to/program.py
+```
+
+呼び出し先はNat／Boolを扱う検査済みverified関数で、単一whileを含む関数も利用できる。
+importの別名と再exportでも契約を保持し、公理への依存を合成先へ伝える。
+呼び出し先の本体・契約が変われば依存snapshotを無効化する。
+
+この段階では、契約合成する呼び出し元にwhileは置けない。条件式・演算の途中・引数・
+同時代入の中にあるverified呼び出しは、先に個別の代入へ分ける必要がある。
+`proof=` だけでverified関数を通常の純粋関数として呼び出す経路も拒否する。
+引数のrefinement型、自動証明探索、heap更新は今回の範囲に含めない。
 
 ## HIRの意味論とVC
 
@@ -70,10 +137,13 @@ cargo run -p deppy-python --locked --offline -- --goals path/to/proof.py
 - いずれかの経路がreturnなしで終われば拒否する。分岐後の未初期化変数の使用も拒否する。
 
 ループなしの部分言語の意味を純粋な全域関数 `D(inputs)` と定める。
+本体を直接解釈する `proof=` 方式では、
 事後条件を `Q(inputs, result)` とすると、最弱事前条件は
 `WP(Q, body)(inputs) = Q(inputs, D(inputs))`。
 生成VCは `Π inputs. requires(inputs) → Q(inputs, D(inputs))` である。
 分岐の結果はBoolのeliminatorとしてこの項に含まれる。
+`proofs=` 方式では、呼び出しの事前条件と、結果を全称化した継続の証明を組み合わせ、
+同じ `requires(inputs) → Q(inputs, D(inputs))` の証明へ接続する。
 
 実装はVC型に注釈した証明letと、同じ `D` を返す関数を一つのCore定義にする。
 使われないletも型検査されるので、不正な証明は登録前に拒否される。
@@ -88,7 +158,7 @@ kernelに新しい規則や公理を追加しない。VC証明がユーザー公
 
 - 引数・戻り値の基底型は公開 `Nat` または `deppy.data.Bool`。Natは非負整数であり、Pythonの負数を含むint全体ではない。
 - 値は初期化済み局所変数、自然数リテラル、`True`／`False`、Natの `+`／`*`／`<`／`<=`。
-- 先に検査した純粋な関数への位置引数による呼び出し。外部Python関数、属性呼び出し、再帰は拒否する。
+- 先に検査したdependent関数への位置引数による呼び出し。verified関数の呼び出しは後述の契約合成で扱う。外部Python関数、属性呼び出し、再帰は拒否する。
 - 新しい局所変数は右辺から型を決め、以後の再代入で型を変えない。純粋関数呼び出しの結果は
   期待型がない場合Natとして検査する。Boolを返す呼び出しで新しい局所変数を作る場合は `flag: Bool = f(...)` と書く。
 - 同時代入は、異なる局所名の平坦なtupleと同じ要素数のtuple式に限る。入れ子・starred target・重複名は拒否する。
@@ -146,6 +216,18 @@ proof=lambda n, pre: Pair(
 完全な手書き証明を含む
 [`examples/verified_loop.py`](../crates/deppy-python/examples/verified_loop.py) は、
 カウントダウンと加算による累積を公理なしで検証する。
+
+### whileの名前付き証明
+
+単一whileでは、従来のnested Pairの代わりに `proofs` を使える。
+キーは `loop.init`、`loop.preserve`、`loop.decrease`、`loop.exit` の四つ。
+初期化のcallbackは入力引数と事前条件の証拠を受け取り、残りの三つは続けて
+状態、不変条件の証拠、guardの等式を受け取る。
+[Fibonacciの実例](../crates/deppy-python/examples/fibonacci.py) がこの形式を使う。
+
+未指定の項目だけが名前付きgoalになる。初期化・保存はinvariant述語、減少はmeasure、
+終了はguardのソース位置を示す。生成した四つの証明は既存の `LoopVC` にまとめ、
+`loop_correct` で関数全体の仕様を導く。whileを含む関数内での契約呼び出しは未対応である。
 
 ### 有限反復とwhileの接続
 

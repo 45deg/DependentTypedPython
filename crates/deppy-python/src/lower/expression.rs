@@ -113,6 +113,7 @@ impl Lowerer {
                         let name = ps[0].parameter.name.as_str();
                         let mut inner = scope.clone();
                         inner.locals.insert(name.into()); // lambda scope may shadow
+                        inner.aliases.remove(name);
                         let codomain = self.expr(&lambda.body, &inner)?;
                         if kind != "Sigma" {
                             E::pi(

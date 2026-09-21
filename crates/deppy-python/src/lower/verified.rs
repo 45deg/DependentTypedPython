@@ -6,7 +6,9 @@
 //! Core definition as the denotation, never installed as an axiom.
 //! A single while is handled by `loops` and checked stdlib totality theorems.
 use super::*;
+mod contracts;
 mod loops;
+pub(crate) use contracts::Contract;
 
 pub(crate) fn specification_name(function: &str) -> String {
     // Not a Python identifier, so source declarations cannot spoof this name.
@@ -35,7 +37,7 @@ fn specification_proof(body: &E) -> E {
     )
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Scalar {
     Nat,
     Bool,
@@ -208,6 +210,12 @@ impl Lowerer {
                 {
                     return Err(error(c, "verified calls require a checked pure function"));
                 }
+                if self.globals.get(n.id.as_str()).is_some_and(|b| b.verified) {
+                    return Err(error(
+                        c,
+                        "contract calls require direct assignments/returns in loop-free functions using proofs=",
+                    ));
+                }
                 if !c.arguments.keywords.is_empty() {
                     return Err(error(c, "verified pure calls require positional arguments"));
                 }
@@ -333,19 +341,32 @@ impl Lowerer {
         let mut options = HashMap::new();
         for keyword in &decorator.arguments.keywords {
             let name = keyword.arg.as_ref().map(|n| n.as_str()).unwrap_or("");
-            if !matches!(name, "requires" | "ensures" | "proof")
+            if !matches!(name, "requires" | "ensures" | "proof" | "proofs")
                 || options.insert(name, &keyword.value).is_some()
             {
                 return Err(error(keyword, "unknown or duplicate verified option"));
             }
         }
         let ensures = options.get("ensures");
-        let proof = options
-            .get("proof")
-            .ok_or_else(|| error(f, "verified requires proof (use hole to inspect the VC)"))?;
+        if options.contains_key("proof") && options.contains_key("proofs") {
+            return Err(error(f, "use either proof= or proofs=, not both"));
+        }
+        if !options.contains_key("proof") && !options.contains_key("proofs") {
+            return Err(error(
+                f,
+                "verified requires proof or proofs={} to inspect named VCs",
+            ));
+        }
+        let named = options
+            .get("proofs")
+            .map(|e| contracts::Proofs::parse(e, f.name.as_str()))
+            .transpose()?;
         let outer = Scope::default();
         let explicit_post = ensures.map(|e| self.expr(e, &outer)).transpose()?;
-        let witness = self.expr(proof, &outer)?;
+        let witness = options
+            .get("proof")
+            .map(|p| self.expr(p, &outer))
+            .transpose()?;
         let mut pre = options
             .get("requires")
             .map(|e| self.expr(e, &outer))
@@ -449,9 +470,36 @@ impl Lowerer {
         }
         let pre = pre.unwrap_or_else(|| E::name("deppy.data.Unit"));
         if loops::contains_loop(&commands) {
-            return self.verified_loop(f, &commands, state, result, parameters, pre, post, witness);
+            return self.verified_loop(
+                f, &commands, state, result, parameters, pre, post, witness, named,
+            );
         }
-        let denotation = self.denote(&commands.iter().collect::<Vec<_>>(), state, result)?;
+        let (denotation, witness) = if let Some(mut named) = named {
+            let mut context = parameters
+                .iter()
+                .map(|(n, s)| (n.clone(), s.expr()))
+                .collect::<Vec<_>>();
+            context.push(("$pre".into(), pre.clone()));
+            let (denotation, mut proof) = self.compose(
+                &commands.iter().collect::<Vec<_>>(),
+                state,
+                result,
+                &post,
+                &context,
+                "",
+                &mut named,
+            )?;
+            named.finish()?;
+            for (name, ty) in context.into_iter().rev() {
+                proof = E::lam(name, Plicity::Explicit, Some(ty), proof);
+            }
+            (denotation, proof)
+        } else {
+            (
+                self.denote(&commands.iter().collect::<Vec<_>>(), state, result)?,
+                witness.unwrap(),
+            )
+        };
         let mut call = E::name(self.qualified(f.name.as_str()));
         for (name, _) in &parameters {
             call = call.app(E::name(name));

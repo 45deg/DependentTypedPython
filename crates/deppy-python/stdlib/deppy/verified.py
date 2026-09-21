@@ -1,5 +1,5 @@
 from __future__ import annotations
-from deppy._builtins import Refined, verified, verified_spec, dependent, theorem, induct, Pi, Type, Nat, Eq, absurd
+from deppy._builtins import Refined, verified, verified_spec, dependent, theorem, induct, Pi, Type, Nat, Eq, refl, absurd
 from deppy.data import Bool, False_, True_, Unit, MkUnit, Empty, Decidable, Yes, No
 from deppy.equality import transport
 from deppy.nat import add, mul
@@ -70,3 +70,17 @@ def decision_true[P: Type](decision: Decidable[P], test: Eq[Bool, decision_bool(
             return proof
         case No(_):
             return absurd(P, false_ne_true(test))
+
+
+@theorem(decreases="flag")
+def select_post_eq[A: Type, P: Pi[A, lambda _: Type]](
+    flag: Bool, no: A, yes: A,
+    no_proof: Pi[Eq[Bool, flag, False_()], lambda _: P(no)],
+    yes_proof: Pi[Eq[Bool, flag, True_()], lambda _: P(yes)],
+) -> P(select[A](flag, no, yes)):
+    r"""Prove a selected result, assuming the corresponding boolean branch equation."""
+    match flag:
+        case False_():
+            return no_proof(refl(False_()))
+        case True_():
+            return yes_proof(refl(True_()))

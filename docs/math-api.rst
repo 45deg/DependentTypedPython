@@ -59,3 +59,17 @@ ordinary base value; its refinement theorem is available through ``verified_spec
 Parameter refinements, local refinements and subtyping are not supported.
 
 .. deppy-api:: crates/deppy-python/examples/fibonacci.py
+
+Contract composition
+--------------------
+
+``@verified(proofs={...})`` checks each call precondition and proves the
+continuation for an arbitrary result satisfying the checked callee contract.
+The result and its specification evidence are passed to subsequent proof
+callbacks. Missing entries become named goals with source locations; unfinished
+proofs are never registered. The current caller must be loop-free.
+
+Single loops separately support ``loop.init``, ``loop.preserve``,
+``loop.decrease`` and ``loop.exit`` proof entries.
+
+.. deppy-api:: crates/deppy-python/examples/verified_composition.py
