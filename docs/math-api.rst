@@ -17,7 +17,7 @@ Natural numbers and order
 .. deppy-api:: crates/deppy-python/stdlib/deppy/nat.py
 
 Order decisions ``le_decide`` and ``lt_decide`` compute to ``Yes`` or ``No``.
-The new order theorems are opaque; their statements remain available to proofs.
+Order theorems are opaque; their statements remain available to proofs.
 ``pred_lt`` requires a proof that the counter is positive, so it does not
 claim a decrease at zero.
 
@@ -52,7 +52,7 @@ Refined returns and Fibonacci
 -----------------------------
 
 ``Refined[A, predicate]`` is compiler-provided parameter and return annotation syntax for
-``@verified``, exported by ``deppy.verified``. ``A`` is ``Nat`` or ``Bool``;
+``@verified``, exported by ``deppy.verified``. ``A`` is ``Nat``, ``Bool``, or ``Int``;
 a return predicate receives the result and may capture entry arguments. It
 replaces ``ensures`` and generates a VC. Bare ``@verified`` attempts bounded automatic proof;
 ``proofs`` can supply evidence for remaining goals. The function returns an
@@ -78,10 +78,12 @@ continuation for an arbitrary result satisfying the checked callee contract.
 The result and its specification evidence are passed to subsequent proof
 callbacks when explicitly supplied in ``proofs``. Unsolved entries become named goals
 with source locations; ``auto=False`` disables automatic proof. Unfinished
-proofs are never registered. Calls in a single loop body and after the loop are supported.
+proofs are never registered. Calls in expressions, loop initialization and bodies,
+and after loops are supported; calls in while guards are not.
 
 Single loops support ``loop.init``, ``loop.preserve``,
-``loop.decrease`` and ``loop.exit`` proof entries.
+``loop.decrease`` and ``loop.exit`` proof entries. Multiple and nested loops
+use source-order loop numbers in their goal names.
 
 .. deppy-api:: crates/deppy-python/examples/verified_composition.py
 
@@ -97,7 +99,7 @@ the goal using that evidence. Every generated proof is kernel-checked.
 Local refinements and modular loops
 -----------------------------------
 
-Local ``Refined[Nat/Bool, predicate]`` annotations capture their environment at
+Local ``Refined[Nat/Bool/Int, predicate]`` annotations capture their environment at
 annotation time. Initialization and reassignment generate ``local.x.refined``
 VCs, with numeric suffixes for later assignments. Conversions between conditions
 on the same base type use these VCs or a callee's precondition VC.

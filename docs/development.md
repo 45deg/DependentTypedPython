@@ -1,6 +1,6 @@
-# 開発・検証手順
+# Development and verification
 
-リポジトリのルートで実行します。Rustの依存はCargo.lockに従います。初回は `cargo fetch --locked` で取得してください。runtime統合試験には `python3` が必要です。
+Run commands from the repository root. Cargo dependencies follow `Cargo.lock`; fetch them first with `cargo fetch --locked` if needed. Runtime integration tests require `python3`.
 
 ## Rust
 
@@ -10,7 +10,7 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked --offline -- -D warnings
 ```
 
-対象を絞る場合は `cargo test -p deppy-python --locked --offline --test refined` のように統合テストを指定できます。検査器には受理例だけでなく、不正な型・証明・停止性・境界値の拒否試験があります。
+For a focused check, specify an integration test, for example `cargo test -p deppy-python --locked --offline --test refined`. The test suite includes accepted and rejected typing, proof, termination, and boundary cases.
 
 ## Python
 
@@ -22,12 +22,12 @@ uv run --no-project --offline --python 3.14 scripts/check_python_runtime.py
 python3 scripts/check_fermat.py
 ```
 
-構文検証はソースをcompileするだけで、証明やプログラムを実行しません。runtime差分試験は既存fixtureとテスト専用参照モデルを比較します。参照モデルは型検査器ではなく、差分一致は任意のPythonとの意味保存の証明ではありません。CPython 3.13の構文targetは対応していますが、実行検証は残件です。
+The syntax check compiles source without executing programs or checking proofs. Runtime differential checks compare fixtures with a test-only reference model; agreement is not a general semantic-preservation proof. Python 3.13 is an accepted parser target, but its runtime behavior has not been checked here.
 
-## ドキュメント
+## Documentation
 
 ```sh
 uv run --with 'sphinx>=8.2,<9' sphinx-build -W -b html docs docs/_build/html
 ```
 
-数学APIは `docs/_ext/deppy_api.py` がdocstringを静的に抽出し、証明ソースを実行しません。Markdownのガイドはリポジトリで参照し、Sphinxは数学APIを生成します。Markdownの相対リンクは別に確認してください。
+`docs/_ext/deppy_api.py` extracts mathematical API docstrings statically and does not run proof files. Sphinx generates the API reference; Markdown guides remain repository documents. Check their relative links separately.
