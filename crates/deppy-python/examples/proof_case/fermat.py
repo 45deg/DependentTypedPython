@@ -17,6 +17,8 @@ from deppy import dependent, theorem, Type, Pi, Sigma, Pair, Nat, Z, S, Eq, refl
 from deppy.equality import sym, trans, cong, transport
 from deppy.tactics import rewrite
 from deppy.nat import add, mul
+from deppy.data import decide_and, decide_implies
+from deppy.lists import All, all_decide, all_intro, all_get
 from common import (
     B0,
     B1,
@@ -34,8 +36,6 @@ from common import (
     Not,
     Right,
     Subgroup,
-    Unit,
-    Unit_,
     Yes,
     bijection_product,
     bit_enumeration,
@@ -43,7 +43,6 @@ from common import (
     cancel_product,
     count,
     decision_weight,
-    either_elim,
     left_recover,
     length,
     map,
@@ -439,99 +438,6 @@ def equality_decide[A: Type](finite: Enumeration[A], x: A, y: A) -> Decision[Eq[
     )
 
 
-@dependent(decreases="xs", motive_level=1)
-def All[A: Type, P: Pi[A, lambda _: Type]](xs: List[A]) -> Type:
-    r"""Store a proof of P for every list entry as nested dependent pairs."""
-    match xs:
-        case Nil():
-            return Unit
-        case Cons(x, tail):
-            return Sigma[P(x), lambda _: All(tail)]
-
-
-@theorem
-def decide_pair[P: Type, Q: Type](
-    dp: Decision[P], dq: Decision[Q]
-) -> Decision[Sigma[P, lambda _: Q]]:
-    r"""Decide a conjunction from decisions of its two propositions."""
-    match dp:
-        case Yes(p):
-            match dq:
-                case Yes(q):
-                    return Yes[Sigma[P, lambda _: Q]](Pair(p, q))
-                case No(nq):
-                    return No[Sigma[P, lambda _: Q]](lambda both: nq(both.snd))
-        case No(np):
-            return No[Sigma[P, lambda _: Q]](lambda both: np(both.fst))
-
-
-@theorem(decreases="xs")
-def all_decide[A: Type, P: Pi[A, lambda _: Type]](
-    dec: Pi[A, lambda x: Decision[P(x)]],
-    xs: List[A],
-) -> Decision[All[A, P](xs)]:
-    r"""Decide a list-wide proposition by combining the decisions for its entries."""
-    match xs:
-        case Nil():
-            return Yes(Unit_())
-        case Cons(x, tail):
-            return decide_pair(dec(x), all_decide(dec, tail))
-
-
-@theorem(decreases="xs")
-def all_intro[A: Type, P: Pi[A, lambda _: Type]](
-    each: Pi[A, lambda x: P(x)],
-    xs: List[A],
-) -> All[A, P](xs):
-    r"""Build list-wide evidence from a proof available for every carrier element."""
-    match xs:
-        case Nil():
-            return Unit_()
-        case Cons(x, tail):
-            return Pair(each(x), all_intro(each, tail))
-
-
-@theorem(decreases="xs")
-def all_get[A: Type, P: Pi[A, lambda _: Type]](
-    xs: List[A],
-    each: All[A, P](xs),
-    x: A,
-    member: Has(x, xs),
-) -> P(x):
-    r"""Extract a proof for a member from list-wide evidence.
-
-    Follow membership and transport the head proof along its equality.
-    """
-    match xs:
-        case Nil():
-            return absurd(P(x), member)
-        case Cons(head, tail):
-            return either_elim[Eq[A, x, head], Has(x, tail), P(x)](
-                member,
-                lambda eq: transport[A, head, x](P, sym(eq), each.fst),
-                lambda rest: all_get(tail, each.snd, x, rest),
-            )
-
-
-@theorem
-def implication_decide[P: Type, Q: Type](
-    dp: Decision[P], dq: Decision[Q]
-) -> Decision[Pi[P, lambda _: Q]]:
-    r"""Decide implication when both its premise and conclusion are decidable.
-
-    A refuted premise gives a vacuous function; a proved premise tests the conclusion.
-    """
-    match dp:
-        case Yes(p):
-            match dq:
-                case Yes(q):
-                    return Yes[Pi[P, lambda _: Q]](lambda _: q)
-                case No(nq):
-                    return No[Pi[P, lambda _: Q]](lambda f: nq(f(p)))
-        case No(np):
-            return Yes[Pi[P, lambda _: Q]](lambda p: absurd(Q, np(p)))
-
-
 @dependent
 def Commutes[A: Type](g: Group[A], x: A, y: A) -> Type:
     r"""Express equality of the two orders of multiplication."""
@@ -548,8 +454,9 @@ def Central[A: Type](g: Group[A], finite: Enumeration[A], a: A, x: A) -> Type:
     """
     return Sigma[
         Commutes(g, x, a),
-        lambda _: All[A, lambda y: Pi[Commutes(g, y, a), lambda _: Commutes(g, x, y)]](
-            finite.elements
+        lambda _: All(
+            lambda y: Pi[Commutes(g, y, a), lambda _: Commutes(g, x, y)],
+            finite.elements,
         ),
     ]
 
@@ -562,10 +469,10 @@ def central_decide[A: Type](
 
     Combine decidable equality, implication, and the list-wide decision procedure.
     """
-    return decide_pair(
+    return decide_and(
         equality_decide(finite, g.op(x)(a), g.op(a)(x)),
         all_decide[A, lambda y: Pi[Commutes(g, y, a), lambda _: Commutes(g, x, y)]](
-            lambda y: implication_decide(
+            lambda y: decide_implies(
                 equality_decide(finite, g.op(y)(a), g.op(a)(y)),
                 equality_decide(finite, g.op(x)(y), g.op(y)(x)),
             ),
@@ -638,8 +545,10 @@ def central_unit[A: Type](g: Group[A], finite: Enumeration[A], a: A) -> Central(
     """
     return Pair(
         commute_unit(g, a),
-        all_intro[A, lambda y: Pi[Commutes(g, y, a), lambda _: Commutes(g, g.unit, y)]](
-            lambda y: lambda _: commute_unit(g, y), finite.elements
+        all_intro[A](
+            lambda y: Pi[Commutes(g, y, a), lambda _: Commutes(g, g.unit, y)],
+            finite.elements,
+            lambda y: lambda _: commute_unit(g, y),
         ),
     )
 
@@ -658,8 +567,12 @@ def central_get[A: Type](
 
     Completeness locates that element in the stored list-wide evidence.
     """
-    return all_get[A, lambda y: Pi[Commutes(g, y, a), lambda _: Commutes(g, x, y)]](
-        finite.elements, px.snd, y, finite.complete(y)
+    return all_get[A](
+        lambda z: Pi[Commutes(g, z, a), lambda _: Commutes(g, x, z)],
+        y,
+        finite.elements,
+        finite.complete(y),
+        px.snd,
     )(py)
 
 
@@ -679,7 +592,9 @@ def central_mul[A: Type](
     """
     return Pair(
         commute_mul(g, x, y, a, px.fst, py.fst),
-        all_intro[A, lambda z: Pi[Commutes(g, z, a), lambda _: Commutes(g, g.op(x)(y), z)]](
+        all_intro[A](
+            lambda z: Pi[Commutes(g, z, a), lambda _: Commutes(g, g.op(x)(y), z)],
+            finite.elements,
             lambda z: (
                 lambda pz: commute_mul(
                     g,
@@ -690,7 +605,6 @@ def central_mul[A: Type](
                     central_get(g, finite, a, y, py, z, pz),
                 )
             ),
-            finite.elements,
         ),
     )
 
@@ -705,9 +619,10 @@ def central_inverse[A: Type](
     """
     return Pair(
         commute_inverse(g, x, a, px.fst),
-        all_intro[A, lambda z: Pi[Commutes(g, z, a), lambda _: Commutes(g, g.inverse(x), z)]](
-            lambda z: lambda pz: commute_inverse(g, x, z, central_get(g, finite, a, x, px, z, pz)),
+        all_intro[A](
+            lambda z: Pi[Commutes(g, z, a), lambda _: Commutes(g, g.inverse(x), z)],
             finite.elements,
+            lambda z: lambda pz: commute_inverse(g, x, z, central_get(g, finite, a, x, px, z, pz)),
         ),
     )
 
@@ -720,8 +635,10 @@ def central_self[A: Type](g: Group[A], finite: Enumeration[A], a: A) -> Central(
     """
     return Pair(
         refl(g.op(a)(a)),
-        all_intro[A, lambda y: Pi[Commutes(g, y, a), lambda _: Commutes(g, a, y)]](
-            lambda y: lambda py: sym(py), finite.elements
+        all_intro[A](
+            lambda y: Pi[Commutes(g, y, a), lambda _: Commutes(g, a, y)],
+            finite.elements,
+            lambda y: lambda py: sym(py),
         ),
     )
 
