@@ -107,6 +107,8 @@ pub(super) fn standard(name: &str) -> Option<&'static str> {
         "deppy.logic" => Some(include_str!("../../stdlib/deppy/logic.py")),
         "deppy.lists" => Some(include_str!("../../stdlib/deppy/lists.py")),
         "deppy.finite" => Some(include_str!("../../stdlib/deppy/finite.py")),
+        "deppy.functions" => Some(include_str!("../../stdlib/deppy/functions.py")),
+        "deppy.permutations" => Some(include_str!("../../stdlib/deppy/permutations.py")),
         "deppy.nat_order" => Some(include_str!("../../stdlib/deppy/nat_order.py")),
         "deppy" => Some(include_str!("../../stdlib/deppy/__init__.py")),
         "deppy._builtins" => Some(include_str!("../../stdlib/deppy/_builtins.py")),

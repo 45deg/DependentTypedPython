@@ -1,6 +1,8 @@
 from __future__ import annotations
-from deppy._builtins import dependent, theorem, Type, Nat, S, Fin, FZ, FS, Pi, nat_elim, fin_elim
+from deppy._builtins import dependent, theorem, Type, Nat, S, Fin, FZ, FS, Pi, Eq, refl, absurd, fin0_elim, nat_elim, fin_elim
 from deppy.nat_order import LT, LEZero, LESucc
+from deppy.nat import succ_injective, zero_ne_succ
+from deppy.equality import sym, cong
 
 
 @dependent
@@ -50,3 +52,32 @@ def to_nat_lt(n: Nat, i: Fin[n]) -> LT(to_nat(n, i), n):
             return LESucc(0, k, LEZero(k))
         case FS(k, j):
             return LESucc(S(to_nat(k, j)), k, to_nat_lt(k, j))
+
+
+@theorem(decreases="i")
+def to_nat_injective(n: Nat, i: Fin[n], j: Fin[n], equal: Eq[Nat, to_nat(n, i), to_nat(n, j)]) -> Eq[Fin[n], i, j]:
+    """Finite indices with the same natural-number value are equal."""
+    match i:
+        case FZ(k):
+            return fin_case(k, lambda q: Pi[
+                Eq[Nat, 0, to_nat(S(k), q)], lambda _: Eq[Fin[S(k)], FZ(k), q]
+            ], j,
+                lambda same: refl(FZ(k)),
+                lambda other: lambda same: absurd(
+                    Eq[Fin[S(k)], FZ(k), FS(k, other)], zero_ne_succ(to_nat(k, other), same)
+                ),
+            )(equal)
+        case FS(k, inner):
+            return fin_case(k, lambda q: Pi[
+                Eq[Nat, S(to_nat(k, inner)), to_nat(S(k), q)],
+                lambda _: Eq[Fin[S(k)], FS(k, inner), q]
+            ], j,
+                lambda same: absurd(
+                    Eq[Fin[S(k)], FS(k, inner), FZ(k)], zero_ne_succ(to_nat(k, inner), sym(same))
+                ),
+                lambda other: lambda same: cong(
+                    lambda q: FS(k, q),
+                    to_nat_injective(k, inner, other,
+                        succ_injective(to_nat(k, inner), to_nat(k, other), same)),
+                ),
+            )(equal)

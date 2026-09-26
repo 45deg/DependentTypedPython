@@ -1,10 +1,21 @@
 from __future__ import annotations
-from deppy._builtins import dependent, theorem, inductive, constructor, record, Index, Type, Pi, Sigma, Pair, Nat, Eq, refl, J, induct, absurd
-from deppy.lists import List, Nil, Cons, length, Mem, NoDup, count, reject_head, reject, map
-from deppy.data import Empty, Unit, MkUnit, Not, Sum, Left, Right, Decidable, Yes, No, decision_weight, weight_yes, weight_no
+from deppy._builtins import (
+    dependent, theorem, inductive, constructor, record, Index, Type, Pi, Sigma,
+    Pair, Nat, Eq, refl, J, induct, absurd,
+)
+from deppy.lists import (
+    List, Nil, Cons, length, Mem, NoDup, All, Any, count, reject_head, reject,
+    map, length_map, map_mem, map_nodup, map_mem_reflect as map_injective_has,
+    all_decide, any_decide, all_get, all_intro, any_from_mem, any_witness,
+)
+from deppy.data import (
+    Empty, Unit, MkUnit, Not, Sum, Left, Right, Decidable, Yes, No,
+    decision_weight, weight_yes, weight_no,
+)
 from deppy.equality import sym, trans, cong, transport
 from deppy.tactics import rewrite, rewrite_in
 from deppy.nat import add, add_swap
+from deppy.functions import Bijection, bijection_injective
 
 # Names retained for the finite proof examples while sharing the stdlib carriers.
 from deppy.data import Sum as Either, Decidable as Decision, MkUnit as Unit_
@@ -17,6 +28,84 @@ class Enumeration[A: Type]:
     elements: List[A]
     unique: NoDup(self.elements)
     complete: Pi[A, lambda x: Mem(x, self.elements)]
+
+
+@dependent
+def finite_count[A: Type, P: Pi[A, lambda _: Type]](
+    finite: Enumeration[A], decide: Pi[A, lambda x: Decidable[P(x)]]
+) -> Nat:
+    """Count the elements of a finite carrier satisfying a predicate."""
+    return count(decide, finite.elements)
+
+
+@dependent(decreases="decision")
+def finite_all_from_decision[A: Type, P: Pi[A, lambda _: Type]](
+    finite: Enumeration[A], decision: Decidable[All(P, finite.elements)]
+) -> Decidable[Pi[A, lambda x: P(x)]]:
+    match decision:
+        case Yes(all):
+            return Yes[Pi[A, lambda x: P(x)]](lambda x: all_get(P, x, finite.elements, finite.complete(x), all))
+        case No(refute):
+            return No[Pi[A, lambda x: P(x)]](lambda every: refute(all_intro(P, finite.elements, every)))
+
+
+@dependent
+def finite_all_decide[A: Type, P: Pi[A, lambda _: Type]](
+    finite: Enumeration[A], decide: Pi[A, lambda x: Decidable[P(x)]]
+) -> Decidable[Pi[A, lambda x: P(x)]]:
+    """Decide a predicate for every element of a finite carrier."""
+    return finite_all_from_decision(finite, all_decide(decide, finite.elements))
+
+
+@dependent(decreases="decision")
+def finite_any_from_decision[A: Type, P: Pi[A, lambda _: Type]](
+    finite: Enumeration[A], decision: Decidable[Any(P, finite.elements)]
+) -> Decidable[Sigma[A, lambda x: P(x)]]:
+    match decision:
+        case Yes(exists):
+            return Yes[Sigma[A, lambda x: P(x)]](any_witness(P, finite.elements, exists))
+        case No(refute):
+            return No[Sigma[A, lambda x: P(x)]](lambda witness: refute(any_from_mem(
+                P, witness.fst, finite.elements, finite.complete(witness.fst), witness.snd
+            )))
+
+
+@dependent
+def finite_any_decide[A: Type, P: Pi[A, lambda _: Type]](
+    finite: Enumeration[A], decide: Pi[A, lambda x: Decidable[P(x)]]
+) -> Decidable[Sigma[A, lambda x: P(x)]]:
+    """Decide existence and return an element when one satisfies the predicate."""
+    return finite_any_from_decision(finite, any_decide(decide, finite.elements))
+
+
+@dependent
+def finite_search[A: Type, P: Pi[A, lambda _: Type]](
+    finite: Enumeration[A], decide: Pi[A, lambda x: Decidable[P(x)]]
+) -> Decidable[Sigma[A, lambda x: P(x)]]:
+    """A finite search with a proved witness or a refutation."""
+    return finite_any_decide(finite, decide)
+
+
+@dependent
+def bijection_enumeration[A: Type, B: Type](b: Bijection[A, B], finite: Enumeration[A]) -> Enumeration[B]:
+    """Transport a complete duplicate-free enumeration along a bijection."""
+    return Enumeration[B](
+        map(b.forward, finite.elements),
+        map_nodup(b.forward, lambda x: lambda y: lambda equal: bijection_injective(b, x, y, equal),
+                  finite.elements, finite.unique),
+        lambda y: transport[B, b.forward(b.backward(y)), y](
+            lambda q: Mem(q, map(b.forward, finite.elements)), b.right_inverse(y),
+            map_mem(b.forward, b.backward(y), finite.elements, finite.complete(b.backward(y))),
+        ),
+    )
+
+
+@theorem
+def bijection_cardinality[A: Type, B: Type](b: Bijection[A, B], finite: Enumeration[A]) -> Eq[
+    Nat, length(bijection_enumeration(b, finite).elements), length(finite.elements)
+]:
+    """A bijection preserves the size of a finite carrier."""
+    return length_map(b.forward, finite.elements)
 
 
 @dependent
@@ -329,50 +418,6 @@ def map_has[A: Type, B: Type](f: Pi[A, lambda _: B], x: A, xs: List[A], member: 
                 member,
                 lambda eq: Left(cong(f, eq)),
                 lambda later: Right(map_has(f, x, tail, later)),
-            )
-
-
-@theorem(decreases="xs")
-def map_injective_has[A: Type, B: Type](
-    f: Pi[A, lambda _: B],
-    injective: Pi[A, lambda x: Pi[A, lambda y: Pi[Eq[B, f(x), f(y)], lambda _: Eq[A, x, y]]]],
-    x: A,
-    xs: List[A],
-    member: Has(f(x), map(f, xs)),
-) -> Has(x, xs):
-    r"""Reflect membership in a mapped list along an injective function.
-
-    Injectivity recovers head equality; the tail case recurses.
-    """
-    match xs:
-        case Nil():
-            return absurd(Has(x, Nil[A]()), member)
-        case Cons(y, tail):
-            return either_elim[Eq[B, f(x), f(y)], Has(f(x), map(f, tail)), Has(x, Cons(y, tail))](
-                member,
-                lambda eq: Left(injective(x)(y)(eq)),
-                lambda later: Right(map_injective_has(f, injective, x, tail, later)),
-            )
-
-
-@theorem(decreases="xs")
-def map_nodup[A: Type, B: Type](
-    f: Pi[A, lambda _: B],
-    injective: Pi[A, lambda x: Pi[A, lambda y: Pi[Eq[B, f(x), f(y)], lambda _: Eq[A, x, y]]]],
-    xs: List[A],
-    unique: NoDup(xs),
-) -> NoDup(map(f, xs)):
-    r"""An injective map preserves duplicate-freeness.
-
-    Reflect mapped membership to contradict the original head's absence.
-    """
-    match xs:
-        case Nil():
-            return Unit_()
-        case Cons(x, tail):
-            return Pair(
-                lambda member: unique.fst(map_injective_has(f, injective, x, tail, member)),
-                map_nodup(f, injective, tail, unique.snd),
             )
 
 

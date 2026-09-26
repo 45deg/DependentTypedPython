@@ -124,14 +124,16 @@ def strict() -> LT(1, 3):
 #[test]
 fn math_lemmas_and_finite_carrier_are_axiom_free() {
     let source = r#"from __future__ import annotations
-from deppy import dependent, theorem, Type, Pi, Nat, Fin, FZ, FS, Vec, VNil, VCons, Eq, refl, absurd
+from deppy import dependent, theorem, Type, Pi, Sigma, Pair, Nat, Fin, FZ, FS, Vec, VNil, VCons, Eq, refl, absurd
 from deppy.nat import add, mul, mul_comm, mul_assoc, mul_add_left
-from deppy.nat_order import LE, LT, mul_le_mul_left, mul_le_mul_right
-from deppy.data import Empty, MkUnit, Decidable, Yes
-from deppy.lists import List, Nil, Cons, Mem, append, map, length, filter, reject, count, length_append, length_map, length_reverse, map_append, length_filter_eq_count, length_filter_le, count_split
-from deppy.fin import to_nat, to_nat_lt
-from deppy.vectors import get, get_map, map as deppy_map, append as vec_append, append_left_index, append_right_index, get_append_left, get_append_right, reverse, mirror, reverse_get
-from deppy.finite import Enumeration
+from deppy.nat_order import LE, LT, le_total, le_to_lt_succ, lt_succ_to_le, strong_induction, mul_le_mul_left, mul_le_mul_right, mul_left_cancel_pos
+from deppy.data import Empty, Unit, Sum, Left, MkUnit, Decidable, Yes
+from deppy.lists import List, Nil, Cons, Mem, NoDup, append, map, length, filter, reject, count, length_append, length_map, length_reverse, map_append, reverse as list_reverse, reverse_append, map_reverse, mem_append_cases, filter_mem, filter_nodup, map_nodup, length_filter_eq_count, length_filter_le, count_split
+from deppy.fin import to_nat, to_nat_lt, to_nat_injective
+from deppy.vectors import get, get_map, map as deppy_map, append as vec_append, append_left_index, append_right_index, get_append_left, get_append_right, reverse, mirror, reverse_get, mirror_involution, vec_extensional
+from deppy.finite import Enumeration, finite_count, finite_all_decide, finite_any_decide, finite_search, bijection_enumeration, bijection_cardinality
+from deppy.functions import Bijection, identity_bijection, inverse_bijection, compose_bijection, bijection_injective, bijection_surjective
+from deppy.permutations import Permutation, PermSwap, perm_refl, perm_sym, perm_length, perm_mem, perm_nodup, perm_map
 
 @theorem
 def multiplication(a: Nat, b: Nat, c: Nat) -> Eq[Nat, mul(add(a, b), c), add(mul(a, c), mul(b, c))]:
@@ -142,16 +144,48 @@ def multiplication_bound(n: Nat, m: Nat, k: Nat, p: LE[n, m]) -> LE[mul(k, n), m
     return mul_le_mul_left(k, p)
 
 @theorem
+def cancel_positive(k: Nat, n: Nat, m: Nat, positive: LT(0, k), equal: Eq[Nat, mul(k, n), mul(k, m)]) -> Eq[Nat, n, m]:
+    return mul_left_cancel_pos(k, n, m, positive, equal)
+
+@theorem
+def compare(n: Nat, m: Nat) -> Sum[LE[n, m], LE[m, n]]:
+    return le_total(n, m)
+
+@theorem
+def strong_refl(n: Nat) -> Eq[Nat, n, n]:
+    return strong_induction[lambda k: Eq[Nat, k, k]](n, lambda k: lambda smaller: refl(k))
+
+@theorem
 def mapped_length[A: Type, B: Type](f: Pi[A, lambda _: B], xs: List[A]) -> Eq[Nat, length(map(f, xs)), length(xs)]:
     return length_map(f, xs)
+
+@theorem
+def reversed_append(xs: List[Nat], ys: List[Nat]) -> Eq[List[Nat], list_reverse(append(xs, ys)), append(list_reverse(ys), list_reverse(xs))]:
+    return reverse_append(xs, ys)
+
+@theorem
+def mapped_reverse(f: Pi[Nat, lambda _: Nat], xs: List[Nat]) -> Eq[List[Nat], map(f, list_reverse(xs)), list_reverse(map(f, xs))]:
+    return map_reverse(f, xs)
 
 @theorem
 def finite_bound(n: Nat, i: Fin[n]) -> LT(to_nat(n, i), n):
     return to_nat_lt(n, i)
 
 @theorem
+def finite_injective(n: Nat, i: Fin[n], j: Fin[n], equal: Eq[Nat, to_nat(n, i), to_nat(n, j)]) -> Eq[Fin[n], i, j]:
+    return to_nat_injective(n, i, j, equal)
+
+@theorem
+def mirror_twice(n: Nat, i: Fin[n]) -> Eq[Fin[n], mirror(n, mirror(n, i)), i]:
+    return mirror_involution(n, i)
+
+@theorem
 def mapped_get[A: Type, B: Type](n: Nat, f: Pi[A, lambda _: B], xs: Vec[A, n], i: Fin[n]) -> Eq[B, get(n, deppy_map(n, f, xs), i), f(get(n, xs, i))]:
     return get_map(n, f, xs, i)
+
+@theorem
+def vector_extensional(n: Nat, xs: Vec[Nat, n], ys: Vec[Nat, n], points: Pi[Fin[n], lambda i: Eq[Nat, get(n, xs, i), get(n, ys, i)]]) -> Eq[Vec[Nat, n], xs, ys]:
+    return vec_extensional(n, xs, ys, points)
 
 @theorem
 def keep(n: Nat) -> Decidable[Eq[Nat, n, n]]:
@@ -164,6 +198,10 @@ def filtered_length(xs: List[Nat]) -> Eq[Nat, length(filter[Nat, lambda n: Eq[Na
 @theorem
 def filtered_partition(xs: List[Nat]) -> Eq[Nat, add(count[Nat, lambda n: Eq[Nat, n, n]](keep, xs), length(reject[Nat, lambda n: Eq[Nat, n, n]](keep, xs))), length(xs)]:
     return count_split[Nat, lambda n: Eq[Nat, n, n]](keep, xs)
+
+@theorem
+def filtered_unique(xs: List[Nat], unique: NoDup(xs)) -> NoDup(filter[Nat, lambda n: Eq[Nat, n, n]](keep, xs)):
+    return filter_nodup[Nat, lambda n: Eq[Nat, n, n]](keep, xs, unique)
 
 @theorem
 def left_lookup(n: Nat, m: Nat, xs: Vec[Nat, n], ys: Vec[Nat, m], i: Fin[n]) -> Eq[Nat, get(add(n, m), vec_append(n, m, xs, ys), append_left_index(n, m, i)), get(n, xs, i)]:
@@ -185,12 +223,62 @@ def concrete_fin() -> Eq[Nat, to_nat(2, FS(1, FZ(0))), 1]:
 def concrete_append() -> Eq[Nat, get(2, vec_append(1, 1, VCons(0, 3, VNil()), VCons(0, 4, VNil())), FS(1, FZ(0))), 4]:
     return refl(4)
 
-@theorem
+@dependent
 def empty_enumeration() -> Enumeration[Empty]:
     return Enumeration[Empty](Nil[Empty](), MkUnit(), lambda x: absurd(Mem(x, Nil[Empty]()), x))
+
+@dependent
+def keep_empty(x: Empty) -> Decidable[Eq[Empty, x, x]]:
+    return Yes(refl(x))
+
+@dependent
+def all_empty() -> Decidable[Pi[Empty, lambda x: Eq[Empty, x, x]]]:
+    return finite_all_decide[Empty, lambda x: Eq[Empty, x, x]](empty_enumeration(), keep_empty)
+
+@dependent
+def search_empty() -> Decidable[Sigma[Empty, lambda x: Eq[Empty, x, x]]]:
+    return finite_search[Empty, lambda x: Eq[Empty, x, x]](empty_enumeration(), keep_empty)
+
+@dependent
+def count_empty() -> Eq[Nat, finite_count[Empty, lambda x: Eq[Empty, x, x]](empty_enumeration(), keep_empty), 0]:
+    return refl(0)
+
+@theorem(decreases="x")
+def unit_complete(x: Unit) -> Mem(x, Cons(MkUnit(), Nil[Unit]())):
+    match x:
+        case MkUnit():
+            return Left(refl(MkUnit()))
+
+@dependent
+def unit_enumeration() -> Enumeration[Unit]:
+    return Enumeration[Unit](Cons(MkUnit(), Nil[Unit]()), Pair(lambda impossible: impossible, MkUnit()), lambda x: unit_complete(x))
+
+@dependent
+def keep_unit(x: Unit) -> Decidable[Unit]:
+    return Yes(MkUnit())
+
+@dependent
+def positive_search() -> Eq[Decidable[Sigma[Unit, lambda x: Unit]], finite_search[Unit, lambda x: Unit](unit_enumeration(), keep_unit), Yes[Sigma[Unit, lambda x: Unit]](Pair(MkUnit(), MkUnit()))]:
+    return refl(Yes[Sigma[Unit, lambda x: Unit]](Pair(MkUnit(), MkUnit())))
+
+@theorem
+def permutation_size(xs: List[Nat], ys: List[Nat], p: Permutation[Nat, xs, ys]) -> Eq[Nat, length(xs), length(ys)]:
+    return perm_length(p)
+
+@theorem
+def identity_cardinality() -> Eq[Nat, length(bijection_enumeration(identity_bijection[Empty](), empty_enumeration()).elements), length(empty_enumeration().elements)]:
+    return bijection_cardinality(identity_bijection[Empty](), empty_enumeration())
+
+@theorem
+def identity_is_injective(x: Nat, y: Nat, same: Eq[Nat, identity_bijection[Nat]().forward(x), identity_bijection[Nat]().forward(y)]) -> Eq[Nat, x, y]:
+    return bijection_injective(identity_bijection[Nat](), x, y, same)
 "#;
     let checked = check_module(&source, TARGET).unwrap_or_else(|e| panic!("{e}"));
     assert!(checked.axiom_dependencies.values().all(Vec::is_empty));
+    let invalid = format!(
+        "{source}\n@theorem\ndef false_permutation() -> Permutation[Nat, Cons(1, Nil[Nat]()), Cons(2, Nil[Nat]())]:\n    return perm_refl(Cons(1, Nil[Nat]()))\n"
+    );
+    assert!(check_module(&invalid, TARGET).is_err());
 }
 
 #[test]

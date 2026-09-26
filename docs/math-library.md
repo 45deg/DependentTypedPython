@@ -19,12 +19,19 @@ P0 の最初の公開面を stdlib に実装した。基礎型は新しく宣言
 - `deppy.finite`: `Enumeration`、列挙順によらない count、全単射による count 保存。
   `proof_case/common.py` は標準の `List`・`Decidable`・`Enumeration` とこれらの証明を再exportする。
 
+次の基礎層も実装した。`deppy.nat_order` は正の数による乗算の消去、全順序、
+`<` と `≤` の変換、`strong_induction` を提供する。`deppy.lists` は反転とappend/map、
+append/filterの所属、filterと単射mapによる `NoDup` 保存、全称・存在の判定を提供する。
+`deppy.fin` は自然数変換の単射性、`deppy.vectors` は `mirror` の往復とVecの外延性を提供する。
+`deppy.functions` に逆写像付き `Bijection`、`deppy.permutations` に並べ替えの証拠と保存則、
+`deppy.finite` に有限述語の個数・全称・存在・探索と全単射による列挙の移送を追加した。
+
 公開APIは具体値の正規化、異なるimport経路での名目的同一性、公理依存が空であることを
 回帰テストで検査する。空のindexed familyの除去には既存の `absurd(type, value)` を使う。
 `LE[S(n), 0]` は除去できるが、未確定の `LE[n, 0]` やinhabitedな添字は拒否する。
 この範囲はfrontendとkernelに実装済みであり、順序用の専用規則は追加しない。
 新しい順序の証明補題は `@theorem`、判定手続きは `@dependent` とする。
-正の数での乗算の消去は未実装。`verified` と単一whileのVC生成・自然数尺度による停止性証明は実装済みで、詳細は[verifiedガイド](verified.md)で扱う。一般の整礎関係による停止性証明は未対応。
+`verified` と単一whileのVC生成・自然数尺度による停止性証明は実装済みで、詳細は[verifiedガイド](verified.md)で扱う。一般の整礎関係による停止性証明は未対応。
 
 以下はstdlibと `lagrange.py`、`fermat.py`、`fermat2.py` の共通化計画。
 以下のモジュール名・API名は、実装済みと明記したもの以外は提案である。
@@ -40,7 +47,7 @@ P0 の最初の公開面を stdlib に実装した。基礎型は新しく宣言
 | 論理・判定 | `deppy.data` の `Empty`, `Unit`, `Sum`, `Option`, `Not`, `Decidable` | `common.py` は標準型を互換名で再export。例固有の判定補題の移行が残る |
 | 自然数 | 公開 `deppy.nat.Nat` と、一般帰納型の例である `deppy.naturals.Nat` | 別の名目的な型。後者の `add` は前者へそのまま適用できない |
 | リスト | `deppy.lists` の `List`, `append`, `map`, `reverse` と基本等式 | `common.py` のListは標準型に統一済み。残る例固有の補題を移行する |
-| 有限性 | `deppy.finite` の `Enumeration`, `same_count`, `bijection_count` | 標準のListとDecidableを使用。有限述語判定などが残る |
+| 有限性 | `deppy.finite` の `Enumeration`, `same_count`, `bijection_count`, 有限述語の判定・探索 | 標準のListとDecidableを使用。有限集合の演算と新しい組合せ論が残る |
 | 有限積 | `proof_case/common.py` の `product`, `same_product`, `bijection_product` | 重複は解消済み。逆元を使わない部分まで `Group` を要求している |
 | 群 | `Group`, `Subgroup`, 剰余類、ラグランジュ、有限群の累乗定理 | stdlibでは未提供。判定可能性が `Subgroup` の定義に含まれている |
 | 数論・体 | 有限体の非零元の乗法群としてのFermat | `Prime`, 除算・剰余、整数、有限体そのものの構成は未実装 |

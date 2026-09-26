@@ -1,7 +1,7 @@
 from __future__ import annotations
 from deppy._builtins import inductive, constructor, Index, dependent, theorem, Type, Pi, Sigma, Pair, Nat, Z, S, Eq, refl, absurd
 from deppy.equality import cong, trans, sym, transport
-from deppy.data import Empty, Unit, MkUnit, Sum, Left, Right, Not, Decidable, Yes, No, sum_elim, decision_weight
+from deppy.data import Empty, Unit, MkUnit, Sum, Left, Right, Not, Decidable, Yes, No, sum_elim, decide_and, decide_or, decision_weight
 from deppy.nat import add, add_succ
 from deppy.nat_order import LE, LEZero, LESucc, le_step
 
@@ -69,6 +69,85 @@ def Any[A: Type](P: Pi[A, lambda _: Type], xs: List[A]) -> Type:
             return Sum[P(x), Any(P, tail)]
 
 
+@theorem(decreases="xs")
+def all_get[A: Type](P: Pi[A, lambda _: Type], q: A, xs: List[A], member: Mem(q, xs), all: All(P, xs)) -> P(q):
+    """A member of a list satisfying All has the requested property."""
+    match xs:
+        case Nil():
+            return absurd(P(q), member)
+        case Cons(x, tail):
+            return sum_elim[Eq[A, q, x], Mem(q, tail), P(q)](
+                member,
+                lambda equal: transport[A, x, q](P, sym(equal), all.fst),
+                lambda later: all_get(P, q, tail, later, all.snd),
+            )
+
+
+@theorem(decreases="xs")
+def all_intro[A: Type](P: Pi[A, lambda _: Type], xs: List[A], every: Pi[A, lambda x: P(x)]) -> All(P, xs):
+    match xs:
+        case Nil():
+            return MkUnit()
+        case Cons(x, tail):
+            return Pair(every(x), all_intro(P, tail, every))
+
+
+@theorem(decreases="xs")
+def any_from_mem[A: Type](P: Pi[A, lambda _: Type], q: A, xs: List[A], member: Mem(q, xs), proof: P(q)) -> Any(P, xs):
+    match xs:
+        case Nil():
+            return absurd(Any(P, Nil[A]()), member)
+        case Cons(x, tail):
+            return sum_elim[Eq[A, q, x], Mem(q, tail), Any(P, Cons(x, tail))](
+                member,
+                lambda equal: Left(transport[A, q, x](P, equal, proof)),
+                lambda later: Right(any_from_mem(P, q, tail, later, proof)),
+            )
+
+
+@dependent(decreases="xs")
+def any_witness[A: Type](P: Pi[A, lambda _: Type], xs: List[A], exists: Any(P, xs)) -> Sigma[A, lambda x: P(x)]:
+    match xs:
+        case Nil():
+            return absurd(Sigma[A, lambda x: P(x)], exists)
+        case Cons(x, tail):
+            return sum_elim[P(x), Any(P, tail), Sigma[A, lambda q: P(q)]](
+                exists, lambda proof: Pair(x, proof), lambda later: any_witness(P, tail, later)
+            )
+
+
+@dependent(decreases="xs")
+def all_decide[A: Type, P: Pi[A, lambda _: Type]](
+    decide: Pi[A, lambda x: Decidable[P(x)]], xs: List[A]
+) -> Decidable[All(P, xs)]:
+    """Decide whether every list element satisfies a predicate."""
+    match xs:
+        case Nil():
+            return Yes(MkUnit())
+        case Cons(x, tail):
+            return decide_and(decide(x), all_decide(decide, tail))
+
+
+@dependent(decreases="xs")
+def any_decide[A: Type, P: Pi[A, lambda _: Type]](
+    decide: Pi[A, lambda x: Decidable[P(x)]], xs: List[A]
+) -> Decidable[Any(P, xs)]:
+    """Decide whether some list element satisfies a predicate."""
+    match xs:
+        case Nil():
+            return No[Empty](lambda impossible: impossible)
+        case Cons(x, tail):
+            return decide_or(decide(x), any_decide(decide, tail))
+
+
+@dependent
+def search[A: Type, P: Pi[A, lambda _: Type]](
+    decide: Pi[A, lambda x: Decidable[P(x)]], xs: List[A]
+) -> Decidable[Any(P, xs)]:
+    """Search a list, returning either an existential proof or its refutation."""
+    return any_decide(decide, xs)
+
+
 @dependent(decreases="xs")
 def append[A: Type](xs: List[A], ys: List[A]) -> List[A]:
     r"""Concatenate ``xs`` and ``ys``."""
@@ -77,6 +156,46 @@ def append[A: Type](xs: List[A], ys: List[A]) -> List[A]:
             return ys
         case Cons(h, t):
             return Cons(h, append(t, ys))
+
+
+@theorem(decreases="xs")
+def mem_append_left[A: Type](x: A, xs: List[A], ys: List[A], member: Mem(x, xs)) -> Mem(x, append(xs, ys)):
+    """Membership in the left list is preserved by concatenation."""
+    match xs:
+        case Nil():
+            return absurd(Mem(x, append(Nil[A](), ys)), member)
+        case Cons(h, tail):
+            return sum_elim[Eq[A, x, h], Mem(x, tail), Mem(x, append(Cons(h, tail), ys))](
+                member, lambda eq: Left(eq), lambda later: Right(mem_append_left(x, tail, ys, later))
+            )
+
+
+@theorem(decreases="xs")
+def mem_append_right[A: Type](x: A, xs: List[A], ys: List[A], member: Mem(x, ys)) -> Mem(x, append(xs, ys)):
+    """Membership in the right list is preserved by concatenation."""
+    match xs:
+        case Nil():
+            return member
+        case Cons(h, tail):
+            return Right(mem_append_right(x, tail, ys, member))
+
+
+@theorem(decreases="xs")
+def mem_append_cases[A: Type](x: A, xs: List[A], ys: List[A], member: Mem(x, append(xs, ys))) -> Sum[Mem(x, xs), Mem(x, ys)]:
+    """An element of a concatenation belongs to one of its inputs."""
+    match xs:
+        case Nil():
+            return Right(member)
+        case Cons(h, tail):
+            return sum_elim[Eq[A, x, h], Mem(x, append(tail, ys)), Sum[Mem(x, Cons(h, tail)), Mem(x, ys)]](
+                member,
+                lambda eq: Left(Left(eq)),
+                lambda later: sum_elim[Mem(x, tail), Mem(x, ys), Sum[Mem(x, Cons(h, tail)), Mem(x, ys)]](
+                    mem_append_cases(x, tail, ys, later),
+                    lambda left: Left(Right(left)),
+                    lambda right: Right(right),
+                ),
+            )
 
 
 @dependent(decreases="xs")
@@ -170,6 +289,67 @@ def reverse[A: Type](xs: List[A]) -> List[A]:
 
 
 @theorem(decreases="xs")
+def snoc_append[A: Type](xs: List[A], ys: List[A], x: A) -> Eq[
+    List[A], snoc(append(xs, ys), x), append(xs, snoc(ys, x))
+]:
+    match xs:
+        case Nil():
+            return refl(snoc(ys, x))
+        case Cons(h, tail):
+            return cong(lambda rest: Cons(h, rest), snoc_append(tail, ys, x))
+
+
+@theorem(decreases="xs")
+def append_right_nil[A: Type](xs: List[A]) -> Eq[List[A], append(xs, Nil[A]()), xs]:
+    match xs:
+        case Nil():
+            return refl(Nil[A]())
+        case Cons(x, tail):
+            return cong(lambda rest: Cons(x, rest), append_right_nil(tail))
+
+
+@theorem(decreases="xs")
+def reverse_append[A: Type](xs: List[A], ys: List[A]) -> Eq[
+    List[A], reverse(append(xs, ys)), append(reverse(ys), reverse(xs))
+]:
+    """Reversing a concatenation reverses each part and swaps their order."""
+    match xs:
+        case Nil():
+            return sym(append_right_nil(reverse(ys)))
+        case Cons(x, tail):
+            return trans(
+                cong[List[A], List[A]](lambda rest: snoc(rest, x), reverse_append(tail, ys)),
+                snoc_append(reverse(ys), reverse(tail), x),
+            )
+
+
+@theorem(decreases="xs")
+def map_snoc[A: Type, B: Type](f: Pi[A, lambda _: B], xs: List[A], x: A) -> Eq[
+    List[B], map(f, snoc(xs, x)), snoc(map(f, xs), f(x))
+]:
+    match xs:
+        case Nil():
+            return refl(Cons(f(x), Nil[B]()))
+        case Cons(h, tail):
+            return cong(lambda rest: Cons(f(h), rest), map_snoc(f, tail, x))
+
+
+@theorem(decreases="xs")
+def map_reverse[A: Type, B: Type](f: Pi[A, lambda _: B], xs: List[A]) -> Eq[
+    List[B], map(f, reverse(xs)), reverse(map(f, xs))
+]:
+    """Mapping commutes with list reversal."""
+    match xs:
+        case Nil():
+            return refl(Nil[B]())
+        case Cons(x, tail):
+            return trans(
+                map_snoc(f, reverse(tail), x),
+                cong[List[B], List[B]](lambda rest: snoc(rest, f(x)), map_reverse(f, tail)),
+            )
+
+
+@theorem(decreases="xs")
 def length_snoc[A: Type](xs: List[A], x: A) -> Eq[Nat, length(snoc(xs, x)), S(length(xs))]:
     match xs:
         case Nil():
@@ -226,6 +406,108 @@ def filter[A: Type, P: Pi[A, lambda _: Type]](
             return Nil[A]()
         case Cons(x, tail):
             return filter_head(x, decide(x), filter(decide, tail))
+
+
+@theorem(decreases="d")
+def filter_mem_head[A: Type, P: Pi[A, lambda _: Type]](
+    q: A, x: A, tail: List[A], kept: List[A], d: Decidable[P(x)],
+    member: Mem(q, filter_head(x, d, kept)),
+    reflect: Pi[Mem(q, kept), lambda _: Sigma[Mem(q, tail), lambda _: P(q)]],
+) -> Sigma[Mem(q, Cons(x, tail)), lambda _: P(q)]:
+    match d:
+        case Yes(proof):
+            return sum_elim[Eq[A, q, x], Mem(q, kept), Sigma[Mem(q, Cons(x, tail)), lambda _: P(q)]](
+                member,
+                lambda eq: Pair(Left(eq), transport[A, x, q](P, sym(eq), proof)),
+                lambda later: Pair(Right(reflect(later).fst), reflect(later).snd),
+            )
+        case No(_):
+            found = reflect(member)
+            return Pair(Right(found.fst), found.snd)
+
+
+@theorem(decreases="xs")
+def filter_mem[A: Type, P: Pi[A, lambda _: Type]](
+    decide: Pi[A, lambda x: Decidable[P(x)]], q: A, xs: List[A], member: Mem(q, filter(decide, xs))
+) -> Sigma[Mem(q, xs), lambda _: P(q)]:
+    """Membership after filtering gives original membership and the predicate."""
+    match xs:
+        case Nil():
+            return absurd(Sigma[Mem(q, Nil[A]()), lambda _: P(q)], member)
+        case Cons(x, tail):
+            return filter_mem_head(q, x, tail, filter(decide, tail), decide(x), member,
+                                   lambda later: filter_mem(decide, q, tail, later))
+
+
+@theorem(decreases="d")
+def filter_head_mem_here[A: Type, P: Type](x: A, kept: List[A], d: Decidable[P], proof: P) -> Mem(
+    x, filter_head(x, d, kept)
+):
+    match d:
+        case Yes(_):
+            return Left(refl(x))
+        case No(refute):
+            return absurd(Mem(x, filter_head(x, d, kept)), refute(proof))
+
+
+@theorem(decreases="d")
+def filter_head_mem_tail[A: Type, P: Type](q: A, x: A, kept: List[A], d: Decidable[P], member: Mem(q, kept)) -> Mem(
+    q, filter_head(x, d, kept)
+):
+    match d:
+        case Yes(_):
+            return Right(member)
+        case No(_):
+            return member
+
+
+@theorem(decreases="xs")
+def filter_mem_intro[A: Type, P: Pi[A, lambda _: Type]](
+    decide: Pi[A, lambda x: Decidable[P(x)]], q: A, xs: List[A], member: Mem(q, xs), proof: P(q)
+) -> Mem(q, filter(decide, xs)):
+    """Original membership and a proof of the predicate give filtered membership."""
+    match xs:
+        case Nil():
+            return absurd(Mem(q, filter(decide, Nil[A]())), member)
+        case Cons(x, tail):
+            return sum_elim[Eq[A, q, x], Mem(q, tail), Mem(q, filter(decide, Cons(x, tail)))](
+                member,
+                lambda eq: transport[A, x, q](
+                    lambda z: Mem(z, filter(decide, Cons(x, tail))), sym(eq),
+                    filter_head_mem_here(x, filter(decide, tail), decide(x), transport[A, q, x](P, eq, proof)),
+                ),
+                lambda later: filter_head_mem_tail(
+                    q, x, filter(decide, tail), decide(x), filter_mem_intro(decide, q, tail, later, proof)
+                ),
+            )
+
+
+@theorem(decreases="d")
+def filter_nodup_head[A: Type, P: Pi[A, lambda _: Type]](
+    x: A, tail: List[A], kept: List[A], d: Decidable[P(x)], unique: NoDup(Cons(x, tail)),
+    kept_unique: NoDup(kept), reflect: Pi[Mem(x, kept), lambda _: Mem(x, tail)]
+) -> NoDup(filter_head(x, d, kept)):
+    match d:
+        case Yes(_):
+            return Pair(lambda member: unique.fst(reflect(member)), kept_unique)
+        case No(_):
+            return kept_unique
+
+
+@theorem(decreases="xs")
+def filter_nodup[A: Type, P: Pi[A, lambda _: Type]](
+    decide: Pi[A, lambda x: Decidable[P(x)]], xs: List[A], unique: NoDup(xs)
+) -> NoDup(filter(decide, xs)):
+    """Filtering preserves the absence of duplicates."""
+    match xs:
+        case Nil():
+            return MkUnit()
+        case Cons(x, tail):
+            return filter_nodup_head(
+                x, tail, filter(decide, tail), decide(x), unique,
+                filter_nodup(decide, tail, unique.snd),
+                lambda member: filter_mem(decide, x, tail, member).fst,
+            )
 
 
 @dependent(decreases="xs")
@@ -409,4 +691,39 @@ def map_mem[A: Type, B: Type](f: Pi[A, lambda _: B], x: A, xs: List[A], member: 
                 member,
                 lambda eq: Left(cong(f, eq)),
                 lambda later: Right(map_mem(f, x, tail, later)),
+            )
+
+
+@theorem(decreases="xs")
+def map_mem_reflect[A: Type, B: Type](
+    f: Pi[A, lambda _: B],
+    injective: Pi[A, lambda x: Pi[A, lambda y: Pi[Eq[B, f(x), f(y)], lambda _: Eq[A, x, y]]]],
+    x: A, xs: List[A], member: Mem(f(x), map(f, xs)),
+) -> Mem(x, xs):
+    """An injective map reflects membership."""
+    match xs:
+        case Nil():
+            return absurd(Mem(x, Nil[A]()), member)
+        case Cons(y, tail):
+            return sum_elim[Eq[B, f(x), f(y)], Mem(f(x), map(f, tail)), Mem(x, Cons(y, tail))](
+                member,
+                lambda eq: Left(injective(x)(y)(eq)),
+                lambda later: Right(map_mem_reflect(f, injective, x, tail, later)),
+            )
+
+
+@theorem(decreases="xs")
+def map_nodup[A: Type, B: Type](
+    f: Pi[A, lambda _: B],
+    injective: Pi[A, lambda x: Pi[A, lambda y: Pi[Eq[B, f(x), f(y)], lambda _: Eq[A, x, y]]]],
+    xs: List[A], unique: NoDup(xs),
+) -> NoDup(map(f, xs)):
+    """An injective map preserves duplicate-freeness."""
+    match xs:
+        case Nil():
+            return MkUnit()
+        case Cons(x, tail):
+            return Pair(
+                lambda member: unique.fst(map_mem_reflect(f, injective, x, tail, member)),
+                map_nodup(f, injective, tail, unique.snd),
             )

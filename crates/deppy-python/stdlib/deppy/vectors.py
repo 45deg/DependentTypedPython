@@ -1,6 +1,6 @@
 from __future__ import annotations
-from deppy._builtins import dependent, theorem, Type, Pi, Nat, Z, S, Vec, VNil, VCons, Fin, FZ, FS, fin0_elim, Eq, refl
-from deppy.equality import trans
+from deppy._builtins import dependent, theorem, Type, Pi, Nat, Z, S, Vec, VNil, VCons, Fin, FZ, FS, fin0_elim, nat_elim, vec_elim, Eq, refl
+from deppy.equality import trans, cong, cong2
 from deppy.nat import add
 from deppy.fin import fin_case
 
@@ -42,6 +42,62 @@ def get_map[A: Type, B: Type](n: Nat, f: Pi[A, lambda _: B], xs: Vec[A, n], i: F
                     return refl(f(x))
                 case FS(_, j):
                     return get_map(k, f, rest, j)
+
+
+@dependent
+def vec_case_motive[T: Type](size: Nat) -> Pi[Vec[T, size], lambda xs: Type[1]]:
+    return nat_elim(
+        2,
+        lambda n: Pi[Vec[T, n], lambda xs: Type[1]],
+        lambda xs: Pi[Pi[Vec[T, 0], lambda z: Type], lambda P: Pi[P(VNil()), lambda base: P(xs)]],
+        lambda k, unused: lambda xs: Pi[
+            Pi[Vec[T, S(k)], lambda z: Type],
+            lambda P: Pi[
+                Pi[T, lambda head: Pi[Vec[T, k], lambda tail: P(VCons(k, head, tail))]],
+                lambda branch: P(xs),
+            ],
+        ],
+        size,
+    )
+
+
+@dependent
+def vec_nil_case[T: Type](P: Pi[Vec[T, 0], lambda _: Type], xs: Vec[T, 0], base: P(VNil())) -> P(xs):
+    return vec_elim(
+        1, T, lambda size, ys: vec_case_motive[T](size)(ys),
+        lambda family, proof: proof,
+        lambda k, head, tail, ih, family, branch: branch(head)(tail),
+        0, xs,
+    )(P)(base)
+
+
+@dependent
+def vec_cons_case[T: Type](k: Nat, P: Pi[Vec[T, S(k)], lambda _: Type], xs: Vec[T, S(k)],
+                           branch: Pi[T, lambda head: Pi[Vec[T, k], lambda tail: P(VCons(k, head, tail))]]) -> P(xs):
+    return vec_elim(
+        1, T, lambda size, ys: vec_case_motive[T](size)(ys),
+        lambda family, proof: proof,
+        lambda j, head, tail, ih, family, step: step(head)(tail),
+        S(k), xs,
+    )(P)(branch)
+
+
+@theorem(decreases="xs")
+def vec_extensional[T: Type](n: Nat, xs: Vec[T, n], ys: Vec[T, n],
+                             pointwise: Pi[Fin[n], lambda i: Eq[T, get(n, xs, i), get(n, ys, i)]]) -> Eq[Vec[T, n], xs, ys]:
+    """Vectors equal at every finite index are equal, without function extensionality."""
+    match xs:
+        case VNil():
+            return vec_nil_case(lambda q: Eq[Vec[T, 0], VNil(), q], ys, refl(VNil()))
+        case VCons(k, x, rest):
+            return vec_cons_case[T](k, lambda q: Pi[
+                Pi[Fin[S(k)], lambda i: Eq[T, get(S(k), VCons(k, x, rest), i), get(S(k), q, i)]],
+                lambda _: Eq[Vec[T, S(k)], VCons(k, x, rest), q]
+            ], ys, lambda y: lambda other: lambda points:
+                cong2[T, Vec[T, k], Vec[T, S(k)]](lambda head: lambda remaining: VCons(k, head, remaining),
+                      points(FZ(k)),
+                      vec_extensional(k, rest, other, lambda i: points(FS(k, i))))
+            )(pointwise)
 
 
 @dependent(decreases="xs")
@@ -144,6 +200,39 @@ def mirror(n: Nat, i: Fin[n]) -> Fin[n]:
             return last(k)
         case FS(k, j):
             return weaken(k, mirror(k, j))
+
+
+@theorem(decreases="n")
+def mirror_last(n: Nat) -> Eq[Fin[S(n)], mirror(S(n), last(n)), FZ(n)]:
+    match n:
+        case Z():
+            return refl(FZ(0))
+        case S(k):
+            return cong(lambda q: weaken(S(k), q), mirror_last(k))
+
+
+@theorem(decreases="i")
+def mirror_weaken(n: Nat, i: Fin[n]) -> Eq[
+    Fin[S(n)], mirror(S(n), weaken(n, i)), FS(n, mirror(n, i))
+]:
+    match i:
+        case FZ(k):
+            return refl(last(S(k)))
+        case FS(k, j):
+            return cong(lambda q: weaken(S(k), q), mirror_weaken(k, j))
+
+
+@theorem(decreases="i")
+def mirror_involution(n: Nat, i: Fin[n]) -> Eq[Fin[n], mirror(n, mirror(n, i)), i]:
+    """Mirroring an index twice returns the original index."""
+    match i:
+        case FZ(k):
+            return mirror_last(k)
+        case FS(k, j):
+            return trans(
+                mirror_weaken(k, mirror(k, j)),
+                cong(lambda q: FS(k, q), mirror_involution(k, j)),
+            )
 
 
 @dependent(decreases="xs")

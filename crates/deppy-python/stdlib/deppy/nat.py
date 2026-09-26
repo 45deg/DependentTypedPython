@@ -1,6 +1,7 @@
 from __future__ import annotations
-from deppy._builtins import dependent, theorem, Nat, Z, S, Eq, refl
+from deppy._builtins import dependent, theorem, Type, Nat, Z, S, Eq, refl
 from deppy.equality import sym, trans, cong, cong2, transport
+from deppy.data import Empty, Unit, MkUnit
 
 # Nat and its eliminator are supplied by the frontend's builtin registry.  The
 # operations below deliberately keep the computation rules used by the
@@ -120,6 +121,21 @@ def zero_mul(n: Nat) -> Eq[Nat, mul(0, n), 0]:
             return refl(0)
         case S(k):
             return zero_mul(k)
+
+
+@dependent(decreases="n", motive_level=1)
+def zero_shape(n: Nat) -> Type:
+    match n:
+        case Z():
+            return Unit
+        case S(k):
+            return Empty
+
+
+@theorem
+def zero_ne_succ(n: Nat, equal: Eq[Nat, 0, S(n)]) -> Empty:
+    """Zero is distinct from every successor."""
+    return transport[Nat, 0, S(n)](zero_shape, equal, MkUnit())
 
 
 @theorem(decreases="b")
