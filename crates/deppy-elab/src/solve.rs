@@ -7,6 +7,7 @@ mod auto;
 mod cases;
 mod core;
 mod infer;
+mod sharing;
 mod state;
 mod tactics;
 mod term_ops;

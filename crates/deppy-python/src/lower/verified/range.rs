@@ -27,7 +27,7 @@ fn number(value: u32, source: &Expr) -> Expr {
         node_index: Default::default(),
     })
 }
-fn call(function: &str, args: Vec<Expr>, source: &Expr) -> Expr {
+pub(super) fn call(function: &str, args: Vec<Expr>, source: &Expr) -> Expr {
     Expr::Call(ast::ExprCall {
         range_start: source.range().start(),
         func: Box::new(name(function, source)),

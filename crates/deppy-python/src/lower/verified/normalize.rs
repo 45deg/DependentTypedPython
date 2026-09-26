@@ -53,7 +53,11 @@ impl Lowerer {
             }
             Expr::BoolOp(op) => op.values.iter().any(|e| self.has_contract_call(e)),
             Expr::BinOp(op) => {
-                self.has_contract_call(&op.left) || self.has_contract_call(&op.right)
+                matches!(
+                    op.op,
+                    ast::Operator::Sub | ast::Operator::FloorDiv | ast::Operator::Mod
+                ) || self.has_contract_call(&op.left)
+                    || self.has_contract_call(&op.right)
             }
             Expr::Compare(op) => {
                 self.has_contract_call(&op.left)
@@ -81,6 +85,26 @@ impl Lowerer {
             Expr::BinOp(op) => {
                 *op.left = self.normalize_value(&op.left, prefix, false)?;
                 *op.right = self.normalize_value(&op.right, prefix, false)?;
+                let operation = match op.op {
+                    ast::Operator::Sub => Some("sub"),
+                    ast::Operator::FloorDiv => Some("div"),
+                    ast::Operator::Mod => Some("mod"),
+                    _ => None,
+                };
+                if let Some(operation) = operation {
+                    let args = vec![*op.left.clone(), *op.right.clone()];
+                    prefix.push(Stmt::Assert(ast::StmtAssert {
+                        node_index: Default::default(),
+                        range: expr.range(),
+                        msg: None,
+                        test: Box::new(range::call(
+                            &format!("$arith_safe_{operation}"),
+                            args.clone(),
+                            expr,
+                        )),
+                    }));
+                    value = range::call(&format!("$arith_{operation}"), args, expr);
+                }
             }
             Expr::Compare(op) => {
                 *op.left = self.normalize_value(&op.left, prefix, false)?;
@@ -167,7 +191,14 @@ impl Lowerer {
                     }
                 }
                 Stmt::AugAssign(a)
-                    if a.op == ast::Operator::Add && matches!(a.target.as_ref(), Expr::Name(_)) =>
+                    if matches!(
+                        a.op,
+                        ast::Operator::Add
+                            | ast::Operator::Sub
+                            | ast::Operator::Mult
+                            | ast::Operator::FloorDiv
+                            | ast::Operator::Mod
+                    ) && matches!(a.target.as_ref(), Expr::Name(_)) =>
                 {
                     let value = Expr::BinOp(ast::ExprBinOp {
                         node_index: Default::default(),

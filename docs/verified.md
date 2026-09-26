@@ -1,6 +1,6 @@
 # verifiedの仕様と証明
 
-`@verified` は、Nat／Boolの局所変数、再代入、`if`／`elif`／`else`、複数・入れ子の `while`、Nat境界の `for range`、`continue`／`break`／`return` を持つ関数を検査する。
+`@verified` は、Nat／Bool／Intの局所変数、再代入、`if`／`elif`／`else`、複数・入れ子の `while`、Nat境界の `for range`、`continue`／`break`／`return` を持つ関数を検査する。
 仕様は引数・戻り値・局所変数の型注釈を基本とする。`@verified` または `@verified()` で
 VCを生成し、限定した自動証明を試す。解けないVCは名前付きgoalとして残り、検証済みとして登録しない。
 `proof`／`proofs` は明示的な証明を与えるための追加インターフェースである。
@@ -22,7 +22,7 @@ def twice(n: Nat) -> Refined[Nat, lambda result: Eq[Nat, result, add(n, n)]]:
 ## 型注釈からの自動検証
 
 `proof`／`proofs` の省略自体はエラーにならない。引数と戻り値の `Refined` が事前・事後条件、
-局所変数の `Refined` が各代入で維持する条件になる。戻り値が単なるNat／Boolで `ensures` もなければ、
+局所変数の `Refined` が各代入で維持する条件になる。戻り値が単なるNat／Bool／Intで `ensures` もなければ、
 事後条件はUnitであり、より強い値の性質は主張しない。本文の型とループの停止性は引き続き検査する。
 
 自動証明は、文脈中の証拠とΣの射影、等式の反射律、Unit・Σの構築、固定した自然数の順序補題を使う。
@@ -108,7 +108,7 @@ cargo run -p deppy-python --locked --offline -- --goals path/to/proof.py
 述語の `n` は変わらない。述語を既存の事後条件へ変換し、同じVCとkernelで検査する。
 必要なら `proof` または `proofs` で証明を補い、`requires` と `verified_spec` もそのまま使える。
 
-`@verified` の引数と戻り値で使え、基底型はNat／Boolに限る。
+`@verified` の引数と戻り値で使え、基底型はNat／Bool／Intに限る。
 `ensures` との併記は拒否する。公開関数は基底型の値を返し、Σの包みを作らない。
 局所変数では後述の名前付きVCを使う。同じ基底型の条件変換もVCとして検査し、暗黙のsubtypingは行わない。
 
@@ -225,7 +225,7 @@ cargo run -p deppy-python --locked --offline -- --goals path/to/program.py
 cargo run -p deppy-python --locked --offline -- --json path/to/program.py
 ```
 
-呼び出し先はNat／Boolを扱う検査済みverified関数で、単一whileを含む関数も利用できる。
+呼び出し先はNat／Bool／Intを扱う検査済みverified関数で、単一whileを含む関数も利用できる。
 importの別名と再exportでも契約を保持し、公理への依存を合成先へ伝える。
 呼び出し先の本体・契約が変われば依存snapshotを無効化する。
 
@@ -271,7 +271,7 @@ Boolの消去で表し、後続の継続を複製しない。
 ## 局所Refinedと同じ基底型の条件変換
 
 `proof` による一括証明を使わない関数では、`x: Refined[Nat, predicate] = value` と宣言できる。
-基底型はNat／Bool。初期化、再代入、同時代入の各更新で `predicate(新しい値)` のVCを生成する。
+基底型はNat／Bool／Int。初期化、再代入、同時代入の各更新で `predicate(新しい値)` のVCを生成する。
 `x: Nat = ...` と再注釈しても既存の条件は消えない。同じ局所名へのRefinedの再宣言は拒否する。
 述語が参照する外部の値は注釈を処理した時点で固定する。例えば `x` の条件に `limit` を
 参照した後で `limit` を更新しても、`x` の条件は元の値を参照する。
@@ -324,7 +324,7 @@ callbackは入力・事前条件・ループ前の証拠に続き、状態・不
 
 専用frontendは本文を代入・分岐・returnからなる小さなcommand HIRへ分類する。
 式は元の位置情報を保ち、各経路の局所状態で名前解決・型検査する。
-状態は局所名からNat／Boolの型と新しいCoreの束縛名への対応である。
+状態は局所名からNat／Bool／Intの型と新しいCoreの束縛名への対応である。
 
 - `x = e; c`：更新前の状態で `e` を評価するCore letを作り、`x` を新しい束縛に対応させて `c` を解釈する。
 - `a, b = e1, e2`：全右辺を更新前の状態で解釈してから、各変数を新しい束縛へ対応させる。
@@ -350,13 +350,75 @@ kernelに新しい規則や公理を追加しない。VC証明がユーザー公
 生成Pythonでの新APIの実行検証は含まない。公開される関数の型は通常の引数・戻り値の型であり、
 仕様は `verified_spec` で後続の証明から再利用できる。
 
+## 減算・除算・符号付き整数
+
+Natの `a - b` は `b <= a` を証明した場合だけ受理する。内部の全域関数
+`deppy.arithmetic.sub(a, b)` はゼロで打ち切るが、本文の演算子は未証明の打ち切りを許さない。
+`a // b` と `a % b` には `0 < b` が必要。ゼロ除算や未証明の下界を、仮定として追加することはない。
+
+```python
+from deppy import Nat
+from deppy.verified import verified
+from deppy.verified_loop import decreases
+
+@verified
+def gcd(a: Nat, b: Nat) -> Nat:
+    x = a
+    y = b
+    while 0 < y:
+        decreases(y)
+        x, y = y, x % y
+    return x
+```
+
+`deppy.arithmetic.divmod_equation(n, d)` は `d * quotient(n, d) + remainder(n, d) = n`、
+`divmod_bound(n, d, positive)` は正の除数に対する剰余の上界を証明する。
+`sub_add` は下界の証拠から減算と加算の関係を証明する。いずれも通常の構造的再帰とkernel再検査を使う。
+
+Intは `from deppy.integer import Int` で利用する。`Pos(n)` が非負整数n、`Neg(n)` が `-(n+1)` を表し、
+負のゼロはない。NatとIntの既存の値を混ぜた算術は拒否する。`of_nat(n)` でNatをIntへ変換し、
+`to_nat(x)` では `x >= 0` に対応する契約を証明する。`to_nat` は通常のverified契約呼び出しである。
+
+```python
+from deppy.integer import Int
+
+@verified
+def signed(a: Int, b: Int) -> Int:
+    if b != 0:
+        return a // b
+    return 0
+
+@verified
+def minus_one() -> Int:
+    return 1 - 2
+```
+
+Intの商は負の無限大へ丸める。例えば `-7 // 3 = -3`、`-7 % 3 = 2`、
+`7 // -3 = -3`、`7 % -3 = -2`。剰余の符号は除数に合わせ、除数が非ゼロであることをVCにする。
+Intの減算には下界の条件を課さない。型注釈・既存の局所型・verified契約からIntを期待する位置では、
+正のリテラルもIntとして扱う。文脈がない正のリテラルはNat、負のリテラルはIntである。
+仕様の式では `Pos`／`Neg` とstdlibの関数を使う。
+
+安全条件のgoal名は `arithmetic.sub.safe`、`arithmetic.div.safe`、`arithmetic.mod.safe`。
+同じ経路の複数箇所には既存の連番規則を適用し、位置は元の演算式を指す。
+`-=`／`*=`／`//=`／`%=` も対応する。短絡演算・条件式では到達する分岐だけに安全条件を要求し、
+同時代入では更新前の値に対して検査する。
+これらの安全条件を持つ演算は自動証明または `proofs` を使う。単一の `proof=`、
+whileのguard、直接の減少尺度式での `-`／`//`／`%` は未対応。本文で計算して局所変数へ代入する。
+rangeの境界は引き続きNatで、Int境界と動的な負stepは未対応。
+
+追加テストは `verified_numeric.rs` と[数値演算の例](../crates/deppy-python/examples/verified_numeric.py)。
+受理・拒否、契約の抽象性、明示証明の優先、import／reexport、公理依存、ソース位置、HIR上の計算を検査する。
+生成Pythonの実行比較も試したが、この例は既定予算でextractionの証明除去中に予算切れとなる。
+生成Pythonの実行確認や一般的な意味保存証明は、この段階の完了に含めない。
+
 ## 受理範囲
 
-- 引数・戻り値の基底型は公開 `Nat` または `deppy.data.Bool`。Natは非負整数であり、Pythonの負数を含むint全体ではない。
-- 値は初期化済み局所変数、自然数リテラル、`True`／`False`、Natの `+`／`*`、比較 `==`／`!=`／`<`／`<=`／`>`／`>=`、Boolの `and`／`or`／`not`、条件式。
+- 引数・戻り値の基底型は公開 `Nat`、`deppy.data.Bool`、`deppy.integer.Int`。Natは非負整数。Intは正規化した符号付き帰納型であり、Pythonの組込みintをそのまま取り込む型ではない。
+- 値は初期化済み局所変数、整数リテラル、`True`／`False`、Nat／Intの `+`／`-`／`*`／`//`／`%`、Intの単項 `-`、比較 `==`／`!=`／`<`／`<=`／`>`／`>=`、Boolの `and`／`or`／`not`、条件式。
 - 先に検査したdependent関数への位置引数による呼び出し。verified関数の呼び出しは後述の契約合成で扱う。外部Python関数、属性呼び出し、再帰は拒否する。
 - 新しい局所変数は右辺から型を決め、以後の再代入で型を変えない。純粋関数呼び出しの結果は
-  期待型がない場合Natとして検査する。Boolを返す呼び出しで新しい局所変数を作る場合は `flag: Bool = f(...)` と書く。
+  期待型がなく契約や既知のInt演算からも結果型を決められない場合はNatとして検査する。Boolを返す純粋呼び出しで新しい局所変数を作る場合は `flag: Bool = f(...)` と書く。
 - 同時代入は、異なる局所名の平坦なtupleと同じ要素数のtuple式に限る。入れ子・starred target・重複名は拒否する。
 - `requires`／`ensures`／`proof` は既存のdependent式の構文を使う。
   仕様内では `add(n, 1)`、`LE[n, limit]` のように書き、本文用の演算子構文とは区別する。
@@ -514,9 +576,10 @@ continueでもcursorと残り回数は進み、break／returnは通常の途中�
 `invariant(..., state=(...))` は本文の先頭に置ける。stateにはtargetと更新する利用者の変数を列挙する。
 内部変数は自動で補い、利用者の不変条件には渡さない。`decreases` の指定は不要。
 
-基本例は既定の検査予算で検証する。ネストしたrangeと途中脱出の証明は大きくなり、
-検査予算やスタックの追加が必要な場合がある。回帰テストの複合例は1,600万stepと16 MiBを指定している。
-既定値は変更しておらず、予算超過を検証成功とは扱わない。
+elaboration中の局所定義を透明な参照として保持し、Coreのletへ下げる。変数置換に無関係な項も共有する。
+これにより、ネストしたrangeとbreakの回帰例は従来の1,600万stepから既定の100万stepで検証できる。
+この例のワーカースタックは引き続き16 MiBを指定する。一般のネスト深さや実行時間の上限を保証する変更ではない。
+kernelの規則、公理、既定予算は変更しておらず、未使用の定義や証明も再検査する。
 
 ### 有限反復とwhileの接続
 
@@ -546,7 +609,7 @@ CPythonソースとの意味保存や生成Pythonの実行についての境界�
 - 本文は代入・分岐・assert・while・for range・continue・break・return。更新先は `state` に列挙した変数に限る。
   内側ループのstateも外側のstateに含める。不変条件を省略した場合は内側のstateも含めて推論する。
   stateに含めない変数は読み取り専用で、すべてのstate変数は各ループに入る前に初期化する。
-- stateにはNatとBoolを混在させられる。反復中に型は変えられない。
+- stateにはNat・Bool・Intを混在させられる。反復中に型は変えられない。
 - `while ... else` と `for ... else` は拒否する。
 - 辞書式尺度、一般の整礎関係、局所Refined以外からの一般的な不変条件推論は未実装。
 

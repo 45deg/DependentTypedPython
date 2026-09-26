@@ -19,6 +19,7 @@ impl Contract {
         let mut parameters = vec![];
         let scalar = |ty: &E| match ty {
             E::Nat => Scalar::Nat,
+            E::Name(n) if n == "deppy.integer.Int" => Scalar::Int,
             E::Name(n) if n == "deppy.data.Bool" => Scalar::Bool,
             _ => unreachable!("verified signature has scalar types"),
         };
@@ -224,6 +225,13 @@ impl<'a> Proofs<'a> {
         self.assignment_key(path, "call", name, "requires")
     }
     pub(super) fn assertion_key(&mut self, path: &str, source: &Expr) -> String {
+        if let Expr::Call(c) = source {
+            if let Expr::Name(n) = c.func.as_ref() {
+                if let Some(operation) = n.id.as_str().strip_prefix("$arith_safe_") {
+                    return self.assignment_key(path, "arithmetic", operation, "safe");
+                }
+            }
+        }
         if matches!(source, Expr::Compare(c) if matches!(c.comparators.first(), Some(Expr::Name(n)) if n.id.as_str().starts_with("$expr_range_stride")))
         {
             self.assignment_key(path, "range", "step", "positive")
@@ -304,10 +312,16 @@ impl Lowerer {
                     name,
                     hints: [
                         "deppy.data.MkUnit",
+                        "deppy.arithmetic.sub_bound",
+                        "deppy.arithmetic.divisor_positive",
+                        "deppy.arithmetic.nonzero_positive",
+                        "deppy.arithmetic.unequal_zero_positive",
+                        "deppy.arithmetic.remainder_lt_true",
                         "deppy.verified.false_true_elim",
                         "deppy.verified.true_false_elim",
                         "deppy.verified.nat_lt_not_false",
                         "deppy.verified.nat_eq_true",
+                        "deppy.integer.eq_true",
                         "deppy.verified.nat_le_refl_true",
                         "deppy.verified_loop.range_bound",
                         "deppy.verified_loop.range_decrease",

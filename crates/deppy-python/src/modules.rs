@@ -211,23 +211,53 @@ impl<R: SourceResolver> Loader<'_, R> {
                     .extend(available);
             }
         }
-        // Range has no user-written decreases directive, so its checked
-        // interpreter must be linked even without an explicit loop-library import.
-        fn has_range(body: &[Stmt]) -> bool {
-            body.iter().any(|s| match s {
-                Stmt::For(_) => true,
-                Stmt::While(w) => has_range(&w.body),
-                Stmt::If(i) => {
-                    has_range(&i.body) || i.elif_else_clauses.iter().any(|c| has_range(&c.body))
-                }
-                _ => false,
-            })
+        // Link only the checked interpreters/operators used by verified bodies.
+        // Public imports are still resolved above; synthetic names cannot be
+        // supplied by source programs.
+        #[derive(Default)]
+        struct VerifiedLibraries {
+            loops: bool,
+            arithmetic: bool,
+            integer: bool,
         }
-        if body.iter().any(|s| matches!(s, Stmt::FunctionDef(f) if has_range(&f.body) && f.decorator_list.iter().any(|d| {
-            let decorator = match &d.expression { ruff_python_ast::Expr::Call(c) => c.func.as_ref(), e => e };
-            matches!(decorator, ruff_python_ast::Expr::Name(n) if exports.get(n.id.as_str()).is_some_and(|b| b.builtin.as_deref() == Some("verified")))
-        }))) {
+        impl<'a> ruff_python_ast::visitor::Visitor<'a> for VerifiedLibraries {
+            fn visit_stmt(&mut self, statement: &'a Stmt) {
+                self.loops |= matches!(statement, Stmt::For(_));
+                ruff_python_ast::visitor::walk_stmt(self, statement);
+            }
+            fn visit_operator(&mut self, op: &'a ruff_python_ast::Operator) {
+                self.arithmetic |= matches!(
+                    op,
+                    ruff_python_ast::Operator::Sub
+                        | ruff_python_ast::Operator::FloorDiv
+                        | ruff_python_ast::Operator::Mod
+                );
+            }
+            fn visit_unary_op(&mut self, op: &'a ruff_python_ast::UnaryOp) {
+                self.integer |= *op == ruff_python_ast::UnaryOp::USub;
+            }
+        }
+        let mut needed = VerifiedLibraries::default();
+        for statement in &body {
+            if let Stmt::FunctionDef(f) = statement {
+                if f.decorator_list.iter().any(|d| {
+                    let decorator = match &d.expression { ruff_python_ast::Expr::Call(c) => c.func.as_ref(), e => e };
+                    matches!(decorator, ruff_python_ast::Expr::Name(n) if exports.get(n.id.as_str()).is_some_and(|b| b.builtin.as_deref() == Some("verified")))
+                }) {
+                    for statement in &f.body {
+                        ruff_python_ast::visitor::Visitor::visit_stmt(&mut needed, statement);
+                    }
+                }
+            }
+        }
+        if needed.loops {
             self.load("deppy.verified_loop")?;
+        }
+        if needed.arithmetic {
+            self.load("deppy.arithmetic")?;
+        }
+        if needed.integer {
+            self.load("deppy.integer")?;
         }
         let declarations = crate::lower::module(&body, name, &libraries, self.lowering_steps)?;
         for d in &declarations {

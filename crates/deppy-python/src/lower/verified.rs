@@ -12,6 +12,8 @@ mod flow;
 mod join;
 mod loops;
 mod normalize;
+mod numeric;
+mod numeric_context;
 mod range;
 pub(crate) use contracts::Contract;
 
@@ -46,11 +48,13 @@ fn specification_proof(body: &E) -> E {
 enum Scalar {
     Nat,
     Bool,
+    Int,
 }
 impl Scalar {
     fn expr(self) -> E {
         match self {
             Self::Nat => E::Nat,
+            Self::Int => E::name("deppy.integer.Int"),
             Self::Bool => E::name("deppy.data.Bool"),
         }
     }
@@ -105,12 +109,22 @@ impl Lowerer {
             if self
                 .globals
                 .get(n.id.as_str())
+                .is_some_and(|b| b.name == "deppy.integer.Int")
+            {
+                return Ok(Scalar::Int);
+            }
+            if self
+                .globals
+                .get(n.id.as_str())
                 .is_some_and(|b| b.name == "deppy.data.Bool")
             {
                 return Ok(Scalar::Bool);
             }
         }
-        Err(error(e, "verified values require Nat or deppy.data.Bool"))
+        Err(error(
+            e,
+            "verified values require Nat, deppy.data.Bool, or deppy.integer.Int",
+        ))
     }
 
     fn commands<'a>(&mut self, body: &'a [Stmt]) -> Result<Vec<Command<'a>>, Diagnostic> {
@@ -208,7 +222,14 @@ impl Lowerer {
                 }),
                 Scalar::Bool,
             ),
-            Expr::NumberLiteral(_) => (self.expr(e, &state.scope)?, Scalar::Nat),
+            Expr::NumberLiteral(_) => {
+                let value = self.expr(e, &state.scope)?;
+                if expected == Some(Scalar::Int) {
+                    (E::name("deppy.integer.Pos").app(value), Scalar::Int)
+                } else {
+                    (value, Scalar::Nat)
+                }
+            }
             Expr::Name(n) => {
                 let ty = state
                     .types
@@ -218,14 +239,17 @@ impl Lowerer {
                 (self.expr(e, &state.scope)?, ty)
             }
             Expr::BinOp(b) => {
-                let name = match b.op {
-                    ast::Operator::Add => "deppy.nat.add",
-                    ast::Operator::Mult => "deppy.nat.mul",
-                    _ => return Err(error(b, "verified arithmetic supports + and * on Nat")),
+                let ty = self.numeric_type(&b.left, &b.right, state, expected);
+                let name = match (b.op, ty) {
+                    (ast::Operator::Add, Scalar::Int) => "deppy.integer.add",
+                    (ast::Operator::Mult, Scalar::Int) => "deppy.integer.mul",
+                    (ast::Operator::Add, _) => "deppy.nat.add",
+                    (ast::Operator::Mult, _) => "deppy.nat.mul",
+                    _ => return Err(error(b, "checked arithmetic is unsupported in loop guards or measures; assign it in the body first")),
                 };
-                let left = self.value(&b.left, state, Some(Scalar::Nat))?.0;
-                let right = self.value(&b.right, state, Some(Scalar::Nat))?.0;
-                (E::name(name).app(left).app(right), Scalar::Nat)
+                let left = self.value(&b.left, state, Some(ty))?.0;
+                let right = self.value(&b.right, state, Some(ty))?.0;
+                (E::name(name).app(left).app(right), ty)
             }
             Expr::Compare(c) if c.ops.len() == 1 && c.comparators.len() == 1 => {
                 let name = match c.ops[0] {
@@ -245,11 +269,24 @@ impl Lowerer {
                 let (left, ty) = self.value(
                     &c.left,
                     state,
-                    if equality { None } else { Some(Scalar::Nat) },
+                    if equality
+                        && (self.numeric_hint(&c.left, state) == Some(Scalar::Bool)
+                            || self.numeric_hint(&c.comparators[0], state) == Some(Scalar::Bool))
+                    {
+                        Some(Scalar::Bool)
+                    } else {
+                        Some(self.numeric_type(&c.left, &c.comparators[0], state, None))
+                    },
                 )?;
                 let right = self.value(&c.comparators[0], state, Some(ty))?.0;
                 let name = if equality && ty == Scalar::Bool {
                     "deppy.verified.bool_eq"
+                } else if ty == Scalar::Int {
+                    match c.ops[0] {
+                        ast::CmpOp::Lt | ast::CmpOp::Gt => "deppy.integer.lt",
+                        ast::CmpOp::LtE | ast::CmpOp::GtE => "deppy.integer.le",
+                        _ => "deppy.integer.eq",
+                    }
                 } else {
                     name
                 };
@@ -299,6 +336,10 @@ impl Lowerer {
                     ty,
                 )
             }
+            Expr::UnaryOp(op) if op.op == ast::UnaryOp::USub => {
+                let value = self.value(&op.operand, state, Some(Scalar::Int))?.0;
+                (E::name("deppy.integer.neg").app(value), Scalar::Int)
+            }
             Expr::UnaryOp(op) if op.op == ast::UnaryOp::Not => {
                 let value = self.value(&op.operand, state, Some(Scalar::Bool))?.0;
                 (E::name("deppy.verified.bool_not").app(value), Scalar::Bool)
@@ -309,6 +350,23 @@ impl Lowerer {
                 let Expr::Name(n) = c.func.as_ref() else {
                     return Err(error(c, "verified calls require a checked function name"));
                 };
+                if n.id.as_str() == "$int_literal" {
+                    if expected.is_some_and(|t| t != Scalar::Int) {
+                        return Err(error(c, "verified scalar type mismatch"));
+                    }
+                    let value = self
+                        .value(&c.arguments.args[0], state, Some(Scalar::Nat))?
+                        .0;
+                    return Ok((
+                        E::name("deppy.integer.Pos")
+                            .app(value)
+                            .ann(Scalar::Int.expr()),
+                        Scalar::Int,
+                    ));
+                }
+                if n.id.as_str().starts_with("$arith_") {
+                    return self.numeric_call(c, state, expected);
+                }
                 if let Some(helper) = range::helper(n.id.as_str()) {
                     if state.scope.locals.contains("range")
                         || state.scope.assigned.contains("range")
@@ -352,7 +410,13 @@ impl Lowerer {
                     .get(n.id.as_str())
                     .and_then(|binding| binding.contract.as_ref())
                     .map(|contract| contract.result);
-                (term, expected.or(contract_result).unwrap_or(Scalar::Nat))
+                (
+                    term,
+                    expected
+                        .or(contract_result)
+                        .or_else(|| self.numeric_hint(e, state))
+                        .unwrap_or(Scalar::Nat),
+                )
             }
             _ => return Err(error(e, "unsupported verified value expression")),
         };
@@ -627,7 +691,9 @@ impl Lowerer {
         } else {
             &f.body[..]
         };
-        let normalized = self.normalize_commands(body)?;
+        let mut body = body.to_vec();
+        self.numeric_context(&mut body, &mut state.clone(), result)?;
+        let normalized = self.normalize_commands(&body)?;
         let mut commands = self.commands(&normalized)?;
         flow::number_loops(&mut commands, &mut 0);
         fn capture(commands: &[Command<'_>], assigned: &mut HashSet<String>) {

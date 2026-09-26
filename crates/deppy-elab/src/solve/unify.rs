@@ -3,6 +3,10 @@ use super::*;
 impl State {
     pub(super) fn unify(&mut self, a: &T, b: &T) -> Result<(), Error> {
         self.tick()?;
+        // Shared syntax is definitionally equal without unfolding its body.
+        if std::sync::Arc::ptr_eq(a, b) {
+            return Ok(());
+        }
         let a = self.whnf(a)?;
         let b = self.whnf(b)?;
         if a == b {
@@ -437,6 +441,7 @@ impl State {
     ) -> Result<(), Error> {
         self.tick()?;
         match term.as_ref() {
+            Term::Defined { value, .. } => self.validate_solution(solving, value, allowed),
             Term::Data {
                 arguments: parameters,
                 ..

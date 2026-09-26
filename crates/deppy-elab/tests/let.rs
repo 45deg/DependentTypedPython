@@ -115,3 +115,49 @@ fn lowering_preserves_let_scope_and_recursion_checks() {
         Err(Error::InvalidRecursion(_))
     ));
 }
+
+#[test]
+fn shared_definition_is_preserved_as_a_core_let() {
+    let e = Elaborator::default();
+    let pair = E::pair(n("v"), n("v")).ann(E::sigma("a", E::Nat, E::Nat));
+    let out = e
+        .infer(&E::let_in("v", Some(E::Nat), E::Zero.succ(), pair))
+        .unwrap();
+    let Term::Let { body, .. } = out.term.as_ref() else {
+        panic!("definition was expanded instead of shared")
+    };
+    let Term::Pair { fst, snd, .. } = body.as_ref() else {
+        panic!("expected pair")
+    };
+    assert_eq!(fst.as_ref(), &Term::Var(0));
+    assert_eq!(snd.as_ref(), &Term::Var(0));
+    e.kernel().check(&out.term, &out.ty).unwrap();
+}
+
+#[test]
+fn shared_function_reused_under_distinct_binders_does_not_capture() {
+    let e = Elaborator::default();
+    let f = E::lam(
+        "x",
+        Explicit,
+        Some(E::Nat),
+        E::lam("y", Explicit, Some(E::Nat), n("x")),
+    );
+    let value = E::let_in(
+        "f",
+        None,
+        f,
+        E::let_in(
+            "g",
+            None,
+            n("f").app(E::Zero),
+            n("f").app(E::Zero.succ()).app(n("g").app(E::Zero.succ())),
+        ),
+    );
+    assert_eq!(
+        e.kernel()
+            .normalize(&e.infer(&value).unwrap().term)
+            .unwrap(),
+        Term::Succ(Term::Zero.arc()).arc()
+    );
+}

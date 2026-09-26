@@ -44,8 +44,9 @@ impl State {
         }
     }
 
-    // Substitute the definition at name lookup. Retain its checked value in an
-    // explicit application so even unused definitions reach the kernel recheck.
+    // Preserve a transparent reference at lookup. Conversion can unfold it,
+    // while core lowering emits a real let and retains even unused definitions
+    // for independent kernel checking.
     fn let_expr(
         &mut self,
         ctx: &Context,
@@ -62,7 +63,13 @@ impl State {
             self.synth(ctx, value)?
         };
         let (mut inner, id) = self.bind(ctx, name, ty.clone());
-        inner.last_mut().unwrap().value = Some(value.clone());
+        inner.last_mut().unwrap().value = Some(
+            Term::Defined {
+                id,
+                value: value.clone(),
+            }
+            .arc(),
+        );
         let (body, result) = if let Some(expected) = expected {
             (self.check(&inner, body, expected)?, expected.clone())
         } else {

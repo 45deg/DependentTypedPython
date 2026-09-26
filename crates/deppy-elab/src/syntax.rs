@@ -584,6 +584,10 @@ pub(crate) enum Term {
     Fst(T),
     Snd(T),
     Local(Id),
+    Defined {
+        id: Id,
+        value: T,
+    },
     Universe(u32),
     Eq {
         ty: T,

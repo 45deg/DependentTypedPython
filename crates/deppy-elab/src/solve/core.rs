@@ -20,6 +20,13 @@ impl State {
     pub(super) fn core(&mut self, term: &T, scope: &mut Vec<Id>) -> Result<Tm, Error> {
         self.tick()?;
         Ok(match term.as_ref() {
+            Term::Defined { id, value } => {
+                if let Some(index) = scope.iter().rev().position(|x| x == id) {
+                    Core::Var(index)
+                } else {
+                    return self.core(value, scope);
+                }
+            }
             Term::Data { op, arguments } => Core::Data {
                 op: *op,
                 arguments: arguments
@@ -198,6 +205,32 @@ impl State {
                 self.core(scrutinee, scope)?,
             ),
             Term::Meta(id, _) => return Err(Error::UnsolvedMeta { id: *id }),
+            Term::App(f, value)
+                if matches!(
+                    f.as_ref(),
+                    Term::Lam {
+                        plicity: Plicity::Explicit,
+                        ..
+                    }
+                ) =>
+            {
+                let Term::Lam {
+                    id, domain, body, ..
+                } = f.as_ref()
+                else {
+                    unreachable!()
+                };
+                let ty = self.core(domain, scope)?;
+                let value = self.core(value, scope)?;
+                scope.push(*id);
+                self.core_domains.push(ty.clone());
+                let body = self.core(body, scope)?;
+                self.core_domains.pop();
+                scope.pop();
+                // Keep the checked binding instead of synthesizing a lambda's
+                // potentially enormous dependent result type only to apply it.
+                Core::Let { ty, value, body }
+            }
             Term::App(f, x) => Core::App {
                 function: self.core(f, scope)?,
                 argument: self.core(x, scope)?,

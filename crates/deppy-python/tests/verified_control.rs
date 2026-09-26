@@ -1,9 +1,9 @@
 use deppy_python::{analyze_module, check_module, Target};
 const HEADER: &str = "from __future__ import annotations\nfrom deppy import Nat, Eq, refl, theorem\nfrom deppy.data import Bool, True_, False_\nfrom deppy.verified import verified, Refined, nat_lt\nfrom deppy.nat_order import LT\nfrom deppy.nat import pred_or\nfrom deppy.verified_loop import invariant, decreases\n";
 fn check(body: &str) {
-    check_budget(body, 1_000_000);
+    check_budget(body, 1_000_000, false);
 }
-fn check_budget(body: &str, budget: usize) {
+fn check_budget(body: &str, budget: usize, large_stack: bool) {
     let source = format!("{HEADER}{body}");
     let run = move || {
         let checked = deppy_python::check_module_with_options(
@@ -17,9 +17,9 @@ fn check_budget(body: &str, budget: usize) {
         .unwrap_or_else(|e| panic!("{e}\n{source}"));
         assert!(checked.axiom_dependencies.values().all(Vec::is_empty));
     };
-    // Nested range/early-exit certificates are larger than the default budget.
-    // Follow the existing large-proof tests for their worker stack size.
-    if budget > 1_000_000 {
+    // The nested range certificate now fits the default step budget, but
+    // recursive checking still needs the existing large-proof worker stack.
+    if large_stack {
         std::thread::Builder::new()
             .stack_size(16 * 1024 * 1024)
             .spawn(run)
@@ -208,7 +208,8 @@ def snapshot_result() -> Eq[Nat, snapshots(3), 3]:
 def nested_result() -> Eq[Nat, nested(2), 2]:
     return refl(2)
 "#,
-        16_000_000,
+        1_000_000,
+        true,
     );
 }
 

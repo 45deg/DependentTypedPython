@@ -97,6 +97,8 @@ pub(super) fn builtin_exports(module: &str) -> Exports {
 pub(super) fn standard(name: &str) -> Option<&'static str> {
     match name {
         "deppy.tactics" => Some(include_str!("../../stdlib/deppy/tactics.py")),
+        "deppy.integer" => Some(include_str!("../../stdlib/deppy/integer.py")),
+        "deppy.arithmetic" => Some(include_str!("../../stdlib/deppy/arithmetic.py")),
         "deppy.verified_loop" => Some(include_str!("../../stdlib/deppy/verified_loop.py")),
         "deppy.verified" => Some(include_str!("../../stdlib/deppy/verified.py")),
         "deppy.naturals" => Some(include_str!("../../stdlib/deppy/naturals.py")),

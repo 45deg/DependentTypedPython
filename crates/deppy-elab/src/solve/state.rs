@@ -19,6 +19,7 @@ pub(super) struct Meta {
 }
 
 pub(crate) struct State {
+    pub(super) support: HashMap<usize, (T, std::sync::Arc<HashSet<Id>>)>,
     pub(super) core_domains: Vec<Tm>,
     pub(super) user_goals: Vec<(usize, String, Option<crate::SourceLocation>, Context, T)>,
     pub(super) location: Option<crate::SourceLocation>,
@@ -33,6 +34,7 @@ pub(crate) struct State {
 impl State {
     pub(crate) fn new(remaining: usize) -> Self {
         Self {
+            support: HashMap::new(),
             core_domains: vec![],
             user_goals: Vec::new(),
             location: None,
@@ -108,6 +110,7 @@ impl State {
     pub(super) fn describe(&self, term: &T, ctx: &Context) -> String {
         let show = |t: &T| self.describe(t, ctx);
         match term.as_ref() {
+            Term::Defined { value, .. } => show(value),
             Term::Data { op, arguments } => {
                 let name = self.globals.iter().find_map(|(name, id)| {
                     let mut body = self.kernel.definition(*id).ok()?.body.as_ref()?;
