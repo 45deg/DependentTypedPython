@@ -211,6 +211,24 @@ impl<R: SourceResolver> Loader<'_, R> {
                     .extend(available);
             }
         }
+        // Range has no user-written decreases directive, so its checked
+        // interpreter must be linked even without an explicit loop-library import.
+        fn has_range(body: &[Stmt]) -> bool {
+            body.iter().any(|s| match s {
+                Stmt::For(_) => true,
+                Stmt::While(w) => has_range(&w.body),
+                Stmt::If(i) => {
+                    has_range(&i.body) || i.elif_else_clauses.iter().any(|c| has_range(&c.body))
+                }
+                _ => false,
+            })
+        }
+        if body.iter().any(|s| matches!(s, Stmt::FunctionDef(f) if has_range(&f.body) && f.decorator_list.iter().any(|d| {
+            let decorator = match &d.expression { ruff_python_ast::Expr::Call(c) => c.func.as_ref(), e => e };
+            matches!(decorator, ruff_python_ast::Expr::Name(n) if exports.get(n.id.as_str()).is_some_and(|b| b.builtin.as_deref() == Some("verified")))
+        }))) {
+            self.load("deppy.verified_loop")?;
+        }
         let declarations = crate::lower::module(&body, name, &libraries, self.lowering_steps)?;
         for d in &declarations {
             let record = match &d.body {

@@ -1,6 +1,6 @@
 # verifiedの仕様と証明
 
-`@verified` は、Nat／Boolの局所変数、再代入、`if`／`elif`／`else`、単一の `while`、`return` を持つ関数を検査する。
+`@verified` は、Nat／Boolの局所変数、再代入、`if`／`elif`／`else`、複数・入れ子の `while`、Nat境界の `for range`、`continue`／`break`／`return` を持つ関数を検査する。
 仕様は引数・戻り値・局所変数の型注釈を基本とする。`@verified` または `@verified()` で
 VCを生成し、限定した自動証明を試す。解けないVCは名前付きgoalとして残り、検証済みとして登録しない。
 `proof`／`proofs` は明示的な証明を与えるための追加インターフェースである。
@@ -211,7 +211,8 @@ callbackは、この文脈と同じ個数の位置引数を持つlambda、また
 | `then.return` / `else.return` | 各分岐経路の事後条件 |
 | `then.call.y.requires` | True側の経路にある呼び出しの事前条件 |
 
-入れ子の分岐では `then.else.` のように経路名を重ねる。分岐後の継続も各経路に展開する。
+入れ子の分岐では `then.else.` のように経路名を重ねる。通常の分岐の継続は共有するが、
+契約やassertの証明は到達条件の異なる各経路で検査する。
 キーは関数ごとに指定し、表示時には `composed.call.first.requires` のように関数名を付ける。
 キーの重複、未知のキー、余った証明は拒否する。
 
@@ -228,10 +229,44 @@ cargo run -p deppy-python --locked --offline -- --json path/to/program.py
 importの別名と再exportでも契約を保持し、公理への依存を合成先へ伝える。
 呼び出し先の本体・契約が変われば依存snapshotを無効化する。
 
-契約呼び出しはループ本体とループ後でも扱う。ループ前の初期化での契約呼び出しは未対応。条件式・演算の途中・引数・
-同時代入の中にあるverified呼び出しは、先に個別の代入へ分ける必要がある。
+契約呼び出しは引数・算術式・ifの条件・条件式・同時代入の右辺と、ループ前の初期化・本文・終了後で扱う。
+内部の一時変数へ左から右に正規化し、各呼び出しの事前条件を証明する。同時代入では全右辺の評価後に左辺を更新する。
+一時変数の呼び出しgoalは `call.$exprN.requires` となり、元の呼び出し式のソース位置を持つ。
+番号は正規化に依存するため、手書き証明を指定するときは `--goals` で確認する。
+whileのguard内の契約呼び出しは未対応。ループ前の分岐は自動証明または `proofs` で扱う。
 `proof=` だけでverified関数を通常の純粋関数として呼び出す経路も拒否する。
 異なる基底型への変換、暗黙のrefinement subtyping、一般の証明探索、heap更新は未対応である。
+
+
+## 基本式とassert
+
+Natの `+`／`*` に加え、次の演算子を扱う。表の右辺は型注釈・手書き証明で使う式であり、
+プログラムの比較構文をそのまま命題の注釈内に記述する構文糖は導入していない。
+
+| プログラムの式 | 対応するBool値／命題 |
+| --- | --- |
+| `n < m`、`n <= m` | `nat_lt(n, m)`、`nat_le(n, m)`。Trueの証拠から `LT(n,m)`、`LE[n,m]` を得る |
+| `n > m`、`n >= m` | `nat_lt(m, n)`、`nat_le(m, n)` |
+| `n == m` | `nat_eq(n, m)`。`nat_eq_true` で `Eq[Nat,n,m]` を得る |
+| `a == b`（Bool） | `bool_eq(a, b)` |
+| `a != b` | 等価比較の `bool_not` |
+| `not a` | `bool_not(a)`。入力はBoolのみ |
+| `a and b`、`a or b` | Boolに限定した短絡評価。オペランドの値を返すPythonの一般的な演算には広げない |
+| `x if p else y` | Boolの `p` に従って選択する条件式 |
+
+上記の関数・補題は `deppy.verified` からimportできる。
+`+=` は初期化済みNat局所変数への加算と再代入として扱い、局所Refinedも再検証する。
+契約呼び出しを含む `and`／`or` と条件式は分岐へ正規化する。各分岐の契約VCは到達条件の証拠を受け取り、
+到達不能な経路ではBoolの矛盾を除去する検査済み補題を利用できる。
+
+`assert p` は `Eq[Bool, p, True_()]` のVCを生成する。goal名は `assert.test.holds`、
+二つ目以降は `assert.test.2.holds` などで、分岐内では経路名も付く。
+証明済みの等式を後続の文脈へ追加する。偽のassertを仮定として使うことはできない。
+メッセージ付きassertと、`proof=` の一括証明でのassertは未対応。
+
+正規化も検査予算を消費する。分岐後の継続の意味関数を共有しても、経路ごとのVCは残るため、
+多数の短絡演算・条件式を重ねる場合は予算超過になることがある。契約呼び出しを含まない式は
+Boolの消去で表し、後続の継続を複製しない。
 
 ## 局所Refinedと同じ基底型の条件変換
 
@@ -318,7 +353,7 @@ kernelに新しい規則や公理を追加しない。VC証明がユーザー公
 ## 受理範囲
 
 - 引数・戻り値の基底型は公開 `Nat` または `deppy.data.Bool`。Natは非負整数であり、Pythonの負数を含むint全体ではない。
-- 値は初期化済み局所変数、自然数リテラル、`True`／`False`、Natの `+`／`*`／`<`／`<=`。
+- 値は初期化済み局所変数、自然数リテラル、`True`／`False`、Natの `+`／`*`、比較 `==`／`!=`／`<`／`<=`／`>`／`>=`、Boolの `and`／`or`／`not`、条件式。
 - 先に検査したdependent関数への位置引数による呼び出し。verified関数の呼び出しは後述の契約合成で扱う。外部Python関数、属性呼び出し、再帰は拒否する。
 - 新しい局所変数は右辺から型を決め、以後の再代入で型を変えない。純粋関数呼び出しの結果は
   期待型がない場合Natとして検査する。Boolを返す呼び出しで新しい局所変数を作る場合は `flag: Bool = f(...)` と書く。
@@ -329,7 +364,10 @@ kernelに新しい規則や公理を追加しない。VC証明がユーザー公
   default／keyword引数、暗黙のNone returnは対象外。
 
 経路ごとの継続展開は分岐数によって大きくなるため、既存のlowering budgetで制限する。
-共有する制御フロー表現やネストしたloopは後続の段階で扱う。
+合成するループの本文は保存・減少をまとめて検証し、意味関数と本文の証明をletで共有する。
+通常の分岐では、両経路から合流する変更済みの状態をtupleにして、後続の関数を共有する。
+契約呼び出し・assertの証拠は各経路で検査する。自動証明で事後条件がUnitだけの計算の継続は、
+自明な証明も繰り返し探索しない。途中脱出や局所Refined宣言を持つ分岐は個別に合成する。
 
 ## whileと停止性
 
@@ -353,7 +391,7 @@ return total
 明示する場合はwhile本文の先頭に、この順で置く。不変条件を省略する場合は `decreases` を先頭に置く。上の例で `n` はループ入口の値を捕捉し、
 明示的な引数 `counter` と `total` は各反復の値を表す。
 
-ループを含む関数の `proof` は、次の四つをnested Pairで返す。
+従来の関数直下の単一whileに対する `proof` は、次の四つをnested Pairで返す。
 
 ```python
 proof=lambda n, pre: Pair(
@@ -390,6 +428,96 @@ proof=lambda n, pre: Pair(
 終了はreturn式のソース位置を示す。生成した四つの証明は既存の `LoopVC` にまとめ、
 `loop_correct` で関数全体の仕様を導く。分岐があれば経路ごとにgoalを生成する。
 
+### ループの合成とcontinue
+
+複数・入れ子・分岐内のwhile、ループ前の文の分岐、continue・break・ループ内returnを含む関数では、
+自動証明または `proofs` で各ループを検証する。
+
+```python
+@verified
+def nested(n: Nat) -> Refined[Nat, lambda r: Eq[Nat, r, 0]]:
+    x = n
+    y = 0
+    while 0 < x:
+        decreases(x)
+        y = x
+        while 0 < y:
+            decreases(y)
+            y = pred_or(0, y)
+            continue
+        x = pred_or(0, x)
+    return x
+```
+
+内側ループの初期化・保存・減少・終了を証明してから、その終了状態で外側の本文を検証する。
+連続するループでも、前のループの不変条件とguardがFalseという証拠を次の初期化で使える。
+`continue` は最も内側のループの残りの本文を飛ばす。その地点の状態について、
+不変条件の保存と尺度の厳密減少を証明する。更新前にcontinueする非停止経路は受理しない。
+
+ループ番号は関数内のソース順で1から付け、外側を内側より先に数える。
+合成時のgoalには経路と番号を含める。
+
+| 例 | 意味 |
+| --- | --- |
+| `loop.1.init` | 最初のループの初期化 |
+| `loop.1.step.preserve` / `loop.1.step.decrease` | 本文終了時の保存・減少 |
+| `loop.1.step.then.decrease` | 本文のthen経路の減少 |
+| `loop.1.step.call.y.requires` | 本文中の契約呼び出しの事前条件 |
+| `loop.1.step.loop.2.init` | 内側ループの初期化 |
+| `loop.1.exit.loop.2.init` | 最初のループが終了した後の次のループの初期化 |
+| `loop.1.exit.return` | ループ終了後の関数の事後条件 |
+
+callbackにはその地点までの文脈が渡る。内側では外側の状態・不変条件・guardの証拠も含む。
+本文は保存と減少の組を事後条件として一度合成するため、同じ経路の契約VCを両者で重複生成しない。
+既存の単一while（ループ前の文の分岐・途中脱出・continueなし）のgoal名とcallbackは変更しない。
+
+### breakとループ内return
+
+`break` は最も内側のループを抜け、その地点の状態でループ後の継続を検証する。
+ここにはguardがFalseという証拠を渡さない。次の反復がないので、break地点での
+ループ不変条件の保存や尺度の減少は要求しない。ただし、局所Refinedの代入条件は引き続き検査する。
+`return` はすべてのループを抜け、返す値について関数の事後条件をその地点で検証する。
+契約呼び出しを返す場合もcalleeの仕様だけを使う。
+
+通常の反復と途中脱出は既存のSum／Sigmaによる別の結果で表し、`run` と `run_correct` で接続する。
+尺度が0でも直ちにbreak／returnできる。次の反復へ進む経路では、従来どおり保存・厳密減少が必要になる。
+たとえば `loop.1.step.break.return` はbreak後の継続でのreturn、`loop.1.step.return` はループ内returnのgoal。
+到達しない後続文のVCは生成しない。未対応の構文は到達性にかかわらずfrontendで拒否する。
+
+### for range
+
+`range(stop)`、`range(start, stop)`、`range(start, stop, step)` を扱う。
+境界はNatに限定し、stopは含まない。step省略時は1、正のNat式は昇順、負の整数リテラルは降順とする。
+動的な負step、負の境界、Bool／float、キーワード引数、for-else、shadowされたrangeは拒否する。
+
+```python
+@verified
+def count(n: Nat) -> Nat:
+    i = 0
+    total = 0
+    for i in range(n):
+        assert i < n
+        total += 1
+    return total
+```
+
+現行の局所変数規則に合わせ、targetはループ前に初期化済みのNatに限定する。
+空のrangeでは本文を実行せず、targetの入口の値を保つ。
+境界とstepは左から右に一度だけ評価し、契約呼び出しもその地点で検査する。
+stepの絶対値が正であることは `range.step.positive` のVCになり、ソース位置はstepの式を指す。
+0のstepは空のrangeでも拒否する。動的stepには `Refined[Nat, lambda s: LT(0, s)]` などで証拠を渡せる。
+
+内部でcursorと残り回数を保持し、自然数の構造的再帰で反復回数を計算する。
+本文への入口には元の範囲の比較と残り回数が正という条件を使う。
+本文でtargetや元の境界変数を変更しても、次の要素は入口で確定した範囲に従う。
+continueでもcursorと残り回数は進み、break／returnは通常の途中脱出として検証する。
+`invariant(..., state=(...))` は本文の先頭に置ける。stateにはtargetと更新する利用者の変数を列挙する。
+内部変数は自動で補い、利用者の不変条件には渡さない。`decreases` の指定は不要。
+
+基本例は既定の検査予算で検証する。ネストしたrangeと途中脱出の証明は大きくなり、
+検査予算やスタックの追加が必要な場合がある。回帰テストの複合例は1,600万stepと16 MiBを指定している。
+既定値は変更しておらず、予算超過を検証成功とは扱わない。
+
 ### 有限反復とwhileの接続
 
 実行の意味は `iterate(guard, step, measure(initial), initial)` で表す。
@@ -413,10 +541,13 @@ CPythonソースとの意味保存や生成Pythonの実行についての境界�
 
 ### ループの受理範囲
 
-- 関数直下のwhileを一つだけ扱う。ループ前は局所代入、ループ後は代入・分岐・returnを許可する。
-- 本文は代入と分岐。更新先は `state` に列挙した変数に限る。列挙していない変数は読み取り専用。
+- 自動証明または `proofs` では複数・入れ子・分岐内のwhileと、ループ前の分岐を扱う。
+  単一の `proof=` は従来の関数直下の単一whileに限る。
+- 本文は代入・分岐・assert・while・for range・continue・break・return。更新先は `state` に列挙した変数に限る。
+  内側ループのstateも外側のstateに含める。不変条件を省略した場合は内側のstateも含めて推論する。
+  stateに含めない変数は読み取り専用で、すべてのstate変数は各ループに入る前に初期化する。
 - stateにはNatとBoolを混在させられる。反復中に型は変えられない。
-- 入れ子・複数のwhile、`while ... else`、`break`、`continue`、本文中のreturnは拒否する。
+- `while ... else` と `for ... else` は拒否する。
 - 辞書式尺度、一般の整礎関係、局所Refined以外からの一般的な不変条件推論は未実装。
 
 ## verified_specによる仕様の再利用

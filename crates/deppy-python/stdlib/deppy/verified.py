@@ -3,7 +3,7 @@ from deppy._builtins import Refined, verified, verified_spec, dependent, theorem
 from deppy.data import Bool, False_, True_, Unit, MkUnit, Empty, Decidable, Yes, No
 from deppy.equality import transport, sym
 from deppy.nat import add, mul, pred_or
-from deppy.nat_order import pred_lt, LE, LT, le_decide, lt_decide, le_trans, le_weaken
+from deppy.nat_order import pred_lt, LE, LT, le_decide, lt_decide, le_trans, le_weaken, le_antisymm, le_refl
 
 
 @dependent
@@ -118,3 +118,91 @@ def lt_le_bound[n: Nat, m: Nat](smaller: LT(n, m), k: Nat, bound: LE[m, k]) -> L
 def pred_lt_true(n: Nat, test: Eq[Bool, nat_lt(0, n), True_()]) -> LT(pred_or(0, n), n):
     """A positive loop guard justifies decrementing the counter."""
     return pred_lt(n, nat_lt_true(0, n, test))
+
+
+@dependent
+def bool_not(flag: Bool) -> Bool:
+    """Negate a Bool without Python truthiness."""
+    return select[Bool](flag, True_(), False_())
+
+
+@dependent
+def bool_eq(left: Bool, right: Bool) -> Bool:
+    """Compare Boolean values."""
+    return select[Bool](left, bool_not(right), right)
+
+
+@dependent
+def nat_eq(left: Nat, right: Nat) -> Bool:
+    """Compare natural numbers using checked order decisions."""
+    return select[Bool](nat_le(left, right), False_(), nat_le(right, left))
+
+
+@theorem
+def false_true_elim[P: Type](proof: Eq[Bool, False_(), True_()]) -> P:
+    """Eliminate an impossible false-equals-true branch."""
+    return absurd(P, false_ne_true(proof))
+
+
+@theorem
+def true_false_elim[P: Type](proof: Eq[Bool, True_(), False_()]) -> P:
+    """Eliminate an impossible true-equals-false branch."""
+    return absurd(P, false_ne_true(sym(proof)))
+
+
+@theorem(decreases="flag")
+def not_false(flag: Bool, proof: Eq[Bool, bool_not(flag), False_()]) -> Eq[Bool, flag, True_()]:
+    """Recover a true flag from a false negation."""
+    match flag:
+        case False_():
+            return true_false_elim[Eq[Bool, False_(), True_()]](proof)
+        case True_():
+            return refl(True_())
+
+
+@theorem
+def nat_lt_not_false(n: Nat, m: Nat, proof: Eq[Bool, bool_not(nat_lt(n, m)), False_()]) -> LT(n, m):
+    """Recover strict order on the false branch of a negated guard."""
+    return nat_lt_true(n, m, not_false(nat_lt(n, m), proof))
+
+
+@theorem(decreases="left")
+def and_left(left: Bool, right: Bool, proof: Eq[Bool, select[Bool](left, False_(), right), True_()]) -> Eq[Bool, left, True_()]:
+    """Recover the left conjunct of a true Boolean conjunction."""
+    match left:
+        case False_():
+            return false_true_elim[Eq[Bool, False_(), True_()]](proof)
+        case True_():
+            return refl(True_())
+
+
+@theorem(decreases="left")
+def and_right(left: Bool, right: Bool, proof: Eq[Bool, select[Bool](left, False_(), right), True_()]) -> Eq[Bool, right, True_()]:
+    """Recover the right conjunct of a true Boolean conjunction."""
+    match left:
+        case False_():
+            return false_true_elim[Eq[Bool, right, True_()]](proof)
+        case True_():
+            return proof
+
+
+@theorem
+def nat_eq_true(n: Nat, m: Nat, proof: Eq[Bool, nat_eq(n, m), True_()]) -> Eq[Nat, n, m]:
+    """Recover propositional equality from a true equality guard."""
+    return le_antisymm(nat_le_true(n, m, and_left(nat_le(n, m), nat_le(m, n), proof)), nat_le_true(m, n, and_right(nat_le(n, m), nat_le(m, n), proof)))
+
+
+@theorem(decreases="decision")
+def decision_true_intro[P: Type](decision: Decidable[P], proof: P) -> Eq[Bool, decision_bool(decision), True_()]:
+    """A witness makes its constructive decision true."""
+    match decision:
+        case Yes(_):
+            return refl(True_())
+        case No(refute):
+            return absurd(Eq[Bool, False_(), True_()], refute(proof))
+
+
+@theorem
+def nat_le_refl_true(n: Nat) -> Eq[Bool, nat_le(n, n), True_()]:
+    """The non-strict comparison of a natural number with itself is true."""
+    return decision_true_intro(le_decide(n, n), le_refl(n))

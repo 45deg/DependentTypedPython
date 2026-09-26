@@ -4,10 +4,10 @@ use super::*;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Contract {
-    parameters: Vec<Scalar>,
+    pub(super) parameters: Vec<Scalar>,
     pub(super) result: Scalar,
-    pre: E,
-    post: E,
+    pub(super) pre: E,
+    pub(super) post: E,
 }
 impl Contract {
     pub(crate) fn from_declaration(declaration: &Declaration) -> Option<Self> {
@@ -64,6 +64,91 @@ pub(super) struct Completion<'a> {
     pub names: &'a [String],
     pub ty: E,
     pub source: &'a Expr,
+    pub split: Option<[(E, &'a Expr); 2]>,
+    pub escape: Option<Escape<'a>>,
+    pub join: Option<Join<'a>>,
+}
+pub(super) struct Join<'a> {
+    pub trivial: bool,
+    pub rest: Vec<&'a Command<'a>>,
+    pub post: E,
+    pub parent: Option<&'a Completion<'a>>,
+}
+pub(super) struct Escape<'a> {
+    pub rest: Vec<&'a Command<'a>>,
+    pub parent: Option<&'a Completion<'a>>,
+    pub post: E,
+    pub output: E,
+    pub return_post: E,
+    pub wrappers: Vec<(E, E)>,
+}
+impl Completion<'_> {
+    pub fn output_type(&self) -> E {
+        self.escape.as_ref().map_or_else(
+            || self.ty.clone(),
+            |e| sum_type(self.ty.clone(), e.output.clone()),
+        )
+    }
+}
+// Keep the result behind a product boundary, including when it is itself a
+// surrounding loop control value. It is payload, never a recursive control edge.
+pub(super) fn sum_type(left: E, right: E) -> E {
+    E::name("deppy.data.Sum").implicit(left).implicit(E::sigma(
+        "$result",
+        right,
+        E::name("deppy.data.Unit"),
+    ))
+}
+pub(super) fn outcome(left: bool, a: E, b: E, value: E) -> E {
+    E::name(if left {
+        "deppy.data.Left"
+    } else {
+        "deppy.data.Right"
+    })
+    .implicit(a)
+    .implicit(E::sigma("$result", b, E::name("deppy.data.Unit")))
+    .app(if left {
+        value
+    } else {
+        E::pair(value, E::name("deppy.data.MkUnit"))
+    })
+}
+impl Lowerer {
+    #[allow(clippy::too_many_arguments)]
+    fn return_evidence(
+        &mut self,
+        mut value: E,
+        source: &Expr,
+        post: &E,
+        context: &[(String, E)],
+        path: &str,
+        proofs: &mut Proofs<'_>,
+        completion: Option<&Completion<'_>>,
+    ) -> Result<(E, E), Diagnostic> {
+        let escape = completion.and_then(|end| end.escape.as_ref());
+        if completion.is_some() && escape.is_none() {
+            return Err(error(
+                source,
+                "return requires compositional loop verification",
+            ));
+        }
+        let goal = escape
+            .map_or(post, |e| &e.return_post)
+            .clone()
+            .app(value.clone());
+        let key = if path == "loop.exit." {
+            "loop.exit".into()
+        } else {
+            format!("{path}return")
+        };
+        let proof = self.obligation(proofs, &key, source, context, goal)?;
+        if let Some(escape) = escape {
+            for (a, b) in &escape.wrappers {
+                value = outcome(false, a.clone(), b.clone(), value);
+            }
+        }
+        Ok((value, proof))
+    }
 }
 
 pub(super) struct Proofs<'a> {
@@ -72,6 +157,7 @@ pub(super) struct Proofs<'a> {
     counts: HashMap<String, usize>,
     function: String,
     automatic: bool,
+    pub(super) denotation_only: bool,
     pub(super) hints: Vec<String>,
 }
 impl<'a> Proofs<'a> {
@@ -82,6 +168,7 @@ impl<'a> Proofs<'a> {
             counts: HashMap::new(),
             function: function.into(),
             automatic,
+            denotation_only: false,
             hints: vec![],
         }
     }
@@ -115,8 +202,12 @@ impl<'a> Proofs<'a> {
             counts: HashMap::new(),
             function: function.into(),
             automatic,
+            denotation_only: false,
             hints: vec![],
         })
+    }
+    pub(super) fn automatic_only(&self) -> bool {
+        self.automatic && self.entries.is_empty()
     }
     pub(super) fn finish(&self) -> Result<(), Diagnostic> {
         if let Some((key, expr)) = self
@@ -132,7 +223,21 @@ impl<'a> Proofs<'a> {
     pub(super) fn call_key(&mut self, path: &str, name: &str) -> String {
         self.assignment_key(path, "call", name, "requires")
     }
-    fn assignment_key(&mut self, path: &str, kind: &str, name: &str, suffix: &str) -> String {
+    pub(super) fn assertion_key(&mut self, path: &str, source: &Expr) -> String {
+        if matches!(source, Expr::Compare(c) if matches!(c.comparators.first(), Some(Expr::Name(n)) if n.id.as_str().starts_with("$expr_range_stride")))
+        {
+            self.assignment_key(path, "range", "step", "positive")
+        } else {
+            self.assignment_key(path, "assert", "test", "holds")
+        }
+    }
+    pub(super) fn assignment_key(
+        &mut self,
+        path: &str,
+        kind: &str,
+        name: &str,
+        suffix: &str,
+    ) -> String {
         let base = format!("{path}{kind}.{name}");
         let count = self.counts.entry(base.clone()).or_default();
         *count += 1;
@@ -199,6 +304,14 @@ impl Lowerer {
                     name,
                     hints: [
                         "deppy.data.MkUnit",
+                        "deppy.verified.false_true_elim",
+                        "deppy.verified.true_false_elim",
+                        "deppy.verified.nat_lt_not_false",
+                        "deppy.verified.nat_eq_true",
+                        "deppy.verified.nat_le_refl_true",
+                        "deppy.verified_loop.range_bound",
+                        "deppy.verified_loop.range_decrease",
+                        "deppy.verified_loop.positive_stride",
                         "deppy.nat_order.le_refl",
                         "deppy.verified.nat_lt_true",
                         "deppy.verified.nat_le_true",
@@ -298,13 +411,52 @@ impl Lowerer {
         let Some((command, rest)) = commands.split_first() else {
             if let Some(end) = completion {
                 let value = loops::pack(end.names, &state).ann(end.ty.clone());
-                let proof = self.obligation(
-                    proofs,
-                    path.trim_end_matches('.'),
-                    end.source,
-                    context,
-                    post.clone().app(value.clone()),
-                )?;
+                let proof = if let Some(join) = &end.join {
+                    if join.trivial {
+                        E::name("deppy.data.MkUnit")
+                    } else {
+                        self.compose(
+                            &join.rest,
+                            state.clone(),
+                            result,
+                            &join.post,
+                            context,
+                            path,
+                            proofs,
+                            join.parent,
+                        )?
+                        .1
+                    }
+                } else if let Some(goals) = &end.split {
+                    let first = self.obligation(
+                        proofs,
+                        &format!("{path}preserve"),
+                        goals[0].1,
+                        context,
+                        goals[0].0.clone().app(value.clone()),
+                    )?;
+                    let second = self.obligation(
+                        proofs,
+                        &format!("{path}decrease"),
+                        goals[1].1,
+                        context,
+                        goals[1].0.clone().app(value.clone()),
+                    )?;
+                    E::pair(first, second)
+                } else {
+                    self.obligation(
+                        proofs,
+                        path.trim_end_matches('.'),
+                        end.source,
+                        context,
+                        post.clone().app(value.clone()),
+                    )?
+                };
+                let value = if let Some(escape) = &end.escape {
+                    outcome(true, end.ty.clone(), escape.output.clone(), value)
+                } else {
+                    value
+                };
                 return Ok((value, proof));
             }
             return Err(Diagnostic {
@@ -313,11 +465,34 @@ impl Lowerer {
                 message: "every verified path must return a value".into(),
             });
         };
-        if let (Some(end), Command::Return(_)) = (completion, command) {
-            return Err(error(end.source, "return inside a loop is unsupported"));
+        if let Some(end) = completion.filter(|end| end.join.is_none()) {
+            let check = |name: &str, source: &Expr| {
+                if !name.starts_with("$expr") && !end.names.iter().any(|n| n == name) {
+                    Err(error(
+                        source,
+                        "every loop assignment must target a declared state variable",
+                    ))
+                } else {
+                    Ok(())
+                }
+            };
+            match command {
+                Command::Assign(name, _, source) => check(name, source)?,
+                Command::Parallel(bindings) => {
+                    for (name, source) in bindings {
+                        check(name, source)?;
+                    }
+                }
+                Command::While(inner) => {
+                    for name in &inner.names {
+                        check(name, inner.test)?;
+                    }
+                }
+                _ => {}
+            }
         }
-        // A direct verified call is a modular proof boundary. Nested calls must
-        // be named by an assignment, so evaluation order and goals are explicit.
+        // A direct verified call is a modular proof boundary. Expression
+        // normalization has already named nested calls in evaluation order.
         let candidate = match command {
             Command::Assign(name, annotation, expr) => Some((Some((*name, *annotation)), *expr)),
             Command::Return(expr) => Some((None, *expr)),
@@ -409,18 +584,15 @@ impl Lowerer {
                         )?;
                         (tail, loops::lets(&facts, proof))
                     } else {
-                        let proof = self.obligation(
-                            proofs,
-                            &if path == "loop.exit." {
-                                "loop.exit".into()
-                            } else {
-                                format!("{path}return")
-                            },
+                        self.return_evidence(
+                            value,
                             source,
+                            post,
                             &next_context,
-                            post.clone().app(value.clone()),
-                        )?;
-                        (value, proof)
+                            path,
+                            proofs,
+                            completion,
+                        )?
                     };
                     let conclusion = post.clone().app(tail.clone());
                     let denotation = E::let_in(
@@ -461,24 +633,58 @@ impl Lowerer {
             }
         }
         match command {
+            Command::Break(source) => {
+                let Some(end) = completion else {
+                    return Err(error(*source, "break requires an enclosing loop"));
+                };
+                let Some(escape) = &end.escape else {
+                    return Err(error(
+                        *source,
+                        "break requires compositional loop verification",
+                    ));
+                };
+                let (value, proof) = self.compose(
+                    &escape.rest,
+                    state,
+                    result,
+                    &escape.post,
+                    context,
+                    &format!("{path}break."),
+                    proofs,
+                    escape.parent,
+                )?;
+                Ok((
+                    outcome(false, end.ty.clone(), escape.output.clone(), value),
+                    proof,
+                ))
+            }
+            Command::Continue(source) => {
+                if completion.is_none() {
+                    return Err(error(*source, "continue requires an enclosing loop"));
+                }
+                self.compose(&[], state, result, post, context, path, proofs, completion)
+            }
+            Command::Assert(source) => {
+                let value = self.value(source, &state, Some(Scalar::Bool))?.0;
+                let goal = E::eq(Scalar::Bool.expr(), value, E::name("deppy.data.True_"));
+                let key = proofs.assertion_key(path, source);
+                let evidence = self.obligation(proofs, &key, source, context, goal.clone())?;
+                let name = format!("$assert{}", self.wildcard);
+                self.wildcard += 1;
+                let mut context = context.to_vec();
+                context.push((name.clone(), goal.clone()));
+                let (value, proof) = self.compose(
+                    rest, state, result, post, &context, path, proofs, completion,
+                )?;
+                Ok((value, E::let_in(name, Some(goal), evidence, proof)))
+            }
             Command::Refine(name, scalar, predicate) => {
                 self.local_condition(name, *scalar, predicate, &mut state)?;
                 self.compose(rest, state, result, post, context, path, proofs, completion)
             }
             Command::Return(expr) => {
                 let value = self.value(expr, &state, Some(result))?.0;
-                let proof = self.obligation(
-                    proofs,
-                    &if path == "loop.exit." {
-                        "loop.exit".into()
-                    } else {
-                        format!("{path}return")
-                    },
-                    expr,
-                    context,
-                    post.clone().app(value.clone()),
-                )?;
-                Ok((value, proof))
+                self.return_evidence(value, expr, post, context, path, proofs, completion)
             }
             Command::Assign(name, annotation, expr) => {
                 let binding = self.loop_assign(name, *annotation, expr, &mut state)?;
@@ -511,6 +717,23 @@ impl Lowerer {
                 Ok((value, proof))
             }
             Command::If(test, yes, no) => {
+                if !rest.is_empty() {
+                    if let Some(joined) = self.shared_branch(
+                        test,
+                        yes,
+                        no,
+                        rest,
+                        state.clone(),
+                        result,
+                        post,
+                        context,
+                        path,
+                        proofs,
+                        completion,
+                    )? {
+                        return Ok(joined);
+                    }
+                }
                 let guard = self.value(test, &state, Some(Scalar::Bool))?.0;
                 let id = self.wildcard;
                 self.wildcard += 1;
@@ -550,12 +773,12 @@ impl Lowerer {
                 let (no, no_proof) = branch(no, false)?;
                 let (yes, yes_proof) = branch(yes, true)?;
                 let value = E::name("deppy.verified.select")
-                    .implicit(completion.map_or_else(|| result.expr(), |end| end.ty.clone()))
+                    .implicit(completion.map_or_else(|| result.expr(), |end| end.output_type()))
                     .app(guard.clone())
                     .app(no.clone())
                     .app(yes.clone());
                 let proof = E::name("deppy.verified.select_post_eq")
-                    .implicit(completion.map_or_else(|| result.expr(), |end| end.ty.clone()))
+                    .implicit(completion.map_or_else(|| result.expr(), |end| end.output_type()))
                     .implicit(post.clone())
                     .app(guard)
                     .app(no)
@@ -564,10 +787,9 @@ impl Lowerer {
                     .app(yes_proof);
                 Ok((value, proof))
             }
-            Command::While(loop_) => Err(error(
-                loop_.test,
-                "contract composition inside while is not yet supported",
-            )),
+            Command::While(loop_) => self.compose_loop(
+                loop_, rest, state, result, post, context, path, proofs, completion,
+            ),
         }
     }
 }

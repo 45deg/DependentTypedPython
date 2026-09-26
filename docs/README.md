@@ -10,6 +10,7 @@
 | [証明言語のガイド](proofs.md) | 証明項、ライブラリ、公理、hole、opaque定義 |
 | [一般帰納型とpattern matching](dependent-phase1.md) | 帰納型宣言、依存分岐、受理範囲 |
 | [verifiedの仕様と証明](verified.md) | VC、while、Refined、verified_spec、Fibonacci |
+| [verifiedの拡張計画](verified-plan.md) | 純粋なプログラムの未対応機能、実装順、完了条件 |
 | [数学ライブラリ](math-library.md) | 実装済みAPIと今後の整備計画 |
 | [数学APIリファレンス](math-api.rst) | Sphinxで生成するdocstringベースのAPI文書 |
 | [開発・検証手順](development.md) | 再現コマンドと検証の限界 |

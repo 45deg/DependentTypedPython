@@ -4,10 +4,15 @@
 //! eliminator, with the remaining commands interpreted in each branch's state.
 //! WP(Q, c, s) = Q(denote(c, s)); the supplied proof is checked inside the same
 //! Core definition as the denotation, never installed as an axiom.
-//! A single while is handled by `loops` and checked stdlib totality theorems.
+//! `loops` preserves the single-loop certificate API; `flow` composes loops
+//! using the same checked stdlib totality theorems.
 use super::*;
 mod contracts;
+mod flow;
+mod join;
 mod loops;
+mod normalize;
+mod range;
 pub(crate) use contracts::Contract;
 
 pub(crate) fn specification_name(function: &str) -> String {
@@ -59,7 +64,10 @@ enum Command<'a> {
     Refine(&'a str, Scalar, &'a Expr),
     If(&'a Expr, Vec<Command<'a>>, Vec<Command<'a>>),
     Return(&'a Expr),
+    Assert(&'a Expr),
     While(loops::Loop<'a>),
+    Continue(&'a ast::StmtContinue),
+    Break(&'a ast::StmtBreak),
 }
 #[derive(Clone, Default)]
 struct State {
@@ -163,6 +171,9 @@ impl Lowerer {
                         }
                         Command::If(&branch.test, self.commands(&branch.body)?, otherwise)
                     }
+                    Stmt::Assert(a) if a.msg.is_none() => Command::Assert(&a.test),
+                    Stmt::Break(b) => Command::Break(b),
+                    Stmt::Continue(c) => Command::Continue(c),
                     Stmt::While(w) => Command::While(self.loop_command(w)?),
                     Stmt::Return(r) => Command::Return(
                         r.value
@@ -220,11 +231,77 @@ impl Lowerer {
                 let name = match c.ops[0] {
                     ast::CmpOp::Lt => "deppy.verified.nat_lt",
                     ast::CmpOp::LtE => "deppy.verified.nat_le",
-                    _ => return Err(error(c, "verified comparisons support < and <= on Nat")),
+                    ast::CmpOp::Gt => "deppy.verified.nat_lt",
+                    ast::CmpOp::GtE => "deppy.verified.nat_le",
+                    ast::CmpOp::Eq | ast::CmpOp::NotEq => "deppy.verified.nat_eq",
+                    _ => {
+                        return Err(error(
+                            c,
+                            "verified comparisons support ==, !=, <, <=, >, and >=",
+                        ))
+                    }
                 };
-                let left = self.value(&c.left, state, Some(Scalar::Nat))?.0;
-                let right = self.value(&c.comparators[0], state, Some(Scalar::Nat))?.0;
-                (E::name(name).app(left).app(right), Scalar::Bool)
+                let equality = matches!(c.ops[0], ast::CmpOp::Eq | ast::CmpOp::NotEq);
+                let (left, ty) = self.value(
+                    &c.left,
+                    state,
+                    if equality { None } else { Some(Scalar::Nat) },
+                )?;
+                let right = self.value(&c.comparators[0], state, Some(ty))?.0;
+                let name = if equality && ty == Scalar::Bool {
+                    "deppy.verified.bool_eq"
+                } else {
+                    name
+                };
+                let term = if matches!(c.ops[0], ast::CmpOp::Gt | ast::CmpOp::GtE) {
+                    E::name(name).app(right).app(left)
+                } else {
+                    E::name(name).app(left).app(right)
+                };
+                let term = if c.ops[0] == ast::CmpOp::NotEq {
+                    E::name("deppy.verified.bool_not").app(term)
+                } else {
+                    term
+                };
+                (term, Scalar::Bool)
+            }
+            Expr::BoolOp(op) => {
+                let (last, earlier) = op
+                    .values
+                    .split_last()
+                    .ok_or_else(|| error(op, "empty boolean operation"))?;
+                let mut value = self.value(last, state, Some(Scalar::Bool))?.0;
+                for operand in earlier.iter().rev() {
+                    let test = self.value(operand, state, Some(Scalar::Bool))?.0;
+                    let (no, yes) = if op.op == ast::BoolOp::And {
+                        (E::name("deppy.data.False_"), value)
+                    } else {
+                        (value, E::name("deppy.data.True_"))
+                    };
+                    value = E::name("deppy.verified.select")
+                        .implicit(Scalar::Bool.expr())
+                        .app(test)
+                        .app(no)
+                        .app(yes);
+                }
+                (value, Scalar::Bool)
+            }
+            Expr::If(op) => {
+                let test = self.value(&op.test, state, Some(Scalar::Bool))?.0;
+                let (yes, ty) = self.value(&op.body, state, expected)?;
+                let no = self.value(&op.orelse, state, Some(ty))?.0;
+                (
+                    E::name("deppy.verified.select")
+                        .implicit(ty.expr())
+                        .app(test)
+                        .app(no)
+                        .app(yes),
+                    ty,
+                )
+            }
+            Expr::UnaryOp(op) if op.op == ast::UnaryOp::Not => {
+                let value = self.value(&op.operand, state, Some(Scalar::Bool))?.0;
+                (E::name("deppy.verified.bool_not").app(value), Scalar::Bool)
             }
             Expr::Call(c) => {
                 // Calls are only to already checked pure definitions, never host
@@ -232,6 +309,19 @@ impl Lowerer {
                 let Expr::Name(n) = c.func.as_ref() else {
                     return Err(error(c, "verified calls require a checked function name"));
                 };
+                if let Some(helper) = range::helper(n.id.as_str()) {
+                    if state.scope.locals.contains("range")
+                        || state.scope.assigned.contains("range")
+                        || self.globals.contains_key("range")
+                    {
+                        return Err(error(c, "for range requires the unshadowed range builtin"));
+                    }
+                    let mut term = E::name(helper);
+                    for argument in &c.arguments.args {
+                        term = term.app(self.value(argument, state, None)?.0);
+                    }
+                    return Ok((term.ann(E::Nat), Scalar::Nat));
+                }
                 if state.scope.locals.contains(n.id.as_str())
                     || state.scope.assigned.contains(n.id.as_str())
                 {
@@ -247,7 +337,7 @@ impl Lowerer {
                 {
                     return Err(error(
                         c,
-                        "contract calls require direct assignments/returns using proofs=",
+                        "contract calls require automatic or named verification; while guards do not support contract calls",
                     ));
                 }
                 if !c.arguments.keywords.is_empty() {
@@ -319,6 +409,18 @@ impl Lowerer {
             }
             Command::While(loop_) => {
                 Err(error(loop_.test, "while must be a single top-level loop"))
+            }
+            Command::Break(b) => Err(error(*b, "break requires named or automatic verification")),
+            Command::Continue(c) => Err(error(
+                *c,
+                "continue requires a loop with named or automatic verification",
+            )),
+            Command::Assert(e) => {
+                self.value(e, &state, Some(Scalar::Bool))?;
+                if !state.allow_contracts {
+                    return Err(error(*e, "assert requires named or automatic verification"));
+                }
+                self.denote(rest, state, result)
             }
             Command::Return(e) => self.value(e, &state, Some(result)).map(|(term, _)| term),
             Command::Parallel(bindings) => {
@@ -525,7 +627,9 @@ impl Lowerer {
         } else {
             &f.body[..]
         };
-        let commands = self.commands(body)?;
+        let normalized = self.normalize_commands(body)?;
+        let mut commands = self.commands(&normalized)?;
+        flow::number_loops(&mut commands, &mut 0);
         fn capture(commands: &[Command<'_>], assigned: &mut HashSet<String>) {
             for c in commands {
                 match c {
@@ -542,7 +646,11 @@ impl Lowerer {
                         }
                     }
                     Command::While(loop_) => capture(&loop_.body, assigned),
-                    Command::Return(_) | Command::Refine(_, _, _) => {}
+                    Command::Return(_)
+                    | Command::Assert(_)
+                    | Command::Refine(_, _, _)
+                    | Command::Continue(_)
+                    | Command::Break(_) => {}
                 }
             }
         }
@@ -569,7 +677,9 @@ impl Lowerer {
         for condition in refinements.into_iter().rev() {
             pre = E::sigma("$refinement", condition, pre);
         }
-        if loops::contains_loop(&commands) {
+        if loops::contains_loop(&commands)
+            && (named.is_none() || !flow::needs_composition(&commands))
+        {
             return self.verified_loop(
                 f, &commands, state, result, parameters, pre, post, witness, named,
             );

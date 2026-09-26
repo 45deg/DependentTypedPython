@@ -2,11 +2,13 @@
 use super::*;
 
 pub(super) struct Loop<'a> {
+    pub(super) id: usize,
+    pub(super) annotation_names: Option<Vec<String>>,
     pub test: &'a Expr,
     pub body: Vec<Command<'a>>,
-    invariant: Option<&'a Expr>,
-    measure: &'a Expr,
-    names: Vec<String>,
+    pub(super) invariant: Option<&'a Expr>,
+    pub(super) measure: &'a Expr,
+    pub(super) names: Vec<String>,
 }
 pub(super) fn contains_loop(commands: &[Command<'_>]) -> bool {
     commands.iter().any(|c| match c {
@@ -26,7 +28,7 @@ pub(super) fn pack(names: &[String], state: &State) -> E {
             E::pair(E::name(state.scope.aliases.get(name).unwrap_or(name)), tail)
         })
 }
-fn state_type(names: &[String], state: &State) -> E {
+pub(super) fn state_type(names: &[String], state: &State) -> E {
     names
         .iter()
         .rev()
@@ -53,6 +55,62 @@ pub(super) fn lets(bindings: &[(String, E, E)], mut body: E) -> E {
     body
 }
 
+// Prefix proofs abstract contract results before checking the loop certificate.
+enum PrefixProof {
+    Let((String, E, E)),
+    Call(Box<PrefixCall>),
+}
+struct PrefixCall {
+    name: String,
+    ty: E,
+    actual: E,
+    fact: String,
+    fact_ty: E,
+    evidence: E,
+    pre: E,
+    pre_proof: E,
+}
+
+fn prefix_proof(frames: Vec<PrefixProof>, mut goal: E, mut proof: E) -> E {
+    for frame in frames.into_iter().rev() {
+        match frame {
+            PrefixProof::Let(binding) => {
+                goal = lets(std::slice::from_ref(&binding), goal);
+                proof = lets(&[binding], proof);
+            }
+            PrefixProof::Call(call) => {
+                let PrefixCall {
+                    name,
+                    ty,
+                    actual,
+                    fact,
+                    fact_ty,
+                    evidence,
+                    pre,
+                    pre_proof,
+                } = *call;
+                let continuation_ty = E::pi(
+                    &name,
+                    Plicity::Explicit,
+                    ty.clone(),
+                    E::pi(&fact, Plicity::Explicit, fact_ty.clone(), goal.clone()),
+                );
+                proof = E::let_in(
+                    "$prefix_pre",
+                    Some(pre),
+                    pre_proof,
+                    lambda(&name, ty.clone(), lambda(&fact, fact_ty, proof))
+                        .ann(continuation_ty)
+                        .app(actual.clone())
+                        .app(evidence.app(E::name("$prefix_pre"))),
+                );
+                goal = E::let_in(name, Some(ty), actual, goal);
+            }
+        }
+    }
+    proof
+}
+
 impl Lowerer {
     pub(super) fn loop_command<'a>(
         &mut self,
@@ -67,7 +125,9 @@ impl Lowerer {
         let directive = |index: usize, builtin: &str| -> Option<&'a ast::ExprCall> {
             if let Stmt::Expr(e) = &w.body[index] {
                 if let Expr::Call(c) = e.value.as_ref() {
-                    if self.builtin(&c.func, &Scope::default()) == Some(builtin)
+                    if (self.builtin(&c.func, &Scope::default()) == Some(builtin)
+                        || (builtin == "decreases"
+                            && matches!(c.func.as_ref(), Expr::Name(n) if n.id.as_str() == "$range_decreases")))
                         && c.arguments.args.len() == 1
                     {
                         return Some(c);
@@ -120,14 +180,21 @@ impl Lowerer {
                 for command in commands {
                     match command {
                         Command::Assign(name, _, _) => {
-                            if !names.iter().any(|n| n == name) {
+                            if !name.starts_with("$expr") && !names.iter().any(|n| n == name) {
                                 names.push((*name).into());
                             }
                         }
                         Command::Parallel(bindings) => {
                             for (name, _) in bindings {
-                                if !names.iter().any(|n| n == name) {
+                                if !name.starts_with("$expr") && !names.iter().any(|n| n == name) {
                                     names.push((*name).into());
+                                }
+                            }
+                        }
+                        Command::While(inner) => {
+                            for name in &inner.names {
+                                if !name.starts_with("$expr") && !names.contains(name) {
+                                    names.push(name.clone());
                                 }
                             }
                         }
@@ -141,10 +208,34 @@ impl Lowerer {
             }
             writes(&body, &mut names);
         }
-        if names.is_empty() {
-            return Err(error(w, "loop state must not be empty"));
-        }
+        let annotation_names = if matches!(&measure.arguments.args[0], Expr::Name(n) if n.id.as_str().starts_with("$expr_range_remaining"))
+        {
+            let original = names.clone();
+            let Expr::Name(counter) = &measure.arguments.args[0] else {
+                unreachable!()
+            };
+            let suffix = counter
+                .id
+                .as_str()
+                .strip_prefix("$expr_range_remaining")
+                .unwrap();
+            for command in &body {
+                if let Command::Assign(name, _, _) = command {
+                    if (*name == counter.id.as_str()
+                        || *name == format!("$expr_range_cursor{suffix}"))
+                        && !names.iter().any(|n| n == name)
+                    {
+                        names.push((*name).into());
+                    }
+                }
+            }
+            Some(original)
+        } else {
+            None
+        };
         Ok(Loop {
+            annotation_names,
+            id: 0,
             test: &w.test,
             body,
             invariant: invariant.map(|c| &c.arguments.args[0]),
@@ -189,7 +280,7 @@ impl Lowerer {
         match command {
             Command::Parallel(bindings) => {
                 for (name, expr) in bindings {
-                    if !names.iter().any(|n| n == name) {
+                    if !name.starts_with("$expr") && !names.iter().any(|n| n == name) {
                         return Err(error(
                             *expr,
                             "every loop assignment must target a declared state variable",
@@ -200,7 +291,7 @@ impl Lowerer {
                 Ok(lets(&lowered, self.transition(rest, state, names, ty)?))
             }
             Command::Assign(name, annotation, expr) => {
-                if !names.iter().any(|n| n == name) {
+                if !name.starts_with("$expr") && !names.iter().any(|n| n == name) {
                     return Err(error(
                         *expr,
                         "every loop assignment must target a declared state variable",
@@ -228,6 +319,24 @@ impl Lowerer {
                 self.local_condition(name, *scalar, predicate, &mut state)?;
                 self.transition(rest, state, names, ty)
             }
+            Command::Assert(expr) => {
+                self.value(expr, &state, Some(Scalar::Bool))?;
+                if !state.allow_contracts {
+                    return Err(error(
+                        *expr,
+                        "assert requires named or automatic verification",
+                    ));
+                }
+                self.transition(rest, state, names, ty)
+            }
+            Command::Break(source) => Err(error(
+                *source,
+                "break requires named or automatic verification",
+            )),
+            Command::Continue(source) => Err(error(
+                *source,
+                "continue requires named or automatic verification",
+            )),
             Command::Return(expr) => Err(error(*expr, "return inside a loop is unsupported")),
             Command::While(loop_) => Err(error(loop_.test, "nested while is unsupported")),
         }
@@ -274,31 +383,123 @@ impl Lowerer {
                     self.local_condition(name, *scalar, predicate, &mut state)?;
                 }
                 Command::Assign(name, annotation, expr) => {
-                    let binding = self.loop_assign(name, *annotation, expr, &mut state)?;
-                    prefix.push(binding.clone());
-                    proof_prefix.push(binding);
-                    if let Some(named) = &mut named {
-                        proof_prefix.extend(self.local_evidence(
-                            &[(name, expr)],
-                            &state,
-                            &mut context,
-                            "",
-                            named,
-                        )?);
+                    let contract_call = if let Expr::Call(call) = expr {
+                        if let Expr::Name(callee) = call.func.as_ref() {
+                            self.globals
+                                .get(callee.id.as_str())
+                                .filter(|b| b.verified)
+                                .cloned()
+                                .map(|binding| (call, callee, binding))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+                    if let (Some((call, callee, binding)), Some(proofs)) =
+                        (contract_call, named.as_mut())
+                    {
+                        if state.scope.assigned.contains(callee.id.as_str())
+                            || state.scope.locals.contains(callee.id.as_str())
+                        {
+                            return Err(error(call, "verified local values are not callable"));
+                        }
+                        let contract = binding.contract.as_ref().unwrap();
+                        if !call.arguments.keywords.is_empty()
+                            || call.arguments.args.len() != contract.parameters.len()
+                        {
+                            return Err(error(
+                                call,
+                                "verified contract call requires the declared positional arguments",
+                            ));
+                        }
+                        if state
+                            .types
+                            .get(*name)
+                            .copied()
+                            .or(*annotation)
+                            .is_some_and(|s| s != contract.result)
+                            || annotation.is_some_and(|s| s != contract.result)
+                        {
+                            return Err(error(call, "verified scalar type mismatch"));
+                        }
+                        let mut actual = E::name(&binding.name);
+                        let mut evidence = E::name(specification_name(&binding.name));
+                        let mut pre = contract.pre.clone();
+                        let mut post = contract.post.clone();
+                        for (argument, scalar) in
+                            call.arguments.args.iter().zip(&contract.parameters)
+                        {
+                            let value = self.value(argument, &state, Some(*scalar))?.0;
+                            actual = actual.app(value.clone());
+                            evidence = evidence.app(value.clone());
+                            pre = pre.app(value.clone());
+                            post = post.app(value);
+                        }
+                        let key = proofs.call_key("", name);
+                        let pre_proof =
+                            self.obligation(proofs, &key, expr, &context, pre.clone())?;
+                        let id = self.wildcard;
+                        self.wildcard += 1;
+                        let value = format!("$call_result{id}");
+                        let fact = format!("$call_spec{id}");
+                        let fact_ty = post.app(E::name(&value));
+                        let ty = contract.result.expr();
+                        state.scope.locals.insert((*name).into());
+                        state.scope.aliases.insert((*name).into(), value.clone());
+                        state.types.insert((*name).into(), contract.result);
+                        context.push((value.clone(), ty.clone()));
+                        context.push((fact.clone(), fact_ty.clone()));
+                        prefix.push((value.clone(), ty.clone(), actual.clone()));
+                        proof_prefix.push(PrefixProof::Call(Box::new(PrefixCall {
+                            name: value,
+                            ty,
+                            actual,
+                            fact,
+                            fact_ty,
+                            evidence,
+                            pre,
+                            pre_proof,
+                        })));
+                    } else {
+                        let binding = self.loop_assign(name, *annotation, expr, &mut state)?;
+                        prefix.push(binding.clone());
+                        proof_prefix.push(PrefixProof::Let(binding));
                     }
+                    if let Some(named) = &mut named {
+                        proof_prefix.extend(
+                            self.local_evidence(&[(name, expr)], &state, &mut context, "", named)?
+                                .into_iter()
+                                .map(PrefixProof::Let),
+                        );
+                    }
+                }
+                Command::Assert(source) => {
+                    let value = self.value(source, &state, Some(Scalar::Bool))?.0;
+                    let Some(proofs) = named.as_mut() else {
+                        return Err(error(
+                            *source,
+                            "assert requires named or automatic verification",
+                        ));
+                    };
+                    let goal = E::eq(Scalar::Bool.expr(), value, E::name("deppy.data.True_"));
+                    let key = proofs.assertion_key("", source);
+                    let proof = self.obligation(proofs, &key, source, &context, goal.clone())?;
+                    let name = format!("$assert{}", self.wildcard);
+                    self.wildcard += 1;
+                    context.push((name.clone(), goal.clone()));
+                    proof_prefix.push(PrefixProof::Let((name, goal, proof)));
                 }
                 Command::Parallel(bindings) => {
                     let lowered = self.parallel_values(bindings, &mut state)?;
                     prefix.extend(lowered.clone());
-                    proof_prefix.extend(lowered);
+                    proof_prefix.extend(lowered.into_iter().map(PrefixProof::Let));
                     if let Some(named) = &mut named {
-                        proof_prefix.extend(self.local_evidence(
-                            bindings,
-                            &state,
-                            &mut context,
-                            "",
-                            named,
-                        )?);
+                        proof_prefix.extend(
+                            self.local_evidence(bindings, &state, &mut context, "", named)?
+                                .into_iter()
+                                .map(PrefixProof::Let),
+                        );
                     }
                 }
                 _ => return Err(error(f, "only assignments may precede while")),
@@ -403,6 +604,21 @@ impl Lowerer {
             .app(measure.clone().app(initial.clone()))
             .app(initial.clone());
         let denotation = lets(&prefix, finish.app(end));
+        let arguments = [
+            ty.clone(),
+            guard.clone(),
+            step.clone(),
+            measure.clone(),
+            inv.clone(),
+            final_post.clone(),
+            initial.clone(),
+        ];
+        let mut certificate = E::name("deppy.verified_loop.LoopVC");
+        let mut correct = E::name("deppy.verified_loop.loop_correct");
+        for arg in arguments {
+            certificate = certificate.implicit(arg.clone());
+            correct = correct.implicit(arg);
+        }
         let witness = if let Some(mut named) = named {
             let init = self.obligation(
                 &mut named,
@@ -457,6 +673,9 @@ impl Lowerer {
                     let completion = contracts::Completion {
                         names: &loop_.names,
                         ty: ty.clone(),
+                        split: None,
+                        escape: None,
+                        join: None,
                         source: if key == "loop.preserve" {
                             loop_.invariant.unwrap_or(loop_.test)
                         } else {
@@ -498,8 +717,9 @@ impl Lowerer {
             let decrease = component("loop.decrease", true)?;
             let exit = component("loop.exit", false)?;
             named.finish()?;
-            let mut proof = lets(
-                &proof_prefix,
+            let mut proof = prefix_proof(
+                proof_prefix,
+                certificate.clone(),
                 E::pair(init, E::pair(preserve, E::pair(decrease, exit))),
             );
             for (name, ty) in context.into_iter().take(parameters.len() + 1).rev() {
@@ -509,13 +729,6 @@ impl Lowerer {
         } else {
             witness.unwrap()
         };
-        let arguments = [ty, guard, step, measure, inv, final_post, initial];
-        let mut certificate = E::name("deppy.verified_loop.LoopVC");
-        let mut correct = E::name("deppy.verified_loop.loop_correct");
-        for arg in arguments {
-            certificate = certificate.implicit(arg.clone());
-            correct = correct.implicit(arg);
-        }
         certificate = lets(&prefix, certificate);
         let mut evidence = E::name("$loop_certificate");
         for (name, _) in &parameters {
