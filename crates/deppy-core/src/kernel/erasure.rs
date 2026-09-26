@@ -42,13 +42,63 @@ impl Kernel {
         erase(&self.context(), term, &[], &mut budget, ProofDemand::Result)
     }
 
-    /// Include private helpers as well as public definitions. Definitions cannot
-    /// refer forwards, so successful traversal checks every runtime dependency.
+    /// Erase every definition, including private helpers.
     pub fn erase_definitions(&self) -> Result<Vec<(crate::DefId, RuntimeTerm)>, Error> {
         self.definitions
             .iter()
             .filter_map(|(id, d)| d.body.as_ref().map(|body| Ok((*id, self.erase(body)?))))
             .collect()
+    }
+
+    /// Erase public definitions and the private helpers referenced by their
+    /// runtime IR. Unused checked library definitions need no runtime code.
+    pub fn erase_reachable_definitions(
+        &self,
+        roots: impl IntoIterator<Item = crate::DefId>,
+    ) -> Result<Vec<(crate::DefId, RuntimeTerm)>, Error> {
+        let mut pending: Vec<_> = roots.into_iter().collect();
+        let mut visited = std::collections::BTreeSet::new();
+        let mut result = std::collections::BTreeMap::new();
+        while let Some(id) = pending.pop() {
+            if !visited.insert(id) {
+                continue;
+            }
+            let declaration = self.definition(id)?;
+            let Some(body) = &declaration.body else {
+                continue;
+            };
+            let term = self.erase(body)?;
+            runtime_globals(&term, &mut pending);
+            result.insert(id, term);
+        }
+        Ok(result.into_iter().collect())
+    }
+}
+
+fn runtime_globals(term: &RuntimeTerm, pending: &mut Vec<crate::DefId>) {
+    match term {
+        RuntimeTerm::Global(id) => pending.push(*id),
+        RuntimeTerm::Record(_, fields)
+        | RuntimeTerm::Data(_, _, fields)
+        | RuntimeTerm::Prim(_, fields) => {
+            for field in fields {
+                runtime_globals(field, pending);
+            }
+        }
+        RuntimeTerm::DataElim {
+            branches, value, ..
+        } => {
+            for branch in branches {
+                runtime_globals(branch, pending);
+            }
+            runtime_globals(value, pending);
+        }
+        RuntimeTerm::RecordElim(_, a, b) | RuntimeTerm::App(a, b) | RuntimeTerm::Let(a, b) => {
+            runtime_globals(a, pending);
+            runtime_globals(b, pending);
+        }
+        RuntimeTerm::Lam(body) => runtime_globals(body, pending),
+        RuntimeTerm::Unit | RuntimeTerm::Var(_) => {}
     }
 }
 fn erase(

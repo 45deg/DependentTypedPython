@@ -273,7 +273,7 @@ def identity_cardinality() -> Eq[Nat, length(bijection_enumeration(identity_bije
 def identity_is_injective(x: Nat, y: Nat, same: Eq[Nat, identity_bijection[Nat]().forward(x), identity_bijection[Nat]().forward(y)]) -> Eq[Nat, x, y]:
     return bijection_injective(identity_bijection[Nat](), x, y, same)
 "#;
-    let checked = check_module(&source, TARGET).unwrap_or_else(|e| panic!("{e}"));
+    let checked = check_module(source, TARGET).unwrap_or_else(|e| panic!("{e}"));
     assert!(checked.axiom_dependencies.values().all(Vec::is_empty));
     let invalid = format!(
         "{source}\n@theorem\ndef false_permutation() -> Permutation[Nat, Cons(1, Nil[Nat]()), Cons(2, Nil[Nat]())]:\n    return perm_refl(Cons(1, Nil[Nat]()))\n"

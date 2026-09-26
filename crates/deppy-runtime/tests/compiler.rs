@@ -12,7 +12,10 @@ fn source(body: &str) -> String {
 fn axioms_never_become_runtime_stubs() {
     let error =
         compile_module(&source("@axiom\ndef assumed() -> Nat:\n    ...\n"), TARGET).unwrap_err();
-    assert!(error.message.contains("no runtime implementation"));
+    assert!(
+        error.message.contains("no runtime implementation"),
+        "{error}"
+    );
 }
 
 #[test]
@@ -29,7 +32,7 @@ fn discarded_axiomatic_proofs_cannot_leak_into_runtime_j() {
         ));
         let mut resolver = |_: &str| Ok(Some(library.clone()));
         let error = compile_module_with_resolver(&main, TARGET, &mut resolver).unwrap_err();
-        assert!(error.message.contains("no runtime implementation"));
+        assert!(error.message.contains("no runtime implementation"), "{error}");
     }
     let bad = source(
         "@dependent\ndef bad[p: Eq[Nat, 0, 0]]() -> Nat:\n    return J(0, Nat, 0, lambda end, q: Nat, 0, 0, p)\n",

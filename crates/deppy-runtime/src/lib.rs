@@ -20,11 +20,20 @@ pub fn compile_module_with_resolver(
 
 fn compile_checked(checked: deppy_python::CheckedModule) -> Result<String, Diagnostic> {
     let kernel = checked.elaborator.kernel();
-    let definitions = kernel.erase_definitions().map_err(|e| Diagnostic {
-        details: Default::default(),
-        span: Span { start: 0, end: 0 },
-        message: e.to_string(),
-    })?;
+    let roots = checked.definitions.iter().map(|(name, public_id, _)| {
+        checked
+            .constructors
+            .iter()
+            .find(|(constructor, _, _)| constructor == name)
+            .map_or(*public_id, |(_, id, _)| *id)
+    });
+    let definitions = kernel
+        .erase_reachable_definitions(roots)
+        .map_err(|e| Diagnostic {
+            details: Default::default(),
+            span: Span { start: 0, end: 0 },
+            message: e.to_string(),
+        })?;
     let mut out = include_str!("runtime.py").to_owned();
     for (id, term) in definitions {
         out.push_str(&format!("\n_d{id} = {}\n", expression(&term, &[])));
