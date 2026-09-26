@@ -115,7 +115,7 @@ impl Lowerer {
             .types
             .extend(names.iter().map(|n| (n.clone(), left.types[n])));
         symbolic.scope.locals.extend(names.iter().cloned());
-        let ty = loops::state_type(&names, &symbolic);
+        let ty = state_tuple::state_type(&names, &symbolic);
         let id = self.wildcard;
         self.wildcard += 1;
         let parameter = format!("$join_state{id}");
@@ -147,7 +147,7 @@ impl Lowerer {
             &parameter,
             Plicity::Explicit,
             Some(ty.clone()),
-            loops::lets(&fields, body),
+            state_tuple::lets(&fields, body),
         );
         let function_ty = E::pi(&parameter, Plicity::Explicit, ty.clone(), output_ty.clone());
         let join_post = E::lam(

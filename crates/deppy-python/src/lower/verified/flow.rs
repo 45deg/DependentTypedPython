@@ -113,8 +113,8 @@ impl Lowerer {
         let state_name = format!("$loop_state{id}");
         let inv_name = format!("$loop_inv{id}");
         let test_name = format!("$loop_test{id}");
-        let ty = loops::state_type(&loop_.names, &state);
-        let initial = loops::pack(&loop_.names, &state).ann(ty.clone());
+        let ty = state_tuple::state_type(&loop_.names, &state);
+        let initial = state_tuple::pack(&loop_.names, &state).ann(ty.clone());
         let current = E::name(&state_name);
         let mut symbolic = state.clone();
         let mut fields = vec![];
@@ -125,7 +125,7 @@ impl Lowerer {
             symbolic.scope.aliases.insert(name.clone(), fresh);
             tail = tail.snd();
         }
-        let close = |body| lambda(&state_name, ty.clone(), loops::lets(&fields, body));
+        let close = |body| lambda(&state_name, ty.clone(), state_tuple::lets(&fields, body));
         let guard = close(self.value(loop_.test, &symbolic, Some(Scalar::Bool))?.0);
         let mut inv_ty = E::Universe(0);
         let mut measure_ty = E::Nat;
@@ -308,12 +308,12 @@ impl Lowerer {
         );
         let combined_ty = abstract_context(
             &body_locals,
-            loops::lets(&fields, step_post.app(next)),
+            state_tuple::lets(&fields, step_post.app(next)),
             true,
         );
         let combined = abstract_context(
             &body_locals,
-            loops::lets(&fields, loops::lets(&facts, step_proof)),
+            state_tuple::lets(&fields, state_tuple::lets(&facts, step_proof)),
             false,
         );
         let combined_name = format!("$loop_step_proof{id}");
@@ -355,7 +355,7 @@ impl Lowerer {
         );
         let exit_proof = abstract_context(
             &exit_locals,
-            loops::lets(&fields, loops::lets(&facts, exit_proof)),
+            state_tuple::lets(&fields, state_tuple::lets(&facts, exit_proof)),
             false,
         );
         let (value, correct) = if escaping {
@@ -411,8 +411,8 @@ impl Lowerer {
             end: loop_.test.range().end().to_usize(),
         };
         Ok((
-            loops::lets(&bindings, value).located(location.clone()),
-            loops::lets(&bindings, proof).located(location),
+            state_tuple::lets(&bindings, value).located(location.clone()),
+            state_tuple::lets(&bindings, proof).located(location),
         ))
     }
 }
