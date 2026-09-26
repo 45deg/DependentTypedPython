@@ -1,8 +1,9 @@
 from __future__ import annotations
 from deppy._builtins import inductive, constructor, Index, dependent, theorem, Type, Pi, Sigma, Pair, Nat, Z, S, Eq, refl, absurd
-from deppy.equality import cong, trans, transport
+from deppy.equality import cong, trans, sym, transport
 from deppy.data import Empty, Unit, MkUnit, Sum, Left, Right, Not, Decidable, Yes, No, sum_elim, decision_weight
-from deppy.nat import add
+from deppy.nat import add, add_succ
+from deppy.nat_order import LE, LEZero, LESucc, le_step
 
 
 @inductive
@@ -118,6 +119,36 @@ def map_composition[A: Type, B: Type, C: Type](f: Pi[A, lambda _: B], g: Pi[B, l
             return cong(lambda rest: Cons(g(f(h)), rest), map_composition(f, g, t))
 
 
+@theorem(decreases="xs")
+def length_append[A: Type](xs: List[A], ys: List[A]) -> Eq[Nat, length(append(xs, ys)), add(length(xs), length(ys))]:
+    """The length of a concatenation is the sum of its lengths."""
+    match xs:
+        case Nil():
+            return refl(length(ys))
+        case Cons(_, tail):
+            return cong(lambda n: S(n), length_append(tail, ys))
+
+
+@theorem(decreases="xs")
+def length_map[A: Type, B: Type](f: Pi[A, lambda _: B], xs: List[A]) -> Eq[Nat, length(map(f, xs)), length(xs)]:
+    """Mapping preserves the number of elements."""
+    match xs:
+        case Nil():
+            return refl(0)
+        case Cons(_, tail):
+            return cong(lambda n: S(n), length_map(f, tail))
+
+
+@theorem(decreases="xs")
+def map_append[A: Type, B: Type](f: Pi[A, lambda _: B], xs: List[A], ys: List[A]) -> Eq[List[B], map(f, append(xs, ys)), append(map(f, xs), map(f, ys))]:
+    """Mapping distributes over concatenation."""
+    match xs:
+        case Nil():
+            return refl(map(f, ys))
+        case Cons(x, tail):
+            return cong(lambda rest: Cons(f(x), rest), map_append(f, tail, ys))
+
+
 @dependent(decreases="xs")
 def snoc[A: Type](xs: List[A], x: A) -> List[A]:
     r"""Append the single element ``x`` to the end of ``xs``."""
@@ -136,6 +167,25 @@ def reverse[A: Type](xs: List[A]) -> List[A]:
             return Nil[A]()
         case Cons(h, t):
             return snoc(reverse(t), h)
+
+
+@theorem(decreases="xs")
+def length_snoc[A: Type](xs: List[A], x: A) -> Eq[Nat, length(snoc(xs, x)), S(length(xs))]:
+    match xs:
+        case Nil():
+            return refl(1)
+        case Cons(_, tail):
+            return cong(lambda n: S(n), length_snoc(tail, x))
+
+
+@theorem(decreases="xs")
+def length_reverse[A: Type](xs: List[A]) -> Eq[Nat, length(reverse(xs)), length(xs)]:
+    """Reversal preserves length."""
+    match xs:
+        case Nil():
+            return refl(0)
+        case Cons(x, tail):
+            return trans(length_snoc(reverse(tail), x), cong(lambda n: S(n), length_reverse(tail)))
 
 
 @dependent(decreases="xs")
@@ -189,6 +239,65 @@ def count[A: Type, P: Pi[A, lambda _: Type]](
             return add(decision_weight(decide(x)), count(decide, tail))
 
 
+@theorem(decreases="d")
+def length_filter_head[A: Type, P: Type](x: A, d: Decidable[P], tail: List[A]) -> Eq[
+    Nat, length(filter_head(x, d, tail)), add(decision_weight(d), length(tail))
+]:
+    match d:
+        case Yes(_):
+            return refl(S(length(tail)))
+        case No(_):
+            return refl(length(tail))
+
+
+@theorem(decreases="xs")
+def length_filter_eq_count[A: Type, P: Pi[A, lambda _: Type]](
+    decide: Pi[A, lambda x: Decidable[P(x)]], xs: List[A]
+) -> Eq[Nat, length(filter(decide, xs)), count(decide, xs)]:
+    """The filtered list has exactly as many entries as the predicate count."""
+    match xs:
+        case Nil():
+            return refl(0)
+        case Cons(x, tail):
+            return trans(
+                length_filter_head(x, decide(x), filter(decide, tail)),
+                cong(lambda n: add(decision_weight(decide(x)), n), length_filter_eq_count(decide, tail)),
+            )
+
+
+@theorem(decreases="d")
+def count_head_le[P: Type](d: Decidable[P], counted: Nat, total: Nat, bound: LE[counted, total]) -> LE[
+    add(decision_weight(d), counted), S(total)
+]:
+    match d:
+        case Yes(_):
+            return LESucc(counted, total, bound)
+        case No(_):
+            return le_step(bound)
+
+
+@theorem(decreases="xs")
+def count_le_length[A: Type, P: Pi[A, lambda _: Type]](
+    decide: Pi[A, lambda x: Decidable[P(x)]], xs: List[A]
+) -> LE[count(decide, xs), length(xs)]:
+    """A predicate count cannot exceed the list length."""
+    match xs:
+        case Nil():
+            return LEZero(0)
+        case Cons(x, tail):
+            return count_head_le(decide(x), count(decide, tail), length(tail), count_le_length(decide, tail))
+
+
+@theorem
+def length_filter_le[A: Type, P: Pi[A, lambda _: Type]](
+    decide: Pi[A, lambda x: Decidable[P(x)]], xs: List[A]
+) -> LE[length(filter(decide, xs)), length(xs)]:
+    """Filtering does not increase length."""
+    return transport[Nat, count(decide, xs), length(filter(decide, xs))](
+        lambda n: LE[n, length(xs)], sym(length_filter_eq_count(decide, xs)), count_le_length(decide, xs)
+    )
+
+
 @dependent
 def reject_head[A: Type, P: Type](x: A, d: Decidable[P], tail: List[A]) -> List[A]:
     match d:
@@ -207,6 +316,32 @@ def reject[A: Type, P: Pi[A, lambda _: Type]](
             return Nil[A]()
         case Cons(x, tail):
             return reject_head(x, decide(x), reject(decide, tail))
+
+
+@theorem(decreases="d")
+def count_split_head[A: Type, P: Type](x: A, d: Decidable[P], rest: List[A], n: Nat) -> Eq[
+    Nat, add(add(decision_weight(d), n), length(reject_head(x, d, rest))), S(add(n, length(rest)))
+]:
+    match d:
+        case Yes(_):
+            return refl(S(add(n, length(rest))))
+        case No(_):
+            return add_succ(n, length(rest))
+
+
+@theorem(decreases="xs")
+def count_split[A: Type, P: Pi[A, lambda _: Type]](
+    decide: Pi[A, lambda x: Decidable[P(x)]], xs: List[A]
+) -> Eq[Nat, add(count(decide, xs), length(reject(decide, xs))), length(xs)]:
+    """Selected count plus rejected length equals the original length."""
+    match xs:
+        case Nil():
+            return refl(0)
+        case Cons(x, tail):
+            return trans(
+                count_split_head(x, decide(x), reject(decide, tail), count(decide, tail)),
+                cong(lambda n: S(n), count_split(decide, tail)),
+            )
 
 
 @inductive

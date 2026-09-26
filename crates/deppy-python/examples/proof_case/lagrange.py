@@ -16,6 +16,7 @@ from deppy import (
 )
 from deppy.equality import sym, trans, cong, transport
 from deppy.nat import add, mul, add_succ
+from deppy.lists import count_split
 from deppy.nat_order import LE, LEZero, LESucc, le_refl, le_step, le_pred, le_trans
 from common import (
     B0,
@@ -236,41 +237,6 @@ def reject_bound[A: Type, P: Pi[A, lambda _: Type]](
         case Cons(x, tail):
             return reject_bound_head(
                 x, dec(x), reject(dec, tail), length(tail), reject_bound(dec, tail)
-            )
-
-
-@theorem(decreases="d")
-def split_head[A: Type, P: Type](
-    x: A, d: Decision[P], rest: List[A], n: Nat
-) -> Eq[
-    Nat, add(add(decision_weight(d), n), length(reject_head(x, d, rest))), S(add(n, length(rest)))
-]:
-    r"""Account for one head in the sum of selected count and rejected length.
-
-    A decision assigns the head to exactly one of the two parts.
-    """
-    match d:
-        case Yes(p):
-            return refl(S(add(n, length(rest))))
-        case No(np):
-            return add_succ(n, length(rest))
-
-
-@theorem(decreases="xs")
-def count_split[A: Type, P: Pi[A, lambda _: Type]](
-    dec: Pi[A, lambda x: Decision[P(x)]], xs: List[A]
-) -> Eq[Nat, add(count(dec, xs), length(reject(dec, xs))), length(xs)]:
-    r"""Selected count plus rejected length equals the original length.
-
-    Induct on the list and apply the one-head accounting identity.
-    """
-    match xs:
-        case Nil():
-            return refl(0)
-        case Cons(x, tail):
-            return trans(
-                split_head(x, dec(x), reject(dec, tail), count(dec, tail)),
-                cong(lambda n: S(n), count_split(dec, tail)),
             )
 
 

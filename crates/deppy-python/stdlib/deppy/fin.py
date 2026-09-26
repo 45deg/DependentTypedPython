@@ -1,5 +1,6 @@
 from __future__ import annotations
-from deppy._builtins import dependent, Type, Nat, S, Fin, FZ, FS, Pi, nat_elim, fin_elim
+from deppy._builtins import dependent, theorem, Type, Nat, S, Fin, FZ, FS, Pi, nat_elim, fin_elim
+from deppy.nat_order import LT, LEZero, LESucc
 
 
 @dependent
@@ -29,3 +30,23 @@ def fin_case(k: Nat, P: Pi[Fin[S(k)], lambda index: Type], i: Fin[S(k)],
         lambda k, j, unused, family, zero, step: step(j),
         S(k), i,
     )(P)(first)(rest)
+
+
+@dependent(decreases="i")
+def to_nat(n: Nat, i: Fin[n]) -> Nat:
+    """Return the zero-based natural-number value of a finite index."""
+    match i:
+        case FZ(_):
+            return 0
+        case FS(k, j):
+            return S(to_nat(k, j))
+
+
+@theorem(decreases="i")
+def to_nat_lt(n: Nat, i: Fin[n]) -> LT(to_nat(n, i), n):
+    """Every finite index lies strictly below its size."""
+    match i:
+        case FZ(k):
+            return LESucc(0, k, LEZero(k))
+        case FS(k, j):
+            return LESucc(S(to_nat(k, j)), k, to_nat_lt(k, j))

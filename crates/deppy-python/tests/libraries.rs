@@ -122,6 +122,78 @@ def strict() -> LT(1, 3):
 }
 
 #[test]
+fn math_lemmas_and_finite_carrier_are_axiom_free() {
+    let source = r#"from __future__ import annotations
+from deppy import dependent, theorem, Type, Pi, Nat, Fin, FZ, FS, Vec, VNil, VCons, Eq, refl, absurd
+from deppy.nat import add, mul, mul_comm, mul_assoc, mul_add_left
+from deppy.nat_order import LE, LT, mul_le_mul_left, mul_le_mul_right
+from deppy.data import Empty, MkUnit, Decidable, Yes
+from deppy.lists import List, Nil, Cons, Mem, append, map, length, filter, reject, count, length_append, length_map, length_reverse, map_append, length_filter_eq_count, length_filter_le, count_split
+from deppy.fin import to_nat, to_nat_lt
+from deppy.vectors import get, get_map, map as deppy_map, append as vec_append, append_left_index, append_right_index, get_append_left, get_append_right, reverse, mirror, reverse_get
+from deppy.finite import Enumeration
+
+@theorem
+def multiplication(a: Nat, b: Nat, c: Nat) -> Eq[Nat, mul(add(a, b), c), add(mul(a, c), mul(b, c))]:
+    return mul_add_left(a, b, c)
+
+@theorem
+def multiplication_bound(n: Nat, m: Nat, k: Nat, p: LE[n, m]) -> LE[mul(k, n), mul(k, m)]:
+    return mul_le_mul_left(k, p)
+
+@theorem
+def mapped_length[A: Type, B: Type](f: Pi[A, lambda _: B], xs: List[A]) -> Eq[Nat, length(map(f, xs)), length(xs)]:
+    return length_map(f, xs)
+
+@theorem
+def finite_bound(n: Nat, i: Fin[n]) -> LT(to_nat(n, i), n):
+    return to_nat_lt(n, i)
+
+@theorem
+def mapped_get[A: Type, B: Type](n: Nat, f: Pi[A, lambda _: B], xs: Vec[A, n], i: Fin[n]) -> Eq[B, get(n, deppy_map(n, f, xs), i), f(get(n, xs, i))]:
+    return get_map(n, f, xs, i)
+
+@theorem
+def keep(n: Nat) -> Decidable[Eq[Nat, n, n]]:
+    return Yes(refl(n))
+
+@theorem
+def filtered_length(xs: List[Nat]) -> Eq[Nat, length(filter[Nat, lambda n: Eq[Nat, n, n]](keep, xs)), count[Nat, lambda n: Eq[Nat, n, n]](keep, xs)]:
+    return length_filter_eq_count[Nat, lambda n: Eq[Nat, n, n]](keep, xs)
+
+@theorem
+def filtered_partition(xs: List[Nat]) -> Eq[Nat, add(count[Nat, lambda n: Eq[Nat, n, n]](keep, xs), length(reject[Nat, lambda n: Eq[Nat, n, n]](keep, xs))), length(xs)]:
+    return count_split[Nat, lambda n: Eq[Nat, n, n]](keep, xs)
+
+@theorem
+def left_lookup(n: Nat, m: Nat, xs: Vec[Nat, n], ys: Vec[Nat, m], i: Fin[n]) -> Eq[Nat, get(add(n, m), vec_append(n, m, xs, ys), append_left_index(n, m, i)), get(n, xs, i)]:
+    return get_append_left(n, m, xs, ys, i)
+
+@theorem
+def right_lookup(n: Nat, m: Nat, xs: Vec[Nat, n], ys: Vec[Nat, m], i: Fin[m]) -> Eq[Nat, get(add(n, m), vec_append(n, m, xs, ys), append_right_index(n, m, i)), get(m, ys, i)]:
+    return get_append_right(n, m, xs, ys, i)
+
+@theorem
+def reversed_lookup(n: Nat, xs: Vec[Nat, n], i: Fin[n]) -> Eq[Nat, get(n, reverse(n, xs), mirror(n, i)), get(n, xs, i)]:
+    return reverse_get(n, xs, i)
+
+@dependent
+def concrete_fin() -> Eq[Nat, to_nat(2, FS(1, FZ(0))), 1]:
+    return refl(1)
+
+@dependent
+def concrete_append() -> Eq[Nat, get(2, vec_append(1, 1, VCons(0, 3, VNil()), VCons(0, 4, VNil())), FS(1, FZ(0))), 4]:
+    return refl(4)
+
+@theorem
+def empty_enumeration() -> Enumeration[Empty]:
+    return Enumeration[Empty](Nil[Empty](), MkUnit(), lambda x: absurd(Mem(x, Nil[Empty]()), x))
+"#;
+    let checked = check_module(&source, TARGET).unwrap_or_else(|e| panic!("{e}"));
+    assert!(checked.axiom_dependencies.values().all(Vec::is_empty));
+}
+
+#[test]
 fn primitives_lambdas_and_higher_universes_compute() {
     let s = source(
         r#"

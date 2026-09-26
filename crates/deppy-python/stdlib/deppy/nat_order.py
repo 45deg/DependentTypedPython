@@ -1,7 +1,7 @@
 from __future__ import annotations
 from deppy._builtins import inductive, constructor, Index, dependent, theorem, Nat, Z, S, Type, Pi, Eq, refl, absurd
 from deppy.data import Empty, Unit, MkUnit, Decidable, Yes, No
-from deppy.nat import add, add_comm, add_zero, pred_or
+from deppy.nat import add, add_comm, add_zero, pred_or, mul, mul_comm
 from deppy.equality import cong, sym, transport
 
 
@@ -177,6 +177,31 @@ def add_le_add_right[n: Nat, m: Nat](p: LE[n, m], k: Nat) -> LE[add(n, k), add(m
 def add_lt_add_right(n: Nat, m: Nat, k: Nat, p: LT(n, m)) -> LT(add(n, k), add(m, k)):
     r"""Theorem ``add_lt_add_right``: :math:`n < m \Rightarrow n+k < m+k`."""
     return add_le_add_right(p, k)
+
+
+@theorem(decreases="k")
+def mul_le_mul_right[n: Nat, m: Nat](p: LE[n, m], k: Nat) -> LE[mul(n, k), mul(m, k)]:
+    """Multiplication on the right preserves natural-number order."""
+    match k:
+        case Z():
+            return LEZero(0)
+        case S(j):
+            return le_trans(
+                add_le_add_right(p, mul(n, j)),
+                add(m, mul(m, j)),
+                add_le_add_left(mul(n, j), mul(m, j), m, mul_le_mul_right(p, j)),
+            )
+
+
+@theorem
+def mul_le_mul_left[n: Nat, m: Nat](k: Nat, p: LE[n, m]) -> LE[mul(k, n), mul(k, m)]:
+    """Multiplication on the left preserves natural-number order."""
+    lower = transport[Nat, mul(n, k), mul(k, n)](
+        lambda x: LE[x, mul(m, k)], mul_comm(n, k), mul_le_mul_right(p, k)
+    )
+    return transport[Nat, mul(m, k), mul(k, m)](
+        lambda x: LE[mul(k, n), x], mul_comm(m, k), lower
+    )
 
 
 @theorem(decreases="n")

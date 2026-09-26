@@ -1,6 +1,6 @@
 from __future__ import annotations
-from deppy._builtins import dependent, Nat, Z, S, Eq, refl
-from deppy.equality import sym, trans, cong, transport
+from deppy._builtins import dependent, theorem, Nat, Z, S, Eq, refl
+from deppy.equality import sym, trans, cong, cong2, transport
 
 # Nat and its eliminator are supplied by the frontend's builtin registry.  The
 # operations below deliberately keep the computation rules used by the
@@ -96,6 +96,64 @@ def mul_add_right(a: Nat, b: Nat, c: Nat) -> Eq[Nat, mul(a, add(b, c)), add(mul(
             return trans(
                 cong(lambda x: add(a, x), mul_add_right(a, k, c)),
                 sym(add_assoc(a, mul(a, k), mul(a, c))),
+            )
+
+
+@theorem(decreases="b")
+def mul_succ_left(a: Nat, b: Nat) -> Eq[Nat, mul(S(a), b), add(b, mul(a, b))]:
+    """Multiplying by a successor in the left argument."""
+    match b:
+        case Z():
+            return refl(0)
+        case S(k):
+            return cong(lambda n: S(n), trans(
+                cong(lambda n: add(a, n), mul_succ_left(a, k)),
+                add_swap(a, k, mul(a, k)),
+            ))
+
+
+@theorem(decreases="n")
+def zero_mul(n: Nat) -> Eq[Nat, mul(0, n), 0]:
+    """Zero multiplied by any natural number is zero."""
+    match n:
+        case Z():
+            return refl(0)
+        case S(k):
+            return zero_mul(k)
+
+
+@theorem(decreases="b")
+def mul_comm(a: Nat, b: Nat) -> Eq[Nat, mul(a, b), mul(b, a)]:
+    """Natural-number multiplication is commutative."""
+    match b:
+        case Z():
+            return sym(zero_mul(a))
+        case S(k):
+            return trans(
+                cong(lambda n: add(a, n), mul_comm(a, k)),
+                sym(mul_succ_left(k, a)),
+            )
+
+
+@theorem
+def mul_add_left(a: Nat, b: Nat, c: Nat) -> Eq[Nat, mul(add(a, b), c), add(mul(a, c), mul(b, c))]:
+    """Left distributivity of multiplication over addition."""
+    return trans(mul_comm(add(a, b), c), trans(
+        mul_add_right(c, a, b),
+        cong2(add, mul_comm(c, a), mul_comm(c, b)),
+    ))
+
+
+@theorem(decreases="c")
+def mul_assoc(a: Nat, b: Nat, c: Nat) -> Eq[Nat, mul(mul(a, b), c), mul(a, mul(b, c))]:
+    """Natural-number multiplication is associative."""
+    match c:
+        case Z():
+            return refl(0)
+        case S(k):
+            return trans(
+                cong(lambda n: add(mul(a, b), n), mul_assoc(a, b, k)),
+                sym(mul_add_right(a, b, mul(b, k))),
             )
 
 

@@ -8,19 +8,23 @@ P0 の最初の公開面を stdlib に実装した。基礎型は新しく宣言
 - `deppy.equality`: `cong2`、transport の恒等則・合成則。
 - `deppy.data` / `deppy.logic`: `Sum` の除去、否定・積・和・含意の決定手続き。
   `deppy.logic` は同じ宣言の再exportであり、別の名目的型を作らない。
-- `deppy.nat`: 加算・乗算、加算の結合・交換、乗算の右分配、後者と等式の消去、
-  加算の左右消去。
+- `deppy.nat`: 加算・乗算、加算の結合・交換、乗算の交換・結合・両側の分配、
+  後者と等式の消去、加算の左右消去。
 - `deppy.nat_order`: `LE`、`LT`、反射・step・推移、透明な `le_decide` / `lt_decide`、
-  反対称性、厳密順序の非反射性・推移、加算の左右の単調性、正の数の前者が減少する `pred_lt`。
+  反対称性、厳密順序の非反射性・推移、加算・乗算の左右の単調性、正の数の前者が減少する `pred_lt`。
 - `deppy.lists`: `length`、`Mem`、`NoDup`、`All`、`Any`、`filter`、要素除去、
-  map による所属保存。既存の append・map・reverse と同じ `List` 上に置く。
+  map による所属保存、append・map・reverse の長さ、filter の長さと count の一致、
+  count の上界、count と reject の分割。既存の append・map・reverse と同じ `List` 上に置く。
+- `deppy.fin` / `deppy.vectors`: Fin の自然数変換と上界、Vec の map・append・reverse 後の参照。
+- `deppy.finite`: `Enumeration`、列挙順によらない count、全単射による count 保存。
+  `proof_case/common.py` は標準の `List`・`Decidable`・`Enumeration` とこれらの証明を再exportする。
 
 公開APIは具体値の正規化、異なるimport経路での名目的同一性、公理依存が空であることを
 回帰テストで検査する。空のindexed familyの除去には既存の `absurd(type, value)` を使う。
 `LE[S(n), 0]` は除去できるが、未確定の `LE[n, 0]` やinhabitedな添字は拒否する。
 この範囲はfrontendとkernelに実装済みであり、順序用の専用規則は追加しない。
 新しい順序の証明補題は `@theorem`、判定手続きは `@dependent` とする。
-乗算の残りの交換・結合・分配・単調性は未実装。`verified` と単一whileのVC生成・自然数尺度による停止性証明は実装済みで、詳細は[verifiedガイド](verified.md)で扱う。一般の整礎関係による停止性証明は未対応。
+正の数での乗算の消去は未実装。`verified` と単一whileのVC生成・自然数尺度による停止性証明は実装済みで、詳細は[verifiedガイド](verified.md)で扱う。一般の整礎関係による停止性証明は未対応。
 
 以下はstdlibと `lagrange.py`、`fermat.py`、`fermat2.py` の共通化計画。
 以下のモジュール名・API名は、実装済みと明記したもの以外は提案である。
@@ -33,10 +37,10 @@ P0 の最初の公開面を stdlib に実装した。基礎型は新しく宣言
 | 領域 | 実装済み | 整備上の問題 |
 | --- | --- | --- |
 | 等式 | `deppy.equality` の `sym`, `trans`, `cong`, `transport` | 3つの証明例からstdlibを利用。`cong2` はstdlibに実装済み。依存関数向け補題の整備が残る |
-| 論理・判定 | `deppy.data` の `Empty`, `Unit`, `Sum`, `Option`, `Not`, `Decidable` | examplesに別の `Empty`, `Unit`, `Either`, `Decision` がある |
+| 論理・判定 | `deppy.data` の `Empty`, `Unit`, `Sum`, `Option`, `Not`, `Decidable` | `common.py` は標準型を互換名で再export。例固有の判定補題の移行が残る |
 | 自然数 | 公開 `deppy.nat.Nat` と、一般帰納型の例である `deppy.naturals.Nat` | 別の名目的な型。後者の `add` は前者へそのまま適用できない |
-| リスト | `deppy.lists` の `List`, `append`, `map`, `reverse` と基本等式 | examplesの `List` は別型。所属・重複なし・除去はstdlibにも実装済み。examplesの独自型との共有と個数APIの整備が残る |
-| 有限性 | `proof_case/common.py` の `Enumeration`, `same_count`, `bijection_count` | 証明例間では共有済み。stdlibへの統合が残る |
+| リスト | `deppy.lists` の `List`, `append`, `map`, `reverse` と基本等式 | `common.py` のListは標準型に統一済み。残る例固有の補題を移行する |
+| 有限性 | `deppy.finite` の `Enumeration`, `same_count`, `bijection_count` | 標準のListとDecidableを使用。有限述語判定などが残る |
 | 有限積 | `proof_case/common.py` の `product`, `same_product`, `bijection_product` | 重複は解消済み。逆元を使わない部分まで `Group` を要求している |
 | 群 | `Group`, `Subgroup`, 剰余類、ラグランジュ、有限群の累乗定理 | stdlibでは未提供。判定可能性が `Subgroup` の定義に含まれている |
 | 数論・体 | 有限体の非零元の乗法群としてのFermat | `Prime`, 除算・剰余、整数、有限体そのものの構成は未実装 |
@@ -49,7 +53,7 @@ P0 の最初の公開面を stdlib に実装した。基礎型は新しく宣言
 - [標準の論理データ型](../crates/deppy-python/stdlib/deppy/data.py)
 - [標準のリスト](../crates/deppy-python/stdlib/deppy/lists.py)
 - [別宣言の自然数](../crates/deppy-python/stdlib/deppy/naturals.py)と[それを使う添字型](../crates/deppy-python/stdlib/deppy/indexed.py)
-- [有限列挙・群・有限積の共有定義](../crates/deppy-python/examples/proof_case/common.py)
+- [有限列挙と個数保存](../crates/deppy-python/stdlib/deppy/finite.py)、[群・有限積の共有定義](../crates/deppy-python/examples/proof_case/common.py)
 - [有限集合の分割・ラグランジュ](../crates/deppy-python/examples/proof_case/lagrange.py)
 - [判定可能性・有限積・有限群の累乗](../crates/deppy-python/examples/proof_case/fermat.py)
 - [可換群での直接証明](../crates/deppy-python/examples/proof_case/fermat2.py)
