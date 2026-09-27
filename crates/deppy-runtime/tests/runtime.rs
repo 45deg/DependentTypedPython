@@ -477,29 +477,28 @@ fn general_indexed_vector_runtime_checks_indices_and_computes_get() {
     run(
         r#"
 from __future__ import annotations
-from deppy import dependent, Nat
-from deppy.naturals import Nat as N, Z, S
+from deppy import dependent, Nat, Z, S
 from deppy.indexed import IVec, INil, ICons, IFin, IFZ, IFS, get
 @dependent
-def zero() -> N:
+def zero() -> Nat:
     return Z()
 @dependent
-def successor(n: N) -> N:
+def successor(n: Nat) -> Nat:
     return S(n)
 @dependent
 def empty() -> IVec[Nat, Z()]:
     return INil[Nat]()
 @dependent
-def cons(n: N, h: Nat, t: IVec[Nat, n]) -> IVec[Nat, S(n)]:
+def cons(n: Nat, h: Nat, t: IVec[Nat, n]) -> IVec[Nat, S(n)]:
     return ICons(n, h, t)
 @dependent
-def first(n: N) -> IFin[S(n)]:
+def first(n: Nat) -> IFin[S(n)]:
     return IFZ(n)
 @dependent
-def next(n: N, i: IFin[n]) -> IFin[S(n)]:
+def next(n: Nat, i: IFin[n]) -> IFin[S(n)]:
     return IFS(n, i)
 @dependent
-def lookup(n: N, xs: IVec[Nat, n], i: IFin[n]) -> Nat:
+def lookup(n: Nat, xs: IVec[Nat, n], i: IFin[n]) -> Nat:
     return get(xs, i)
 "#,
         r#"

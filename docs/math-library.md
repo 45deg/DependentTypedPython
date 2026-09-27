@@ -20,13 +20,13 @@ Mathematical definitions and proofs are checked Python declarations. The library
 | `deppy.functions` | Bijections, identity, inverse, composition, injectivity, and surjectivity |
 | `deppy.permutations` | List permutations and preservation of length, membership, `NoDup`, and map |
 | `deppy.verified`, `deppy.verified_loop` | Compatibility declarations used by generated verified proofs, checked loop interpreters, and range obligations |
-| `deppy.naturals`, `deppy.indexed` | General-inductive demonstrations using a separate Nat family and indexed IVec/IFin types |
+| `deppy.indexed` | General-inductive IVec/IFin demonstrations indexed by the canonical Nat |
 
-The [Lagrange](../crates/deppy-python/examples/proof_case/lagrange.py) and [Fermat](../crates/deppy-python/examples/proof_case/fermat.py) examples define more finite-set, group, and product machinery in example sources. These examples assume a supplied finite enumeration and group/field structure; they do not define a primality test or construct finite fields from modular integers. `deppy.naturals.Nat` is a demonstration family with a different nominal identity; import it as `Nat as DemoNat` when using both families.
+The [Lagrange](../crates/deppy-python/examples/proof_case/lagrange.py) and [Fermat](../crates/deppy-python/examples/proof_case/fermat.py) examples define more finite-set, group, and product machinery in example sources. These examples assume a supplied finite enumeration and group/field structure; they do not define a primality test or construct finite fields from modular integers.
 
 ## Library rules
 
-Use one shared family for a foundational type before promoting example code into the standard library. `deppy.nat.Nat`, `deppy.data.Bool`, `deppy.lists.List`, and the checked indexed types should remain the common vocabulary. Conversion between example-local and standard types is a migration task, not a kernel rule.
+Use one shared family for a foundational type before promoting example code into the standard library. `deppy.nat.Nat`, `deppy.data.Bool`, `deppy.lists.List`, and the checked indexed types should remain the common vocabulary.
 
 Keep executable definitions transparent when computation is part of the API. Use `@theorem` for checked opaque laws whose bodies should not unfold during conversion. Do not assume equality of proofs, function extensionality, choice, or quotient types implicitly. Any additional principle must be declared as an axiom and tracked.
 

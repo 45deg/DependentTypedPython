@@ -97,18 +97,10 @@ Signed integers
 .. deppy-api:: crates/deppy-python/stdlib/deppy/integer.py
    :members: Int, of_nat, negative_nat, magnitude, negative, neg, add, sub, mul, le, lt, eq, quotient, remainder, to_nat, eq_true
 
-Demonstration naturals
-----------------------
-
-These declarations demonstrate general inductives and use ``deppy.naturals.Nat``. Import it as ``Nat as DemoNat`` when canonical Nat is also in scope.
-
-.. deppy-api:: crates/deppy-python/stdlib/deppy/naturals.py
-   :members: Nat, add, zero_right
-
 Demonstration indexed types
 ---------------------------
 
-These declarations demonstrate general inductives and use ``deppy.naturals.Nat``. Import it as ``Nat as DemoNat`` when canonical Nat is also in scope.
+These declarations demonstrate general inductives indexed by the canonical ``deppy.nat.Nat``.
 
 .. deppy-api:: crates/deppy-python/stdlib/deppy/indexed.py
    :members: IVec, IFin, get

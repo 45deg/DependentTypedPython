@@ -40,7 +40,7 @@ Guards, keyword and OR patterns, arbitrary equality-driven branch search, and no
 
 ## Standard data and runtime boundary
 
-`deppy.data` supplies Empty, Unit, Bool, Sum, Option, Not, and Decidable. `deppy.lists` supplies List operations and the four general list theorems. `deppy.naturals` supplies inductive Nat and arithmetic; `deppy.indexed` supplies `IVec`, `IFin`, and safe `get`. Existing Nat, Vec, and Fin compatibility APIs also lower to checked general inductives; there are no dedicated Nat/Vec/Fin variants in trusted terms or NbE.
+`deppy.data` supplies Empty, Unit, Bool, Sum, Option, Not, and Decidable. `deppy.lists` supplies List operations and the four general list theorems. `deppy.nat` supplies canonical Nat arithmetic; `deppy.indexed` supplies `IVec`, `IFin`, and safe `get` indexed by that Nat. Existing Nat, Vec, and Fin compatibility APIs also lower to checked general inductives; there are no dedicated Nat/Vec/Fin variants in trusted terms or NbE.
 
 Generated inductive values use a nominal tag, constructor number, and immutable field tuple. The runtime validates constructor arity, dependent fields, available indices, and schemas for type parameters. Recursive schemas refer to finite declaration templates. Higher-order fields and function arguments receive wrappers that check arguments and results at each call. External callback termination is not proved. Public schema comparison is limited to representable indices; an index requiring erased types, proofs, or functions is rejected. External Python proof inputs are rejected.
 

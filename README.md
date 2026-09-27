@@ -20,12 +20,14 @@ Cargo uses `Cargo.lock`. Fetch dependencies once with `cargo fetch --locked` if 
 ```sh
 cargo test --workspace --locked --offline
 cargo run -p deppy-python --locked --offline -- crates/deppy-python/examples/core/basics.py
+cargo run -p deppy-python --locked --offline -- eval crates/deppy-python/examples/core/basics.py twice 0
 cargo run -p deppy-python --locked --offline -- crates/deppy-python/examples/verified/verified_annotations.py
 cargo run -p deppy-python --locked --offline -- --goals path/to/proof.py
 cargo run -p deppy-runtime --locked --offline -- crates/deppy-python/examples/core/proofs.py
 ```
 
 `--elaboration-steps N` sets a positive, per-declaration checking budget; the default is 1,000,000. Raising it changes neither typing rules nor axiom handling.
+`eval FILE.py NAME [NAT ...]` checks the module, applies the named checked declaration to natural-number arguments, and prints its kernel-normalized result. For example, `twice 0` prints `2` and `reflexive 0` prints `refl(0)`. This evaluates DepPy terms without executing the source as Python.
 
 ### Browser demo
 

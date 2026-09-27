@@ -1,11 +1,10 @@
 from __future__ import annotations
-from deppy._builtins import inductive, constructor, Index, induct, absurd, dependent, Type, Pi
-from deppy.naturals import Nat, Z, S
+from deppy._builtins import inductive, constructor, Index, induct, absurd, dependent, Type, Pi, Nat, Z, S
 
 
 @inductive
 class IVec[A: Type]:
-    """Demonstration vector indexed by deppy.naturals.Nat."""
+    """Demonstration vector indexed by the canonical Nat."""
     length: Index[Nat]
     @constructor
     def INil() -> IVec[A, Z()]: ...
@@ -15,7 +14,7 @@ class IVec[A: Type]:
 
 @inductive
 class IFin:
-    """Demonstration finite index bounded by deppy.naturals.Nat."""
+    """Demonstration finite index bounded by the canonical Nat."""
     bound: Index[Nat]
     @constructor
     def IFZ(k: Nat) -> IFin[S(k)]: ...

@@ -1,6 +1,35 @@
 use std::{fs, process::Command};
 
 #[test]
+fn cli_evaluates_checked_examples() {
+    let example = format!("{}/examples/core/basics.py", env!("CARGO_MANIFEST_DIR"));
+    let run = |name: &str, argument: &str| {
+        Command::new(env!("CARGO_BIN_EXE_deppy-python"))
+            .args(["eval", &example, name, argument])
+            .output()
+            .unwrap()
+    };
+    let twice = run("twice", "0");
+    assert!(
+        twice.status.success(),
+        "{}",
+        String::from_utf8_lossy(&twice.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&twice.stdout), "2\n");
+    let proof = run("reflexive", "0");
+    assert!(
+        proof.status.success(),
+        "{}",
+        String::from_utf8_lossy(&proof.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&proof.stdout), "refl(0)\n");
+    let unknown = run("missing", "0");
+    assert_eq!(unknown.status.code(), Some(2));
+    let invalid = run("twice", "-1");
+    assert_eq!(invalid.status.code(), Some(2));
+}
+
+#[test]
 fn cli_accepts_an_elaboration_budget_and_rejects_invalid_values() {
     let root = std::env::temp_dir().join(format!("deppy-budget-cli-{}", std::process::id()));
     fs::create_dir_all(&root).unwrap();

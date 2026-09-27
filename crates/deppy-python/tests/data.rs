@@ -4,8 +4,7 @@ const LIST: &str = "from __future__ import annotations\nfrom deppy import induct
 #[test]
 fn fixed_and_compound_indices_omit_impossible_branches() {
     let source = r#"from __future__ import annotations
-from deppy import dependent, Type, Nat as Count, Eq, refl
-from deppy.naturals import Nat, Z, S
+from deppy import dependent, Type, Nat, Z, S, Eq, refl
 from deppy.indexed import IVec, INil, ICons
 @dependent(decreases='xs')
 def head[A: Type](n: Nat, xs: IVec[A, S(n)]) -> A:
@@ -13,7 +12,7 @@ def head[A: Type](n: Nat, xs: IVec[A, S(n)]) -> A:
         case ICons(k, h, tail):
             return h
 @dependent(decreases='xs')
-def empty[A: Type](xs: IVec[A, Z()]) -> Count:
+def empty[A: Type](xs: IVec[A, Z()]) -> Nat:
     match xs:
         case INil():
             return 0
@@ -34,10 +33,10 @@ def last[A: Type](n: Nat, xs: IVec[A, S(n)]) -> A:
                 case ICons(j, next, rest):
                     return last(j, tail)
 @dependent
-def proof() -> Eq[Count, second(ICons(S(Z()), 7, ICons(Z(), 9, INil[Count]()))), 9]:
+def proof() -> Eq[Nat, second(ICons(S(Z()), 7, ICons(Z(), 9, INil[Nat]()))), 9]:
     return refl(9)
 @dependent
-def last_proof() -> Eq[Count, last(S(Z()), ICons(S(Z()), 7, ICons(Z(), 9, INil[Count]()))), 9]:
+def last_proof() -> Eq[Nat, last(S(Z()), ICons(S(Z()), 7, ICons(Z(), 9, INil[Nat]()))), 9]:
     return refl(9)
 "#;
     check_module(source, Target::Python314).unwrap_or_else(|e| panic!("{e}"));
@@ -105,12 +104,11 @@ fn standard_libraries_check_four_list_theorems_and_indexed_get() {
         include_str!("../stdlib/deppy/nat_order.py"),
         include_str!("../stdlib/deppy/lists.py"),
         include_str!("../stdlib/deppy/indexed.py"),
-        include_str!("../stdlib/deppy/naturals.py"),
     ] {
         let checked = check_module(source, Target::Python314).unwrap_or_else(|e| panic!("{e}"));
         assert!(checked.axiom_dependencies.values().all(Vec::is_empty));
     }
-    let source = "from __future__ import annotations\nfrom deppy import dependent, Nat, Eq, refl\nfrom deppy.indexed import IVec, INil, ICons, IFin, IFZ, IFS, get\nfrom deppy.naturals import Z, S\n@dependent\ndef first() -> Eq[Nat, get(ICons(S(Z()), 7, ICons(Z(), 9, INil[Nat]())), IFZ(S(Z()))), 7]:\n    return refl(7)\n@dependent\ndef second() -> Eq[Nat, get(ICons(S(Z()), 7, ICons(Z(), 9, INil[Nat]())), IFS(S(Z()), IFZ(Z()))), 9]:\n    return refl(9)\n";
+    let source = "from __future__ import annotations\nfrom deppy import dependent, Nat, Z, S, Eq, refl\nfrom deppy.indexed import IVec, INil, ICons, IFin, IFZ, IFS, get\n@dependent\ndef first() -> Eq[Nat, get(ICons(S(Z()), 7, ICons(Z(), 9, INil[Nat]())), IFZ(S(Z()))), 7]:\n    return refl(7)\n@dependent\ndef second() -> Eq[Nat, get(ICons(S(Z()), 7, ICons(Z(), 9, INil[Nat]())), IFS(S(Z()), IFZ(Z()))), 9]:\n    return refl(9)\n";
     let checked = check_module(source, Target::Python314).unwrap_or_else(|e| panic!("{e}"));
     for (_, id, _) in &checked.definitions {
         assert!(matches!(
@@ -202,8 +200,8 @@ fn generic_coverage_termination_and_metadata() {
 
 #[test]
 fn indexed_absurd_rejects_inhabited_or_unknown_indices() {
-    let prefix = "from __future__ import annotations\nfrom deppy import dependent, Nat, absurd\nfrom deppy.indexed import IFin\nfrom deppy.naturals import Nat as N, Z, S\n";
-    for (params, bound) in [("", "Z()"), ("", "S(Z())"), ("n: N, ", "n")] {
+    let prefix = "from __future__ import annotations\nfrom deppy import dependent, Nat, Z, S, absurd\nfrom deppy.indexed import IFin\n";
+    for (params, bound) in [("", "Z()"), ("", "S(Z())"), ("n: Nat, ", "n")] {
         let source = format!("{prefix}@dependent\ndef impossible({params}i: IFin[{bound}]) -> Nat:\n    return absurd(Nat, i)\n");
         assert_eq!(
             check_module(&source, Target::Python314).is_ok(),
@@ -227,21 +225,14 @@ fn higher_universe_inductive_and_negative_alias_checks() {
 
 #[test]
 fn indexed_structural_recursion_and_pattern_wildcards() {
-    let source = "from __future__ import annotations\nfrom deppy import dependent, Type, Nat as Count, Eq, refl, S as Succ\nfrom deppy.naturals import Nat, Z, S\nfrom deppy.indexed import IVec, INil, ICons\n@dependent(decreases='xs')\ndef length[A: Type](n: Nat, xs: IVec[A, n]) -> Count:\n    match xs:\n        case INil():\n            return 0\n        case ICons(k, _, tail):\n            return Succ(length(k, tail))\n@dependent\ndef proof() -> Eq[Count, length(S(Z()), ICons(Z(), 7, INil[Count]())), 1]:\n    return refl(1)\n";
+    let source = "from __future__ import annotations\nfrom deppy import dependent, Type, Nat, Z, S, Eq, refl\nfrom deppy.indexed import IVec, INil, ICons\n@dependent(decreases='xs')\ndef length[A: Type](n: Nat, xs: IVec[A, n]) -> Nat:\n    match xs:\n        case INil():\n            return 0\n        case ICons(k, _, tail):\n            return S(length(k, tail))\n@dependent\ndef proof() -> Eq[Nat, length(S(Z()), ICons(Z(), 7, INil[Nat]())), 1]:\n    return refl(1)\n";
     check_module(source, Target::Python314).unwrap_or_else(|e| panic!("{e}"));
-}
-
-#[test]
-fn demonstration_nat_cannot_index_canonical_naturals() {
-    let source = "from __future__ import annotations\nfrom deppy import dependent, Nat\nfrom deppy.nat import add\nfrom deppy.naturals import Nat as DemoNat\n@dependent\ndef wrong(n: DemoNat) -> Nat:\n    return add(n, 0)\n";
-    assert!(check_module(source, Target::Python314).is_err());
 }
 
 #[test]
 fn dependent_nested_matches_implement_indexed_get() {
     let source = r#"from __future__ import annotations
-from deppy import dependent, Type, Nat as Count, Eq, refl, absurd
-from deppy.naturals import Nat, Z, S
+from deppy import dependent, Type, Nat, Z, S, Eq, refl, absurd
 from deppy.indexed import IVec, INil, ICons, IFin, IFZ, IFS
 @dependent(decreases='xs')
 def get[A: Type, n: Nat](xs: IVec[A, n], i: IFin[n]) -> A:
@@ -255,7 +246,7 @@ def get[A: Type, n: Nat](xs: IVec[A, n], i: IFin[n]) -> A:
                 case IFS(j, pred):
                     return get(tail, pred)
 @dependent
-def proof() -> Eq[Count, get(ICons(S(Z()), 7, ICons(Z(), 9, INil[Count]())), IFS(S(Z()), IFZ(Z()))), 9]:
+def proof() -> Eq[Nat, get(ICons(S(Z()), 7, ICons(Z(), 9, INil[Nat]())), IFS(S(Z()), IFZ(Z()))), 9]:
     return refl(9)
 "#;
     check_module(source, Target::Python314).unwrap_or_else(|e| panic!("{e}"));

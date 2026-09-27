@@ -91,7 +91,6 @@ pub(super) fn standard(name: &str) -> Option<&'static str> {
         "deppy.arithmetic" => Some(include_str!("../../stdlib/deppy/arithmetic.py")),
         "deppy.verified_loop" => Some(include_str!("../../stdlib/deppy/verified_loop.py")),
         "deppy.verified" => Some(include_str!("../../stdlib/deppy/verified.py")),
-        "deppy.naturals" => Some(include_str!("../../stdlib/deppy/naturals.py")),
         "deppy.indexed" => Some(include_str!("../../stdlib/deppy/indexed.py")),
         "deppy.data" => Some(include_str!("../../stdlib/deppy/data.py")),
         "deppy.bool" => Some(include_str!("../../stdlib/deppy/bool.py")),
