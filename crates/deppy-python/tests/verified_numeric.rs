@@ -204,11 +204,16 @@ def computes_mixed() -> Eq[Int, mixed(3), Pos(1)]:
 
 #[test]
 fn numeric_example_is_statically_checked() {
-    check_module(
+    let checked = deppy_python::check_module_with_resolver(
         include_str!("../examples/verified/verified_numeric.py"),
         Target::Python314,
+        &mut |name: &str| {
+            Ok((name == "gcd_proof")
+                .then(|| include_str!("../examples/verified/gcd_proof.py").to_owned()))
+        },
     )
     .unwrap();
+    assert!(checked.axiom_dependencies.values().all(Vec::is_empty));
 }
 
 #[test]
