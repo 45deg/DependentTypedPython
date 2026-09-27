@@ -10,7 +10,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "web-demo"
 EXAMPLES = {
-    "direct": ("Run · verified twice", "Verified Programs", ROOT / "crates/deppy-python/examples/verified/direct.py"),
     "basics": ("Basics", "Start", OUTPUT / "examples/basics.py"),
     "proof_equality": ("Part 1 · Equality", "Proofs", OUTPUT / "examples/proof_equality.py"),
     "proof_induction": ("Part 2 · Induction", "Proofs", OUTPUT / "examples/proof_induction.py"),

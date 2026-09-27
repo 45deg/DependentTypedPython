@@ -101,9 +101,9 @@ establish general equivalence between either Python execution path and the kerne
 
 The web playground's **Run Python** button loads Pyodide 314.0.0 (Python 3.14)
 from jsDelivr on demand and runs the editor contents as `main.py`, including
-its `if __name__ == "__main__":` block. Select **Run · verified twice** for an
-example that prints `42`. **Check** remains the separate type/proof checker;
-completion of a Python run does not mean a proof passed.
+its `if __name__ == "__main__":` block. Select **Fibonacci · recursive = imperative**
+for an example that prints `fib(10) = 55`. **Check** remains the separate
+type/proof checker; completion of a Python run does not mean a proof passed.
 
 `scripts/build_web_demo.py` bundles the same `stdlib/deppy/*.py` sources into
 `web-demo/deppy-runtime.zip`; no second runtime implementation is maintained.

@@ -110,3 +110,7 @@ def fib_loop_correct(n: Nat) -> Eq[Nat, fib_loop(n), fib_recursive(n)]:
 def fib_loop_twice(n: Nat) -> Eq[Nat, add(fib_loop(n), fib_loop(n)), add(fib_recursive(n), fib_recursive(n))]:
     # Congruence lifts the equality through addition: x = y → x+x = y+y.
     return cong2[Nat, Nat, Nat](lambda x: lambda y: add(x, y), verified_spec(fib_loop, n, MkUnit()), verified_spec(fib_loop, n, MkUnit()))
+
+
+if __name__ == "__main__":
+    print(f"fib(10) = {fib_loop(10)}")
