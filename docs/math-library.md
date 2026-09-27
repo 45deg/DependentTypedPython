@@ -22,7 +22,7 @@ Mathematical definitions and proofs are checked Python declarations. The library
 | `deppy.verified`, `deppy.verified_loop` | Compatibility declarations used by generated verified proofs, checked loop interpreters, and range obligations |
 | `deppy.naturals`, `deppy.indexed` | General-inductive demonstrations using a separate Nat family and indexed IVec/IFin types |
 
-The [Lagrange](../crates/deppy-python/examples/proof_case/lagrange.py) and [Fermat](../crates/deppy-python/examples/proof_case/fermat.py) examples define more finite-set, group, and product machinery in example sources. The [direct Fermat proof](../crates/deppy-python/examples/proof_case/fermat2.py) uses product permutation and cancellation instead of Lagrange. These examples assume a supplied finite enumeration and group/field structure; they do not define a primality test or construct finite fields from modular integers. `deppy.naturals.Nat` is a demonstration family with a different nominal identity; import it as `Nat as DemoNat` when using both families.
+The [Lagrange](../crates/deppy-python/examples/proof_case/lagrange.py) and [Fermat](../crates/deppy-python/examples/proof_case/fermat.py) examples define more finite-set, group, and product machinery in example sources. These examples assume a supplied finite enumeration and group/field structure; they do not define a primality test or construct finite fields from modular integers. `deppy.naturals.Nat` is a demonstration family with a different nominal identity; import it as `Nat as DemoNat` when using both families.
 
 ## Library rules
 

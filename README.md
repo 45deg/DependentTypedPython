@@ -19,10 +19,10 @@ Cargo uses `Cargo.lock`. Fetch dependencies once with `cargo fetch --locked` if 
 
 ```sh
 cargo test --workspace --locked --offline
-cargo run -p deppy-python --locked --offline -- crates/deppy-python/examples/basics.py
-cargo run -p deppy-python --locked --offline -- crates/deppy-python/examples/verified_annotations.py
+cargo run -p deppy-python --locked --offline -- crates/deppy-python/examples/core/basics.py
+cargo run -p deppy-python --locked --offline -- crates/deppy-python/examples/verified/verified_annotations.py
 cargo run -p deppy-python --locked --offline -- --goals path/to/proof.py
-cargo run -p deppy-runtime --locked --offline -- crates/deppy-python/examples/proofs.py
+cargo run -p deppy-runtime --locked --offline -- crates/deppy-python/examples/core/proofs.py
 ```
 
 `--elaboration-steps N` sets a positive, per-declaration checking budget; the default is 1,000,000. Raising it changes neither typing rules nor axiom handling.
@@ -40,7 +40,11 @@ Open <http://127.0.0.1:8000/>. The browser runs the DepPy checker in WebAssembly
 
 The editor loads CodeMirror 6 and Python language support from pinned JSPM CDN URLs. If the CDN is unavailable, the plain textarea remains usable.
 
-The [proof examples](crates/deppy-python/examples/proof_case/) include [Lagrange's theorem](crates/deppy-python/examples/proof_case/lagrange.py), [Fermat's theorem via Lagrange](crates/deppy-python/examples/proof_case/fermat.py), and a [direct Fermat proof](crates/deppy-python/examples/proof_case/fermat2.py). They share finite enumeration and group definitions in [common.py](crates/deppy-python/examples/proof_case/common.py). The Fermat examples assume a finite field's nonzero multiplicative group and its enumeration; they do not construct a field from primality or modular arithmetic.
+## Examples
+
+Python examples are grouped by purpose: [core](crates/deppy-python/examples/core/) covers dependent functions, data types, and proofs; [verified](crates/deppy-python/examples/verified/) covers contracts, refined values, and loops; [proof_case](crates/deppy-python/examples/proof_case/) contains larger mathematical proofs. The Cargo example `check.rs` stays at the `examples/` root.
+
+The proof cases include [Lagrange's theorem](crates/deppy-python/examples/proof_case/lagrange.py) and [Fermat's theorem via Lagrange](crates/deppy-python/examples/proof_case/fermat.py). They share finite enumeration and group definitions in [common.py](crates/deppy-python/examples/proof_case/common.py). The Fermat example assumes a finite field's nonzero multiplicative group and its enumeration; it does not construct a field from primality or modular arithmetic.
 
 The [Cantor example](crates/deppy-python/examples/proof_case/cantor.py) proves by diagonalization that no map from `A` to Boolean-valued functions on `A` is surjective. It uses no axioms or function extensionality.
 

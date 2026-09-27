@@ -11,9 +11,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "web-demo"
 EXAMPLES = {
-    "basics": ("Basics", "basics.py"),
-    "proofs": ("Proofs", "proofs.py"),
-    "verified": ("Verified", "verified_annotations.py"),
+    "basics": ("Basics", "core/basics.py"),
+    "proofs": ("Proofs", "core/proofs.py"),
+    "verified": ("Verified", "verified/verified_annotations.py"),
 }
 
 

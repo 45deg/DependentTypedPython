@@ -1,6 +1,6 @@
 use deppy_python::{analyze_module, check_module, Target};
 const TARGET: Target = Target::Python314;
-const EXAMPLE: &str = include_str!("../examples/verified_loop.py");
+const EXAMPLE: &str = include_str!("../examples/verified/verified_loop.py");
 
 #[test]
 fn loops_prove_result_and_termination_and_compute() {

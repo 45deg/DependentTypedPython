@@ -2,7 +2,7 @@ use deppy_core::Term;
 use deppy_elab::Expr as E;
 use deppy_python::{check_module, Target};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let module = check_module(include_str!("basics.py"), Target::Python314)?;
+    let module = check_module(include_str!("core/basics.py"), Target::Python314)?;
     let e = &module.elaborator;
     let result = e.infer(&E::name("twice").app(E::Zero))?;
     assert_eq!(

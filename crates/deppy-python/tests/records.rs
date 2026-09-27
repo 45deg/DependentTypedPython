@@ -14,7 +14,7 @@ fn reject(body: &str) {
 #[test]
 fn dependent_record_round_trip_computes() {
     for target in [Target::Python312, Target::Python313, Target::Python314] {
-        let m = check_module(include_str!("../examples/records.py"), target).unwrap();
+        let m = check_module(include_str!("../examples/core/records.py"), target).unwrap();
         assert_eq!(m.definitions.len(), 4);
         let e = m.elaborator;
         let xs = E::vcons(E::Nat, E::Zero, E::Zero.succ(), E::vnil(E::Nat));
@@ -44,7 +44,7 @@ fn record_constructors_infer_or_accept_explicit_parameters() {
     );
     check("@record\nclass Unit[T: Type]:\n    pass\n@dependent\ndef make(n: Nat) -> Unit[Nat]:\n    return Unit()\n");
     check("@record\nclass Empty:\n    pass\n@dependent\ndef make(n: Nat) -> Empty:\n    return Empty()\n");
-    let fixture = include_str!("../examples/records.py")
+    let fixture = include_str!("../examples/core/records.py")
         .replace("record,", "record as rec,")
         .replace("@record", "@rec");
     check_module(&fixture, Target::Python314).unwrap();
@@ -52,7 +52,7 @@ fn record_constructors_infer_or_accept_explicit_parameters() {
 #[test]
 fn record_nominality_and_dependent_fields_are_checked() {
     reject("@record\nclass A:\n    x: Nat\n@record\nclass B:\n    y: Nat\n@dependent\ndef bad(n: Nat) -> A:\n    return B(n)");
-    let fixture = include_str!("../examples/records.py");
+    let fixture = include_str!("../examples/core/records.py");
     for bad in [
         fixture
             .replace("SomeVec(p.fst, p.snd)", "SomeVec(S(p.fst), p.snd)")
@@ -123,7 +123,7 @@ fn record_field_references_do_not_capture_lambda_or_global_names() {
 #[test]
 fn shared_field_names_support_chains_lets_and_dependent_results() {
     let m = check_module(
-        include_str!("../examples/branch_fields.py"),
+        include_str!("../examples/core/branch_fields.py"),
         Target::Python314,
     )
     .unwrap();

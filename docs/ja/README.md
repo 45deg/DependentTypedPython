@@ -4,7 +4,7 @@ DepPyはPython風の構文を持つ依存型言語です。`@dependent` で全�
 
 ```sh
 cargo test --workspace --locked --offline
-cargo run -p deppy-python --locked --offline -- crates/deppy-python/examples/basics.py
+cargo run -p deppy-python --locked --offline -- crates/deppy-python/examples/core/basics.py
 cargo run -p deppy-python --locked --offline -- --goals path/to/proof.py
 ```
 

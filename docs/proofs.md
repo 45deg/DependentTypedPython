@@ -47,7 +47,7 @@ Axioms have no runtime implementation. Code generation rejects an axiom or proof
 
 After full type checking, `Kernel::erase` removes computations whose result is known to be `Eq` when no runtime consumer needs them. An unused `Eq` let binding may be removed. Proofs passed as runtime arguments, stored in data, or supplied to a data-producing `J` are kept, because later computation may inspect them. A data-producing `J` needing an erased proof is rejected. Public proof results appear as `None`; an internal erased marker remains distinct from a runtime proof token.
 
-Erasure does not change typing, normalization, conversion, or axiom tracking. It does not automatically turn explicit proof arguments into implicit ones or strip proof fields from records, Σ values, or vectors. Transparent definitions may be unfolded to retain a proof required by computation, subject to the checking budget. See `crates/deppy-python/examples/proof_erasure.py`.
+Erasure does not change typing, normalization, conversion, or axiom tracking. It does not automatically turn explicit proof arguments into implicit ones or strip proof fields from records, Σ values, or vectors. Transparent definitions may be unfolded to retain a proof required by computation, subject to the checking budget. See `crates/deppy-python/examples/core/proof_erasure.py`.
 
 ## Holes, goals, and tactics
 

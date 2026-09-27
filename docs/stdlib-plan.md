@@ -53,7 +53,6 @@ Prefer moving checked definitions over creating parallel implementations.
 | [common.py](../crates/deppy-python/examples/proof_case/common.py) | `Group`, `Subgroup`, recovery/cancellation, `power`, `product`, permutation-independent products | Resolve shared removal evidence first; extract a monoid interface if products need less than a group |
 | [lagrange.py](../crates/deppy-python/examples/proof_case/lagrange.py) | `Equivalence`, `Divisible`, rejection/count laws, uniform finite partitions | List/finite foundations; state divisor and zero conventions before adding gcd/modular APIs |
 | [fermat.py](../crates/deppy-python/examples/proof_case/fermat.py) | Finite equality decision, power laws, reusable commuting-product laws | Promote finite equality in P1; keep theorem-specific group constructions in examples until independently useful |
-| [fermat2.py](../crates/deppy-python/examples/proof_case/fermat2.py) | Product scaling and finite abelian power laws | Shared algebra/product module; migrate clients to its canonical definitions |
 
 Extend `deppy.permutations` with append compatibility, reverse permutation and filter preservation before using it as the common interface for commutative folds/products. Natural-number power, divisibility laws and gcd can follow the foundational arithmetic work. Primality testing and construction of finite fields from modular integers remain distinct projects; the existing Fermat examples do not supply them.
 

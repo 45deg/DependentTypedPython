@@ -264,7 +264,7 @@ When ``invariant`` is omitted, loop state is inferred from assignments and its l
 refinements supply an invariant candidate. Initialization and preservation are still proved.
 ``decreases(counter)`` specifies the current value as the natural-number measure.
 
-.. deppy-api:: crates/deppy-python/examples/fibonacci.py
+.. deppy-api:: crates/deppy-python/examples/verified/fibonacci.py
 
 Contract composition
 --------------------
@@ -281,7 +281,7 @@ Single loops support ``loop.init``, ``loop.preserve``,
 ``loop.decrease`` and ``loop.exit`` proof entries. Multiple and nested loops
 use source-order loop numbers in their goal names.
 
-.. deppy-api:: crates/deppy-python/examples/verified_composition.py
+.. deppy-api:: crates/deppy-python/examples/verified/verified_composition.py
 
 Refined argument composition
 ----------------------------
@@ -290,7 +290,7 @@ Missing call proofs produce named precondition goals. ``exact`` can use an
 entry refinement or an earlier call's postcondition; ``rewrite`` can transform
 the goal using that evidence. Every generated proof is kernel-checked.
 
-.. deppy-api:: crates/deppy-python/examples/refined_arguments.py
+.. deppy-api:: crates/deppy-python/examples/verified/refined_arguments.py
 
 Local refinements and modular loops
 -----------------------------------
@@ -305,6 +305,6 @@ Refined state variables also require ``loop.preserve.entry.local.x.refined``
 (and decrease/exit counterparts), deriving their conditions from the invariant.
 No new kernel rules or implicit subtyping are introduced.
 
-.. deppy-api:: crates/deppy-python/examples/refined_loop.py
+.. deppy-api:: crates/deppy-python/examples/verified/refined_loop.py
 
-.. deppy-api:: crates/deppy-python/examples/refined_loop_client.py
+.. deppy-api:: crates/deppy-python/examples/verified/refined_loop_client.py

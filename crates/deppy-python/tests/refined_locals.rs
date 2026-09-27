@@ -1,6 +1,6 @@
 use deppy_python::{analyze_module, check_module, check_module_with_resolver, Target};
 const TARGET: Target = Target::Python314;
-const LOOP: &str = include_str!("../examples/refined_loop.py");
+const LOOP: &str = include_str!("../examples/verified/refined_loop.py");
 const HEADER: &str = "from __future__ import annotations\nfrom deppy import theorem, Nat, Eq, refl, S\nfrom deppy.data import Bool, True_, Unit, MkUnit\nfrom deppy.verified import verified, Refined, verified_spec\nfrom deppy.tactics import exact, rewrite\nfrom deppy.nat_order import LE, le_refl\n";
 
 #[test]
@@ -202,7 +202,7 @@ fn branching_loop_contracts_use_guard_context_and_abstract_state_results() {
 
 #[test]
 fn imported_example_proof_reuses_loop_specification() {
-    let source = include_str!("../examples/refined_loop_client.py");
+    let source = include_str!("../examples/verified/refined_loop_client.py");
     let checked = check_module_with_resolver(source, TARGET, &mut |name: &str| {
         Ok((name == "refined_loop").then(|| LOOP.to_owned()))
     })

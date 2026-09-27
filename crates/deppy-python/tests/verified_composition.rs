@@ -1,6 +1,6 @@
 use deppy_python::{analyze_module, check_module, check_module_with_resolver, Target};
 const TARGET: Target = Target::Python314;
-const EXAMPLE: &str = include_str!("../examples/verified_composition.py");
+const EXAMPLE: &str = include_str!("../examples/verified/verified_composition.py");
 const HEADER: &str = "from __future__ import annotations\nfrom deppy import dependent, theorem, Nat, S, Eq, refl\nfrom deppy.data import Bool, Unit, MkUnit, True_, False_\nfrom deppy.verified import verified, Refined, verified_spec\n";
 
 #[test]
@@ -219,7 +219,8 @@ fn contract_changes_invalidate_cached_composition() {
 fn loop_contracts_can_be_used_by_modular_callers() {
     let source = format!("{HEADER}from fibonacci import fib_loop, fib_recursive\n@verified(proofs={{'call.result.requires': lambda n, pre: MkUnit(), 'return': lambda n, pre, result, spec: spec}})\ndef fib_client(n: Nat) -> Refined[Nat, lambda r: Eq[Nat, r, fib_recursive(n)]]:\n    result = fib_loop(n)\n    return result\n");
     let checked = check_module_with_resolver(&source, TARGET, &mut |name: &str| {
-        Ok((name == "fibonacci").then(|| include_str!("../examples/fibonacci.py").to_owned()))
+        Ok((name == "fibonacci")
+            .then(|| include_str!("../examples/verified/fibonacci.py").to_owned()))
     })
     .unwrap_or_else(|e| panic!("{e}"));
     assert!(checked.axiom_dependencies["fib_client"].is_empty());

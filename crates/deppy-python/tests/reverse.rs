@@ -1,7 +1,7 @@
 use deppy_elab::Expr as E;
 use deppy_python::{check_module, Target};
 
-const SOURCE: &str = include_str!("../examples/reverse.py");
+const SOURCE: &str = include_str!("../examples/core/reverse.py");
 
 #[test]
 fn reverse_get_is_checked_generically_and_normalizes_to_reflexivity() {

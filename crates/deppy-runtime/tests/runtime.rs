@@ -71,15 +71,15 @@ fn theorem_alias_retains_checked_runtime_bodies() {
 
 #[test]
 fn get_and_zero_right_execute() {
-    run(include_str!("../../deppy-python/examples/proofs.py"), "\nfor n in range(1, 9):\n    xs = tuple(range(n))\n    for i in range(n):\n        assert exports['get'](n, xs, (n, i)) == i\nfor n in range(9):\n    assert exports['zero_right'](n) is None\n");
+    run(include_str!("../../deppy-python/examples/core/proofs.py"), "\nfor n in range(1, 9):\n    xs = tuple(range(n))\n    for i in range(n):\n        assert exports['get'](n, xs, (n, i)) == i\nfor n in range(9):\n    assert exports['zero_right'](n) is None\n");
 }
 #[test]
 fn dependent_record_round_trip_executes() {
-    run(include_str!("../../deppy-python/examples/records.py"), "\nfor n in range(9):\n    xs = tuple(range(n))\n    p = exports['pack'](n, xs)\n    r = exports['as_record'](p)\n    assert exports['as_pair'](r) == p\n");
+    run(include_str!("../../deppy-python/examples/core/records.py"), "\nfor n in range(9):\n    xs = tuple(range(n))\n    p = exports['pack'](n, xs)\n    r = exports['as_record'](p)\n    assert exports['as_pair'](r) == p\n");
 }
 #[test]
 fn pre_match_definitions_execute() {
-    run(include_str!("../../deppy-python/examples/before_match.py"), "\nfor n in range(9):\n    assert exports['count'](n) == n\n    assert exports['keep'](n, tuple(range(n))) == tuple(range(n))\n    assert exports['reflexive'](n) is None\n");
+    run(include_str!("../../deppy-python/examples/core/before_match.py"), "\nfor n in range(9):\n    assert exports['count'](n) == n\n    assert exports['keep'](n, tuple(range(n))) == tuple(range(n))\n    assert exports['reflexive'](n) is None\n");
 }
 #[test]
 fn erased_runtime_use_is_rejected_by_compiler() {
@@ -93,7 +93,7 @@ fn erased_runtime_use_is_rejected_by_compiler() {
 #[test]
 fn boundaries_reject_forged_indices_mutation_and_nominal_confusion() {
     run(
-        include_str!("../../deppy-python/examples/proofs.py"),
+        include_str!("../../deppy-python/examples/core/proofs.py"),
         r#"
 def rejected(f, *args):
     try:
@@ -110,7 +110,7 @@ rejected(exports['zero_right'], -1)
 "#,
     );
     run(
-        include_str!("../../deppy-python/examples/records.py"),
+        include_str!("../../deppy-python/examples/core/records.py"),
         r#"
 r = exports['SomeVec'](2, (10, 20))
 assert exports['as_pair'](r) == (2, (10, 20))
@@ -126,9 +126,9 @@ for bad in [(object(), r[1]), (r[0], (2, (10,))), (r[0], [2, (10, 20)])]:
 }
 #[test]
 fn identity_append_and_natural_recursors_execute() {
-    run(include_str!("../../deppy-python/examples/basics.py"), "\nassert exports['identity']((1, 'x')) == (1, 'x')\nassert exports['twice'](9) == 11\nassert exports['empty'](4) == ()\n");
+    run(include_str!("../../deppy-python/examples/core/basics.py"), "\nassert exports['identity']((1, 'x')) == (1, 'x')\nassert exports['twice'](9) == 11\nassert exports['empty'](4) == ()\n");
     run(
-        include_str!("../../deppy-python/examples/structural.py"),
+        include_str!("../../deppy-python/examples/core/structural.py"),
         r#"
 for n in range(6):
     for m in range(6):
@@ -250,7 +250,7 @@ for xs in [(-1,), (True,), ('x',)]:
 
 #[test]
 fn reversed_vectors_and_mirrored_indices_execute() {
-    let source = include_str!("../../deppy-python/examples/reverse.py")
+    let source = include_str!("../../deppy-python/examples/core/reverse.py")
         .replace(
             "from deppy.vectors import get,",
             "from deppy.vectors import snoc, get,",
@@ -297,7 +297,7 @@ else:
 #[test]
 fn explicit_eliminators_and_python_proof_library_execute() {
     run(
-        include_str!("../../deppy-python/examples/reverse_explicit.py"),
+        include_str!("../../deppy-python/examples/core/reverse_explicit.py"),
         r#"
 for n in range(1, 5):
     xs = tuple(range(n))
@@ -379,7 +379,7 @@ else:
 #[test]
 fn erased_proof_examples_skip_proof_computation_at_runtime() {
     run(
-        include_str!("../../deppy-python/examples/proof_erasure.py"),
+        include_str!("../../deppy-python/examples/core/proof_erasure.py"),
         r#"
 original_j = _j
 def forbidden(*args):
@@ -393,7 +393,7 @@ assert exports['compute'](8) == 8
 "#,
     );
     run(
-        include_str!("../../deppy-python/examples/proofs.py"),
+        include_str!("../../deppy-python/examples/core/proofs.py"),
         r#"
 def forbidden(*args):
     raise AssertionError('erased recursive proof executed')

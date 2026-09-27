@@ -63,13 +63,13 @@ fn alias_and_reexport_preserve_the_specification_binding() {
 fn full_loop_specs_can_be_reused_for_symbolic_inputs() {
     let mut resolver = |name: &str| {
         Ok(match name {
-            "verified" => Some(include_str!("../examples/verified.py").into()),
-            "verified_loop" => Some(include_str!("../examples/verified_loop.py").into()),
+            "verified" => Some(include_str!("../examples/verified/verified.py").into()),
+            "verified_loop" => Some(include_str!("../examples/verified/verified_loop.py").into()),
             _ => None,
         })
     };
     let checked = check_module_with_resolver(
-        include_str!("../examples/verified_spec.py"),
+        include_str!("../examples/verified/verified_spec.py"),
         TARGET,
         &mut resolver,
     )

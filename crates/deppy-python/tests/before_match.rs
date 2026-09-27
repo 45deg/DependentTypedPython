@@ -2,7 +2,7 @@ use deppy_core::Term;
 use deppy_elab::Expr as E;
 use deppy_python::{check_module, Target};
 
-const FIXTURE: &str = include_str!("../examples/before_match.py");
+const FIXTURE: &str = include_str!("../examples/core/before_match.py");
 const HEADER: &str = "from __future__ import annotations\nfrom deppy import dependent, Type, Nat, Z, S, Vec, VNil, VCons, Fin, FZ, FS, Eq, refl, fin0_elim, Sigma, Pair\n";
 
 #[test]

@@ -205,7 +205,7 @@ def computes_mixed() -> Eq[Int, mixed(3), Pos(1)]:
 #[test]
 fn numeric_example_is_statically_checked() {
     check_module(
-        include_str!("../examples/verified_numeric.py"),
+        include_str!("../examples/verified/verified_numeric.py"),
         Target::Python314,
     )
     .unwrap();

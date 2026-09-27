@@ -56,7 +56,7 @@ jobs:
           cargo run -p deppy-elab --example records --locked
           cargo run -p deppy-elab --example structural --locked
           cargo run -p deppy-python --example check --locked
-          cargo run -p deppy-python --locked -- crates/deppy-python/examples/basics.py
+          cargo run -p deppy-python --locked -- crates/deppy-python/examples/core/basics.py
 
   python-syntax:
     name: Python ${{ matrix.python-version }}

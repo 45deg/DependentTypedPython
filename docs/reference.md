@@ -52,7 +52,7 @@ The standalone elaborator accepts Rust-built ASTs; `deppy-python` parses Python 
 
 `lower_module(source, Target)` parses Python 3.12, 3.13, or 3.14 with Ruff and returns declarations and UTF-8 byte ranges. `check_module` checks a fresh environment and returns checked definitions plus its elaborator, or fails without returning a partial checked module. The CLI defaults to Python 3.14 syntax and reports file, line, and column. The Ruff parser, AST, and text-size crates are pinned together at `=0.0.12`.
 
-The dependent subset accepts `from __future__ import annotations`, static imports from checked `deppy` modules and local sources, annotated positional parameters and returns, implicit `[A: Type]` parameters, immutable local assignments, pure expressions, `return`, and structurally checked `match`/recursion. Constants may use `def name() -> A`. Supported expressions include `Type[level]`, dependent function and pair types, Nat/Vec/Fin/Eq constructors and eliminators, position-based application, explicit bracketed implicit arguments, and Nat literals. Built-in compatibility forms are illustrated by `crates/deppy-python/examples/basics.py` and `proofs.py`.
+The dependent subset accepts `from __future__ import annotations`, static imports from checked `deppy` modules and local sources, annotated positional parameters and returns, implicit `[A: Type]` parameters, immutable local assignments, pure expressions, `return`, and structurally checked `match`/recursion. Constants may use `def name() -> A`. Supported expressions include `Type[level]`, dependent function and pair types, Nat/Vec/Fin/Eq constructors and eliminators, position-based application, explicit bracketed implicit arguments, and Nat literals. Built-in compatibility forms are illustrated by `crates/deppy-python/examples/core/basics.py` and `proofs.py`.
 
 `@dependent(decreases="parameter", motive_level=0)` selects a structural argument and concrete result universe. Recursive calls must follow direct substructure and pass all parameters in order. General `@inductive` patterns have the rules in [inductive families](inductives.md); built-in compatibility patterns retain their specific restrictions. Pattern captures cannot shadow existing local or global names. Values defined before a match are checked in their original context and re-elaborated under a refined branch context; even unused bad definitions are rejected.
 
@@ -77,7 +77,7 @@ The frontend rejects unsupported Python features rather than treating them as un
 The boundary checks Vec length, Fin bound, known element types, dependent fields, constructor arity, nominal tags, and representable indices. Mutable lists, forged tags, and wrong bounds are rejected. Erased type parameters are treated as opaque immutable data rather than checked against an original Python class. Proofs cannot enter from external Python, and a public schema that requires erased evidence or an arbitrary type family is rejected. Generated classes are not source-compatible with arbitrary Python record classes. Rust checking and generated Python calls remain subject to stack/memory limits.
 
 ```sh
-cargo run -p deppy-runtime --locked --offline -- crates/deppy-python/examples/proofs.py > /tmp/deppy_proofs.py
+cargo run -p deppy-runtime --locked --offline -- crates/deppy-python/examples/core/proofs.py > /tmp/deppy_proofs.py
 uv run --no-project --offline --python 3.12 python -c "import runpy; f = runpy.run_path('/tmp/deppy_proofs.py')['exports']; print(f['get'](3, (10, 20, 30), (3, 1)))"
 ```
 

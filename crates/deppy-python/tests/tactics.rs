@@ -78,7 +78,7 @@ fn rewritten_goals_keep_source_and_context_and_cannot_be_exported() {
 
 #[test]
 fn fibonacci_rewrites_and_independent_loop_goals_are_checked() {
-    let source = include_str!("../examples/fibonacci.py");
+    let source = include_str!("../examples/verified/fibonacci.py");
     let checked = check_module(source, TARGET).unwrap_or_else(|e| panic!("{e}"));
     assert!(checked.axiom_dependencies.values().all(Vec::is_empty));
     let mut incomplete = source.replace(

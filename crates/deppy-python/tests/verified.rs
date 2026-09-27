@@ -11,7 +11,7 @@ from deppy.verified import verified
 fn verified_examples_check_without_axioms_and_compute() {
     let source = format!(
         "{}{}",
-        include_str!("../examples/verified.py")
+        include_str!("../examples/verified/verified.py")
             .replace("from deppy import Nat", "from deppy import dependent, Nat")
             .replace(
                 "from deppy.data import Bool",

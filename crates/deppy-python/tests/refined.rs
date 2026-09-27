@@ -135,7 +135,7 @@ def concrete() -> Eq[Nat, swap(2, 5), 7]:
 
 #[test]
 fn fibonacci_proves_general_equality_and_concrete_results_without_axioms() {
-    let mut source = include_str!("../examples/fibonacci.py").to_owned();
+    let mut source = include_str!("../examples/verified/fibonacci.py").to_owned();
     for (n, expected) in [(0, 0), (1, 1), (2, 1), (3, 2)] {
         source.push_str(&format!("\n@dependent\ndef value_{n}() -> Eq[Nat, fib_loop({n}), {expected}]:\n    return refl({expected})\n"));
     }
@@ -148,7 +148,7 @@ fn fibonacci_proves_general_equality_and_concrete_results_without_axioms() {
 
 #[test]
 fn fibonacci_mutations_do_not_reuse_stale_proofs() {
-    let source = include_str!("../examples/fibonacci.py");
+    let source = include_str!("../examples/verified/fibonacci.py");
     for (from, to) in [
         ("a, b = b, a + b", "a = b\n        b = a + b"),
         ("a, b = 0, 1", "a, b = 1, 1"),

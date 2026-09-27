@@ -721,7 +721,7 @@ fn primitive_calls_reject_bad_motives_levels_and_annotations() {
 
 #[test]
 fn explicit_reverse_proof_uses_only_python_library_and_eliminators() {
-    let m = check_module(include_str!("../examples/reverse_explicit.py"), TARGET).unwrap();
+    let m = check_module(include_str!("../examples/core/reverse_explicit.py"), TARGET).unwrap();
     assert!(m.axiom_dependencies["reverse_get"].is_empty());
     let xs = E::vcons(
         E::Nat,

@@ -2,7 +2,7 @@ use deppy_core::Term;
 use deppy_elab::Expr as E;
 use deppy_python::{check_module, lower_module, Target};
 
-const SOURCE: &str = include_str!("../examples/universes.py");
+const SOURCE: &str = include_str!("../examples/core/universes.py");
 
 #[test]
 fn higher_record_and_recursive_motive_compute_on_all_targets() {

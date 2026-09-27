@@ -10,7 +10,7 @@ import types
 import reference_deppy as ref
 
 ROOT = Path(__file__).resolve().parents[1]
-EXAMPLES = ROOT / 'crates/deppy-python/examples'
+EXAMPLES = ROOT / 'crates/deppy-python/examples/core'
 sys.modules['deppy'] = ref
 subprocess.run(['cargo', 'build', '-p', 'deppy-runtime', '--locked', '--offline'], cwd=ROOT, check=True)
 

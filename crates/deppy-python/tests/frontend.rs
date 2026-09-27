@@ -16,7 +16,7 @@ fn rejected(body: &str) -> deppy_python::Diagnostic {
 #[test]
 fn identity_fixture_checks_and_computes_on_all_targets() {
     for target in [Target::Python312, Target::Python313, Target::Python314] {
-        let m = check_module(include_str!("../examples/basics.py"), target).unwrap();
+        let m = check_module(include_str!("../examples/core/basics.py"), target).unwrap();
         assert_eq!(m.definitions.len(), 5);
         let e = m.elaborator;
         let result = e.infer(&E::name("identity").app(E::Zero)).unwrap();
@@ -196,7 +196,7 @@ fn zero_parameter_constants_and_empty_call_validation() {
 #[test]
 fn structural_python_fixture_checks_and_computes() {
     for target in [Target::Python312, Target::Python313, Target::Python314] {
-        let module = check_module(include_str!("../examples/structural.py"), target).unwrap();
+        let module = check_module(include_str!("../examples/core/structural.py"), target).unwrap();
         let e = module.elaborator;
         for n in 0..4 {
             for m in 0..4 {
@@ -229,7 +229,7 @@ fn structural_python_fixture_checks_and_computes() {
 
 #[test]
 fn structural_recursion_and_coverage_are_checked() {
-    let fixture = include_str!("../examples/structural.py");
+    let fixture = include_str!("../examples/core/structural.py");
     for bad in [
         fixture.replace("add(k, m)", "add(n, m)"),
         fixture.replace("add(k, m)", "add(S(k), m)"),
@@ -250,7 +250,7 @@ fn structural_recursion_and_coverage_are_checked() {
 #[test]
 fn structural_aliases_globals_and_local_scope() {
     accepted("@dependent\ndef step(n: Nat) -> Nat:\n    return S(n)\n@dependent(decreases='n')\ndef count(n: Nat) -> Nat:\n    match n:\n        case Z():\n            return Z()\n        case S(k):\n            return step(count(k))");
-    let fixture = include_str!("../examples/structural.py")
+    let fixture = include_str!("../examples/core/structural.py")
         .replace("Nat, Z, S", "Nat, Z as Zero, S as Succ")
         .replace("Z()", "Zero()")
         .replace("S(", "Succ(");
@@ -281,7 +281,7 @@ fn structural_fin_matches_compute() {
 #[test]
 fn python_get_and_zero_right_compute() {
     for target in [Target::Python312, Target::Python313, Target::Python314] {
-        let m = check_module(include_str!("../examples/proofs.py"), target).unwrap();
+        let m = check_module(include_str!("../examples/core/proofs.py"), target).unwrap();
         let e = m.elaborator;
         let nat = |n| (0..n).fold(E::Zero, |n, _| n.succ());
         for len in 1..5 {
@@ -309,7 +309,7 @@ fn python_get_and_zero_right_compute() {
 
 #[test]
 fn python_proof_operations_reject_invalid_evidence() {
-    let fixture = include_str!("../examples/proofs.py");
+    let fixture = include_str!("../examples/core/proofs.py");
     for bad in [
         fixture.replace("fin0_elim(i)", "fin0_elim(Z())"),
         fixture.replace("cong(S, zero_right(k))", "refl(n)"),
@@ -329,7 +329,7 @@ fn python_proof_operations_reject_invalid_evidence() {
 
 #[test]
 fn recursive_branch_lets_keep_expected_types_and_compute() {
-    let fixture = include_str!("../examples/proofs.py")
+    let fixture = include_str!("../examples/core/proofs.py")
         .replace("return cong(S, zero_right(k))", "ih: Eq[Nat, k + 0, k] = zero_right(k)\n            result = cong(S, ih)\n            return result")
         .replace("return get(k, rest, j)", "value: T = get(k, rest, j)\n                    return value");
     let module = check_module(&fixture, Target::Python314).unwrap();

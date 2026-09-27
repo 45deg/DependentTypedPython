@@ -2,7 +2,7 @@ use deppy_python::{
     analyze_module, check_module, check_module_with_resolver, CheckSession, Target,
 };
 const TARGET: Target = Target::Python314;
-const EXAMPLE: &str = include_str!("../examples/refined_arguments.py");
+const EXAMPLE: &str = include_str!("../examples/verified/refined_arguments.py");
 const HEADER: &str = "from __future__ import annotations\nfrom deppy import dependent, theorem, Nat, Eq, refl, Pair\nfrom deppy.data import Bool, True_, Unit, MkUnit\nfrom deppy.verified import verified, Refined, verified_spec\nfrom deppy.tactics import exact\n";
 
 #[test]
@@ -189,7 +189,7 @@ fn imported_contract_changes_invalidate_cached_parameter_obligations() {
 
 #[test]
 fn refined_inputs_work_with_loop_certificates_and_axiom_tracking() {
-    let fib = include_str!("../examples/fibonacci.py")
+    let fib = include_str!("../examples/verified/fibonacci.py")
         .replace(
             "def fib_loop(n: Nat)",
             "def fib_loop(n: Refined[Nat, lambda x: Eq[Nat, x, x]])",
