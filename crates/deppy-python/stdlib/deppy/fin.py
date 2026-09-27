@@ -25,6 +25,7 @@ def case_motive(size: Nat) -> Pi[Fin[size], lambda index: Type[1]]:
 @dependent
 def fin_case(k: Nat, P: Pi[Fin[S(k)], lambda index: Type], i: Fin[S(k)],
              first: P(FZ(k)), rest: Pi[Fin[k], lambda j: P(FS(k, j))]) -> P(i):
+    """Eliminate a finite index by its zero or successor case."""
     return fin_elim(
         1,
         lambda size, index: case_motive(size)(index),

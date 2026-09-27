@@ -5,6 +5,7 @@ from deppy.equality import cong
 
 @inductive
 class Nat:
+    """Demonstration natural numbers, distinct from the canonical builtin Nat."""
     @constructor
     def Z() -> Nat: ...
     @constructor
@@ -13,6 +14,7 @@ class Nat:
 
 @dependent(decreases="n")
 def add(n: Nat, m: Nat) -> Nat:
+    """Add demonstration natural numbers."""
     match n:
         case Z():
             return m
@@ -22,6 +24,7 @@ def add(n: Nat, m: Nat) -> Nat:
 
 @dependent(decreases="n")
 def zero_right(n: Nat) -> Eq[Nat, add(n, Z()), n]:
+    """Adding demonstration zero on the right preserves the number."""
     match n:
         case Z():
             return refl(Z())

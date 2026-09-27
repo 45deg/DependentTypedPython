@@ -30,4 +30,4 @@ The syntax check compiles source without executing programs or checking proofs. 
 uv run --with 'sphinx>=8.2,<9' sphinx-build -W -b html docs docs/_build/html
 ```
 
-`docs/_ext/deppy_api.py` extracts mathematical API docstrings statically and does not run proof files. Sphinx generates the API reference; Markdown guides remain repository documents. Check their relative links separately.
+`docs/_ext/deppy_api.py` extracts curated declarations, complete signatures, and docstrings statically without running proof files. Sphinx generates the API reference; Markdown guides remain repository documents. Check their relative links separately.

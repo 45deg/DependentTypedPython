@@ -1,5 +1,5 @@
 from __future__ import annotations
-from deppy._builtins import dependent, theorem, Type, Pi, Nat, Z, S, Vec, VNil, VCons, Fin, FZ, FS, fin0_elim, nat_elim, vec_elim, Eq, refl
+from deppy._builtins import dependent, theorem, Type, Pi, Nat, Z, S, Vec, VNil, VCons, vnil, vcons, Fin, FZ, FS, fin0_elim, nat_elim, vec_elim, Eq, refl
 from deppy.equality import trans, cong, cong2
 from deppy.nat import add
 from deppy.fin import fin_case
@@ -7,6 +7,7 @@ from deppy.fin import fin_case
 
 @dependent(decreases="xs")
 def get[T: Type](n: Nat, xs: Vec[T, n], i: Fin[n]) -> T:
+    """Look up the element at a finite index."""
     match xs:
         case VNil():
             return fin0_elim(i)
@@ -159,6 +160,7 @@ def get_append_right[T: Type](n: Nat, m: Nat, xs: Vec[T, n], ys: Vec[T, m], j: F
 
 @dependent(decreases="xs")
 def snoc[T: Type](n: Nat, x: T, xs: Vec[T, n]) -> Vec[T, S(n)]:
+    """Append one element to the end of a vector."""
     match xs:
         case VNil():
             return VCons(0, x, VNil())
@@ -168,6 +170,7 @@ def snoc[T: Type](n: Nat, x: T, xs: Vec[T, n]) -> Vec[T, S(n)]:
 
 @dependent(decreases="xs")
 def reverse[T: Type](n: Nat, xs: Vec[T, n]) -> Vec[T, n]:
+    """Return the vector in reverse order."""
     match xs:
         case VNil():
             return VNil()

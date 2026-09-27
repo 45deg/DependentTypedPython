@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from deppy._builtins import dependent, theorem, Type, Eq, refl, absurd
+from deppy._builtins import dependent, theorem, induct, Pi, Type, Eq, refl, absurd
 from deppy.data import Bool, False_, True_, Empty, Unit, MkUnit, Decidable, Yes, No
 from deppy.equality import sym, transport
 
@@ -327,3 +327,135 @@ def xor_comm(a: Bool, b: Bool) -> Eq[Bool, xor(a, b), xor(b, a)]:
                     return refl(xor(False_(), True_()))
                 case True_():
                     return refl(xor(True_(), True_()))
+
+
+@dependent
+def decision_bool[P: Type](decision: Decidable[P]) -> Bool:
+    r"""Compute a boolean from a constructive decision for :math:`P`."""
+    match decision:
+        case Yes(_):
+            return True_()
+        case No(_):
+            return False_()
+
+
+@dependent
+def select[A: Type](flag: Bool, no: A, yes: A) -> A:
+    r"""Denote a branch: select ``yes`` when the flag is true, otherwise ``no``."""
+    return induct(0, flag, lambda _: A, no, yes)
+
+
+@theorem(decreases="flag")
+def select_post[A: Type, P: Pi[A, lambda _: Type]](
+    flag: Bool, no: A, yes: A, no_proof: P(no), yes_proof: P(yes)
+) -> P(select[A](flag, no, yes)):
+    r"""If :math:`P(x)` and :math:`P(y)`, then :math:`P(\operatorname{select}(b,x,y))`."""
+    match flag:
+        case False_():
+            return no_proof
+        case True_():
+            return yes_proof
+
+
+@dependent(decreases="flag", motive_level=1)
+def false_type(flag: Bool) -> Type:
+    r"""A discriminating family: unit at false, empty at true."""
+    match flag:
+        case False_():
+            return Unit
+        case True_():
+            return Empty
+
+
+@theorem
+def false_ne_true(proof: Eq[Bool, False_(), True_()]) -> Empty:
+    r"""Boolean constructors are distinct: :math:`\mathrm{false} \ne \mathrm{true}`."""
+    return transport[Bool, False_(), True_()](false_type, proof, MkUnit())
+
+
+@theorem(decreases="decision")
+def decision_true[P: Type](decision: Decidable[P], test: Eq[Bool, decision_bool(decision), True_()]) -> P:
+    r"""Recover :math:`P` from a true constructive decision."""
+    match decision:
+        case Yes(proof):
+            return proof
+        case No(_):
+            return absurd(P, false_ne_true(test))
+
+
+@theorem(decreases="flag")
+def select_post_eq[A: Type, P: Pi[A, lambda _: Type]](
+    flag: Bool, no: A, yes: A,
+    no_proof: Pi[Eq[Bool, flag, False_()], lambda _: P(no)],
+    yes_proof: Pi[Eq[Bool, flag, True_()], lambda _: P(yes)],
+) -> P(select[A](flag, no, yes)):
+    r"""Prove a selected result, assuming the corresponding boolean branch equation."""
+    match flag:
+        case False_():
+            return no_proof(refl(False_()))
+        case True_():
+            return yes_proof(refl(True_()))
+
+
+@dependent
+def bool_not(flag: Bool) -> Bool:
+    """Negate a Bool without Python truthiness."""
+    return negate(flag)
+
+
+@dependent
+def bool_eq(left: Bool, right: Bool) -> Bool:
+    """Compare Boolean values."""
+    return select[Bool](left, bool_not(right), right)
+
+
+@theorem
+def false_true_elim[P: Type](proof: Eq[Bool, False_(), True_()]) -> P:
+    """Eliminate an impossible false-equals-true branch."""
+    return absurd(P, false_ne_true(proof))
+
+
+@theorem
+def true_false_elim[P: Type](proof: Eq[Bool, True_(), False_()]) -> P:
+    """Eliminate an impossible true-equals-false branch."""
+    return absurd(P, false_ne_true(sym(proof)))
+
+
+@theorem(decreases="flag")
+def not_false(flag: Bool, proof: Eq[Bool, bool_not(flag), False_()]) -> Eq[Bool, flag, True_()]:
+    """Recover a true flag from a false negation."""
+    match flag:
+        case False_():
+            return true_false_elim[Eq[Bool, False_(), True_()]](proof)
+        case True_():
+            return refl(True_())
+
+
+@theorem(decreases="left")
+def and_left(left: Bool, right: Bool, proof: Eq[Bool, select[Bool](left, False_(), right), True_()]) -> Eq[Bool, left, True_()]:
+    """Recover the left conjunct of a true Boolean conjunction."""
+    match left:
+        case False_():
+            return false_true_elim[Eq[Bool, False_(), True_()]](proof)
+        case True_():
+            return refl(True_())
+
+
+@theorem(decreases="left")
+def and_right(left: Bool, right: Bool, proof: Eq[Bool, select[Bool](left, False_(), right), True_()]) -> Eq[Bool, right, True_()]:
+    """Recover the right conjunct of a true Boolean conjunction."""
+    match left:
+        case False_():
+            return false_true_elim[Eq[Bool, right, True_()]](proof)
+        case True_():
+            return proof
+
+
+@theorem(decreases="decision")
+def decision_true_intro[P: Type](decision: Decidable[P], proof: P) -> Eq[Bool, decision_bool(decision), True_()]:
+    """A witness makes its constructive decision true."""
+    match decision:
+        case Yes(_):
+            return refl(True_())
+        case No(refute):
+            return absurd(Eq[Bool, False_(), True_()], refute(proof))

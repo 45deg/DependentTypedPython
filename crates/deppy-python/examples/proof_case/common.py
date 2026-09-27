@@ -24,11 +24,7 @@ from deppy.tactics import rewrite, rewrite_in
 from deppy.nat import add, add_swap
 from deppy.finite import (
     Enumeration,
-    Removal,
-    RemoveHere,
-    RemoveThere,
     either_elim,
-    find_removal,
     removal_present,
     removal_include,
     removal_keep,
@@ -61,7 +57,7 @@ from deppy.data import (
 )
 from deppy.lists import (
     List, Nil, Cons, length, Mem as Has, NoDup, count,
-    reject_head, reject, map,
+    reject_head, reject, map, Removal, RemoveHere, RemoveThere, find_removal,
 )
 
 

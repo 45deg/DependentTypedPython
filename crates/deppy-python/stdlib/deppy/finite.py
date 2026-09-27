@@ -7,6 +7,7 @@ from deppy.lists import (
     List, Nil, Cons, length, Mem, NoDup, All, Any, count, reject_head, reject,
     map, length_map, map_mem, map_nodup, map_mem_reflect as map_injective_has,
     all_decide, any_decide, all_get, all_intro, any_from_mem, any_witness,
+    Removal, RemoveHere, RemoveThere, find_removal,
 )
 from deppy.data import (
     Empty, Unit, MkUnit, Not, Sum, Left, Right, Decidable, Yes, No,
@@ -114,46 +115,6 @@ def either_elim[A: Type, B: Type, C: Type](
 ) -> C:
     r"""Eliminate either alternative using the corresponding branch function."""
     return induct(0, value, lambda _: C, lambda x: left(x), lambda y: right(y))
-
-
-@inductive
-class Removal[A: Type, x: A]:
-    r"""Evidence that deleting one occurrence of x turns source into rest."""
-    source: Index[List[A]]
-    rest: Index[List[A]]
-
-    @constructor
-    def RemoveHere(tail: List[A]) -> Removal[A, x, Cons(x, tail), tail]: ...
-    @constructor
-    def RemoveThere(
-        head: A, ys: List[A], zs: List[A], step: Removal[A, x, ys, zs]
-    ) -> Removal[A, x, Cons(head, ys), Cons(head, zs)]: ...
-
-
-@theorem(decreases="xs")
-def find_removal[A: Type](
-    x: A, xs: List[A], member: Has(x, xs)
-) -> Sigma[List[A], lambda rest: Removal[A, x, xs, rest]]:
-    r"""Turn membership into a remainder list and a one-occurrence removal proof.
-
-    Recurse through the membership evidence, transporting the head case along equality.
-    """
-    match xs:
-        case Nil():
-            return absurd(Sigma[List[A], lambda rest: Removal[A, x, Nil[A](), rest]], member)
-        case Cons(y, tail):
-            match member:
-                case Left(eq):
-                    return transport[A, x, y](
-                        lambda z: Sigma[List[A], lambda rest: Removal[A, x, Cons(z, tail), rest]],
-                        eq,
-                        Pair(tail, RemoveHere[A, x](tail)),
-                    )
-                case Right(later):
-                    found = find_removal(x, tail, later)
-                    return Pair(
-                        Cons(y, found.fst), RemoveThere[A, x](y, tail, found.fst, found.snd)
-                    )
 
 
 @theorem(decreases="r")

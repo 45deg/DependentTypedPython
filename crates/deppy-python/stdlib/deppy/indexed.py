@@ -5,6 +5,7 @@ from deppy.naturals import Nat, Z, S
 
 @inductive
 class IVec[A: Type]:
+    """Demonstration vector indexed by deppy.naturals.Nat."""
     length: Index[Nat]
     @constructor
     def INil() -> IVec[A, Z()]: ...
@@ -14,6 +15,7 @@ class IVec[A: Type]:
 
 @inductive
 class IFin:
+    """Demonstration finite index bounded by deppy.naturals.Nat."""
     bound: Index[Nat]
     @constructor
     def IFZ(k: Nat) -> IFin[S(k)]: ...
@@ -50,6 +52,7 @@ def fin_case(k: Nat, P: Pi[IFin[S(k)], lambda index: Type], i: IFin[S(k)],
 
 @dependent
 def get[A: Type, n: Nat](xs: IVec[A, n], i: IFin[n]) -> A:
+    """Look up an element using a demonstration finite index."""
     match xs:
         case INil():
             return absurd(A, i)

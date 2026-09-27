@@ -31,6 +31,7 @@ class Permutation[A: Type]:
 
 @theorem(decreases="xs")
 def perm_refl[A: Type](xs: List[A]) -> Permutation[A, xs, xs]:
+    """Every list is a permutation of itself."""
     match xs:
         case Nil():
             return PermNil[A]()
@@ -40,6 +41,7 @@ def perm_refl[A: Type](xs: List[A]) -> Permutation[A, xs, xs]:
 
 @theorem(decreases="p")
 def perm_sym[A: Type, xs: List[A], ys: List[A]](p: Permutation[A, xs, ys]) -> Permutation[A, ys, xs]:
+    """Reverse a permutation proof."""
     match p:
         case PermNil():
             return PermNil[A]()
@@ -55,6 +57,7 @@ def perm_sym[A: Type, xs: List[A], ys: List[A]](p: Permutation[A, xs, ys]) -> Pe
 def perm_trans[A: Type, xs: List[A], ys: List[A], zs: List[A]](
     first: Permutation[A, xs, ys], second: Permutation[A, ys, zs]
 ) -> Permutation[A, xs, zs]:
+    """Compose two permutation proofs."""
     return PermTrans(xs, ys, zs, first, second)
 
 
@@ -62,6 +65,7 @@ def perm_trans[A: Type, xs: List[A], ys: List[A], zs: List[A]](
 def perm_length[A: Type, xs: List[A], ys: List[A]](p: Permutation[A, xs, ys]) -> Eq[
     Nat, length(xs), length(ys)
 ]:
+    """Permutation preserves list length."""
     match p:
         case PermNil():
             return refl(0)
@@ -109,6 +113,7 @@ def perm_mem[A: Type, xs: List[A], ys: List[A]](
 def perm_mem_back[A: Type, xs: List[A], ys: List[A]](
     p: Permutation[A, xs, ys], q: A, member: Mem(q, ys)
 ) -> Mem(q, xs):
+    """Transport membership backward through a permutation."""
     return perm_mem(perm_sym(p), q, member)
 
 

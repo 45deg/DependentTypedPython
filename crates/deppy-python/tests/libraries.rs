@@ -1,6 +1,6 @@
 use deppy_core::Term;
 use deppy_elab::Expr as E;
-use deppy_python::{check_module, check_module_with_resolver, Target};
+use deppy_python::{check_module, check_module_with_resolver, DeclarationKind, Target};
 const TARGET: Target = Target::Python314;
 const HEADER: &str = "from __future__ import annotations\nfrom deppy import dependent, axiom, Type, Nat, Z, S, Pi, ImplicitPi, Eq, refl, J, nat_elim, vec_elim, fin_elim, Fin, FZ, FS, Vec, vnil, vcons, lam, implicit_lam, ann, record, record_elim\n";
 fn source(body: &str) -> String {
@@ -127,6 +127,226 @@ def strict() -> LT(1, 3):
                 .as_ref(),
             Term::Refl { .. }
         ));
+    }
+}
+
+#[test]
+fn p0_nat_boolean_comparisons_are_axiom_free() {
+    let checked = check_module(include_str!("../stdlib/deppy/nat_bool.py"), TARGET).unwrap();
+    for name in [
+        "equal",
+        "nat_eq",
+        "equal_nat_eq",
+        "equal_true",
+        "nat_eq_true",
+    ] {
+        assert!(checked.interface.exports().contains_key(name), "{name}");
+        assert!(checked.axiom_dependencies[name].is_empty(), "{name}");
+    }
+    assert!(checked.axiom_dependencies.values().all(Vec::is_empty));
+}
+
+#[test]
+fn p0_verified_compatibility_names_are_real_declarations() {
+    let checked = check_module(include_str!("../stdlib/deppy/verified.py"), TARGET).unwrap();
+    for name in [
+        "select", "bool_not", "bool_eq", "nat_le", "nat_lt", "nat_eq",
+    ] {
+        assert_eq!(
+            checked.interface.exports()[name].kind,
+            DeclarationKind::Definition,
+            "{name}"
+        );
+    }
+    for name in [
+        "select_post_eq",
+        "decision_true",
+        "false_true_elim",
+        "true_false_elim",
+        "nat_eq_true",
+        "nat_lt_not_false",
+        "nat_le_refl_true",
+        "nat_lt_true",
+        "nat_le_true",
+        "nat_lt_false_zero",
+        "pred_lt_true",
+        "lt_le_bound",
+    ] {
+        assert_eq!(
+            checked.interface.exports()[name].kind,
+            DeclarationKind::Opaque,
+            "{name}"
+        );
+    }
+    assert!(checked.axiom_dependencies.values().all(Vec::is_empty));
+}
+
+#[test]
+fn p0_removal_imports_share_evidence_and_reject_bad_indices() {
+    let source = r#"from __future__ import annotations
+from deppy import theorem, dependent, Nat, Eq, refl, S
+from deppy.data import Decidable, Yes
+from deppy.lists import List, Nil, Cons, Removal as ListRemoval, RemoveHere as ListHere, removal_length, length, count
+from deppy.finite import Removal as FiniteRemoval, RemoveHere as FiniteHere, RemoveThere as FiniteThere, removal_present, removal_count
+
+@dependent
+def decide(n: Nat) -> Decidable[Eq[Nat, n, n]]:
+    return Yes(refl(n))
+
+@theorem
+def shared(r: ListRemoval[Nat, 1, Cons(1, Nil[Nat]()), Nil[Nat]()]) -> FiniteRemoval[Nat, 1, Cons(1, Nil[Nat]()), Nil[Nat]()]:
+    return r
+
+@theorem
+def lists_to_finite() -> Eq[Nat, count[Nat, lambda n: Eq[Nat, n, n]](decide, Cons(1, Cons(1, Nil[Nat]()))), S(count[Nat, lambda n: Eq[Nat, n, n]](decide, Cons(1, Nil[Nat]())) )]:
+    return removal_count[Nat, 1, Cons(1, Cons(1, Nil[Nat]())), Cons(1, Nil[Nat]()), lambda n: Eq[Nat, n, n]](decide, ListHere[Nat, 1](Cons(1, Nil[Nat]())))
+
+@theorem
+def finite_to_lists() -> Eq[Nat, length(Cons(1, Cons(1, Nil[Nat]()))), S(length(Cons(1, Nil[Nat]())))]:
+    return removal_length(FiniteThere[Nat, 1](1, Cons(1, Nil[Nat]()), Nil[Nat](), FiniteHere[Nat, 1](Nil[Nat]())))
+
+@theorem
+def finite_constructor_in_lists() -> ListRemoval[Nat, 1, Cons(1, Nil[Nat]()), Nil[Nat]()]:
+    return FiniteHere[Nat, 1](Nil[Nat]())
+"#;
+    let checked = check_module(source, TARGET).unwrap_or_else(|e| panic!("{e}"));
+    assert!(checked.axiom_dependencies.values().all(Vec::is_empty));
+    let old_client = r#"from __future__ import annotations
+from deppy import theorem, Nat
+from deppy.lists import Nil, Cons
+from deppy.finite import Removal, RemoveHere, find_removal
+@theorem
+def old_path() -> Removal[Nat, 1, Cons(1, Nil[Nat]()), Nil[Nat]()]:
+    return RemoveHere[Nat, 1](Nil[Nat]())
+"#;
+    check_module(old_client, TARGET).unwrap();
+    let invalid = format!(
+        "{source}\n@theorem\ndef bad() -> ListRemoval[Nat, 1, Cons(1, Nil[Nat]()), Cons(1, Nil[Nat]())]:\n    return FiniteHere[Nat, 1](Nil[Nat]())\n"
+    );
+    assert!(check_module(&invalid, TARGET).is_err());
+}
+
+#[test]
+fn p0_comparison_compatibility_preserves_open_and_closed_reduction() {
+    let source = r#"from __future__ import annotations
+from deppy import dependent, theorem, Nat, S, Eq, refl
+from deppy.data import Bool, True_, False_
+from deppy.bool import select, bool_not, bool_eq, negate
+from deppy.nat_bool import nat_le, nat_eq, equal, equal_nat_eq
+from deppy.verified import nat_eq as verified_nat_eq, bool_not as verified_bool_not, bool_eq as verified_bool_eq
+from deppy.arithmetic import equal as arithmetic_equal
+
+@dependent
+def old_not(flag: Bool) -> Bool:
+    return select[Bool](flag, True_(), False_())
+
+@dependent
+def old_nat_eq(n: Nat, m: Nat) -> Bool:
+    return select[Bool](nat_le(n, m), False_(), nat_le(m, n))
+
+@dependent
+def old_bool_eq(left: Bool, right: Bool) -> Bool:
+    return select[Bool](left, old_not(right), right)
+
+@dependent
+def open_bool(flag: Bool) -> Eq[Bool, old_not(flag), bool_not(flag)]:
+    return refl(old_not(flag))
+
+@dependent
+def open_nat(n: Nat, m: Nat) -> Eq[Bool, old_nat_eq(n, m), nat_eq(n, m)]:
+    return refl(old_nat_eq(n, m))
+
+@dependent
+def open_bool_eq(left: Bool, right: Bool) -> Eq[Bool, old_bool_eq(left, right), bool_eq(left, right)]:
+    return refl(old_bool_eq(left, right))
+
+@dependent
+def old_paths(n: Nat, m: Nat, flag: Bool) -> Eq[Bool, verified_bool_not(flag), bool_not(flag)]:
+    return refl(bool_not(flag))
+
+@dependent
+def old_nat_path(n: Nat, m: Nat) -> Eq[Bool, verified_nat_eq(n, m), nat_eq(n, m)]:
+    return refl(nat_eq(n, m))
+
+@dependent
+def old_bool_path(left: Bool, right: Bool) -> Eq[Bool, verified_bool_eq(left, right), bool_eq(left, right)]:
+    return refl(bool_eq(left, right))
+
+@dependent
+def select_false() -> Eq[Nat, select[Nat](False_(), 7, 9), 7]:
+    return refl(7)
+
+@dependent
+def select_true() -> Eq[Nat, select[Nat](True_(), 7, 9), 9]:
+    return refl(9)
+
+@dependent
+def arithmetic_path(n: Nat, m: Nat) -> Eq[Bool, arithmetic_equal(n, m), equal(n, m)]:
+    return refl(equal(n, m))
+
+@dependent
+def closed_equal() -> Eq[Bool, equal(2, 2), True_()]:
+    return refl(True_())
+
+@dependent
+def closed_unequal() -> Eq[Bool, nat_eq(2, 3), False_()]:
+    return refl(False_())
+
+@dependent
+def structural_unequal() -> Eq[Bool, equal(2, 3), False_()]:
+    return refl(False_())
+
+@dependent
+def order_equal() -> Eq[Bool, nat_eq(S(2), 3), True_()]:
+    return refl(True_())
+
+@theorem
+def bridges(n: Nat, m: Nat, flag: Bool) -> Eq[Bool, equal(n, m), nat_eq(n, m)]:
+    return equal_nat_eq(n, m)
+"#;
+    let checked = check_module(source, TARGET).unwrap_or_else(|e| panic!("{e}"));
+    assert!(checked.axiom_dependencies.values().all(Vec::is_empty));
+    let neutral_negate = format!(
+        "{source}\n@dependent\ndef compatible(flag: Bool) -> Eq[Bool, old_not(flag), negate(flag)]:\n    return refl(old_not(flag))\n"
+    );
+    check_module(&neutral_negate, TARGET).unwrap();
+    let wrong = format!(
+        "{source}\n@dependent\ndef wrong() -> Eq[Bool, nat_eq(1, 2), True_()]:\n    return refl(True_())\n"
+    );
+    assert!(check_module(&wrong, TARGET).is_err());
+    let wrong_order = format!(
+        "{source}\n@dependent\ndef wrong_order() -> Eq[Bool, nat_le(3, 1), True_()]:\n    return refl(True_())\n"
+    );
+    assert!(check_module(&wrong_order, TARGET).is_err());
+}
+
+#[test]
+fn p0_documented_members_and_compatibility_paths_are_checked_imports() {
+    let reference = include_str!("../../../docs/math-api.rst");
+    let mut module = None;
+    for line in reference.lines() {
+        if let Some(path) = line
+            .trim()
+            .strip_prefix(".. deppy-api:: crates/deppy-python/stdlib/deppy/")
+        {
+            module = Some(path.trim_end_matches(".py"));
+        } else if let Some(members) = line.trim().strip_prefix(":members: ") {
+            let module = module.expect("members require a source module");
+            let source = format!(
+                "from __future__ import annotations\nfrom deppy.{module} import {}\n",
+                members
+            );
+            check_module(&source, TARGET).unwrap_or_else(|e| panic!("deppy.{module}: {e}"));
+        }
+        if let Some(alias) = line.trim().strip_prefix("* - ``deppy.") {
+            if let Some(qualified) = alias.strip_suffix("``") {
+                let (module, name) = qualified.rsplit_once('.').unwrap();
+                let source = format!(
+                    "from __future__ import annotations\nfrom deppy.{module} import {name}\n"
+                );
+                check_module(&source, TARGET).unwrap_or_else(|e| panic!("deppy.{qualified}: {e}"));
+            }
+        }
     }
 }
 

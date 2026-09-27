@@ -4,7 +4,8 @@ from deppy.nat import add, mul, pred_or, add_zero, add_comm, add_succ
 from deppy.nat_order import LE, LT, LEZero, LESucc, pred_lt, le_trans, le_weaken, le_refl, le_decide, lt_decide
 from deppy.equality import cong, sym, trans, transport
 from deppy.data import Bool, True_, False_, Empty
-from deppy.verified import select, nat_eq, nat_le, decision_true_intro, false_ne_true, select_post_eq, nat_lt, nat_lt_true, bool_not
+from deppy.bool import select, decision_true_intro, false_ne_true, select_post_eq, bool_not
+from deppy.nat_bool import nat_eq, nat_le, nat_lt, nat_lt_true, is_zero, equal_step, equal, zero_equal, step_equal, equal_true, equal_refl, equal_false
 
 
 @dependent(decreases="m")
@@ -19,6 +20,7 @@ def sub_count(m: Nat, n: Nat) -> Nat:
 
 @dependent
 def sub(n: Nat, m: Nat) -> Nat:
+    """Truncated natural subtraction."""
     return sub_count(m, n)
 
 
@@ -32,31 +34,10 @@ def sub_add[m: Nat, n: Nat](p: LE[m, n]) -> Eq[Nat, add(m, sub(n, m)), n]:
             return cong(lambda x: S(x), sub_add(rest))
 
 
-@dependent
-def is_zero(m: Nat) -> Bool:
-    match m:
-        case Z():
-            return True_()
-        case S(k):
-            return False_()
 
 
-@dependent
-def equal_step(m: Nat, smaller: Pi[Nat, lambda _: Bool]) -> Bool:
-    match m:
-        case Z():
-            return False_()
-        case S(k):
-            return smaller(k)
 
 
-@dependent(decreases="n")
-def equal(n: Nat, m: Nat) -> Bool:
-    match n:
-        case Z():
-            return is_zero(m)
-        case S(k):
-            return equal_step(m, lambda j: equal(k, j))
 
 
 @dependent
@@ -76,11 +57,13 @@ def divmod(n: Nat, d: Nat) -> Sigma[Nat, lambda _: Nat]:
 
 @dependent
 def quotient(n: Nat, d: Nat) -> Nat:
+    """Return the quotient of unary division."""
     return divmod(n, d).fst
 
 
 @dependent
 def remainder(n: Nat, d: Nat) -> Nat:
+    """Return the remainder of unary division."""
     return divmod(n, d).snd
 
 
@@ -107,45 +90,14 @@ def sub_le(m: Nat, n: Nat) -> LE[sub(n, m), n]:
             return le_trans(sub_le(k, pred_or(0, n)), n, pred_le(n))
 
 
-@theorem
-def zero_equal(m: Nat, proof: Eq[Bool, is_zero(m), True_()]) -> Eq[Nat, 0, m]:
-    match m:
-        case Z():
-            return refl(0)
-        case S(k):
-            return absurd(Eq[Nat, 0, S(k)], false_ne_true(proof))
 
 
-@theorem
-def step_equal(n: Nat, m: Nat, ih: Pi[Nat, lambda j: Pi[Eq[Bool, equal(n, j), True_()], lambda _: Eq[Nat, n, j]]], proof: Eq[Bool, equal_step(m, lambda j: equal(n, j)), True_()]) -> Eq[Nat, S(n), m]:
-    match m:
-        case Z():
-            return absurd(Eq[Nat, S(n), 0], false_ne_true(proof))
-        case S(k):
-            return cong(lambda x: S(x), ih(k)(proof))
 
 
-@theorem(decreases="n")
-def equal_true(n: Nat, m: Nat, proof: Eq[Bool, equal(n, m), True_()]) -> Eq[Nat, n, m]:
-    match n:
-        case Z():
-            return zero_equal(m, proof)
-        case S(k):
-            return step_equal(k, m, lambda j, p: equal_true(k, j, p), proof)
 
 
-@theorem(decreases="n")
-def equal_refl(n: Nat) -> Eq[Bool, equal(n, n), True_()]:
-    match n:
-        case Z():
-            return refl(True_())
-        case S(k):
-            return equal_refl(k)
 
 
-@theorem
-def equal_false(n: Nat, m: Nat, proof: Eq[Bool, equal(n, m), False_()], same: Eq[Nat, n, m]) -> Empty:
-    return false_ne_true(trans(sym(proof), transport[Nat, n, m](lambda j: Eq[Bool, equal(n, j), True_()], same, equal_refl(n))))
 
 
 @theorem
@@ -173,6 +125,7 @@ def divmod_step_bound(d: Nat, qr: Sigma[Nat, lambda _: Nat], positive: LT(0, d),
 
 @theorem(decreases="n")
 def divmod_bound(n: Nat, d: Nat, positive: LT(0, d)) -> LT(divmod(n, d).snd, d):
+    """The remainder is smaller than a positive divisor."""
     match n:
         case Z():
             return positive
@@ -182,6 +135,7 @@ def divmod_bound(n: Nat, d: Nat, positive: LT(0, d)) -> LT(divmod(n, d).snd, d):
 
 @theorem
 def remainder_lt_true(n: Nat, d: Nat, test: Eq[Bool, nat_lt(0, d), True_()]) -> LT(remainder(n, d), d):
+    """A true positive-divisor guard bounds the remainder."""
     return divmod_bound(n, d, nat_lt_true(0, d, test))
 
 
@@ -197,6 +151,7 @@ def divmod_step_equation(n: Nat, d: Nat, qr: Sigma[Nat, lambda _: Nat], equation
 
 @theorem(decreases="n")
 def divmod_equation(n: Nat, d: Nat) -> Eq[Nat, add(mul(d, quotient(n, d)), remainder(n, d)), n]:
+    """Quotient and remainder reconstruct the dividend."""
     match n:
         case Z():
             return refl(0)

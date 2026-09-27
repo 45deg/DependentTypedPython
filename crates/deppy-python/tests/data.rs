@@ -232,6 +232,12 @@ fn indexed_structural_recursion_and_pattern_wildcards() {
 }
 
 #[test]
+fn demonstration_nat_cannot_index_canonical_naturals() {
+    let source = "from __future__ import annotations\nfrom deppy import dependent, Nat\nfrom deppy.nat import add\nfrom deppy.naturals import Nat as DemoNat\n@dependent\ndef wrong(n: DemoNat) -> Nat:\n    return add(n, 0)\n";
+    assert!(check_module(source, Target::Python314).is_err());
+}
+
+#[test]
 fn dependent_nested_matches_implement_indexed_get() {
     let source = r#"from __future__ import annotations
 from deppy import dependent, Type, Nat as Count, Eq, refl, absurd

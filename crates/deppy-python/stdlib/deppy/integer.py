@@ -4,7 +4,9 @@ from deppy.equality import cong
 from deppy.data import Bool, False_, True_
 from deppy.nat import add as nat_add, mul as nat_mul
 from deppy.arithmetic import sub as nat_sub, divmod as nat_divmod
-from deppy.verified import verified, Refined, select, nat_eq, nat_le, nat_lt, bool_eq, nat_eq_true, false_ne_true
+from deppy.verified import verified, Refined
+from deppy.bool import select, bool_eq, false_ne_true
+from deppy.nat_bool import nat_eq, nat_le, nat_lt, nat_eq_true
 
 
 @inductive
@@ -18,11 +20,13 @@ class Int:
 
 @dependent
 def of_nat(n: Nat) -> Int:
+    """Embed a natural number as a nonnegative integer."""
     return Pos(n)
 
 
 @dependent
 def negative_nat(n: Nat) -> Int:
+    """Negate a natural number in the signed representation."""
     match n:
         case Z():
             return Pos(0)
@@ -32,6 +36,7 @@ def negative_nat(n: Nat) -> Int:
 
 @dependent
 def magnitude(n: Int) -> Nat:
+    """Return the natural magnitude of a signed integer."""
     match n:
         case Pos(k):
             return k
@@ -41,6 +46,7 @@ def magnitude(n: Int) -> Nat:
 
 @dependent
 def negative(n: Int) -> Bool:
+    """Test whether the integer uses the negative constructor."""
     match n:
         case Pos(_):
             return False_()
@@ -50,6 +56,7 @@ def negative(n: Int) -> Bool:
 
 @dependent
 def neg(n: Int) -> Int:
+    """Negate a signed integer."""
     match n:
         case Pos(k):
             return negative_nat(k)
@@ -86,6 +93,7 @@ def difference(b: Nat, a: Nat) -> Int:
 
 @dependent
 def add(a: Int, b: Int) -> Int:
+    """Add signed integers."""
     match a:
         case Pos(n):
             match b:
@@ -103,16 +111,19 @@ def add(a: Int, b: Int) -> Int:
 
 @dependent
 def sub(a: Int, b: Int) -> Int:
+    """Subtract signed integers."""
     return add(a, neg(b))
 
 
 @dependent
 def mul(a: Int, b: Int) -> Int:
+    """Multiply signed integers."""
     return select[Int](bool_eq(negative(a), negative(b)), negative_nat(nat_mul(magnitude(a), magnitude(b))), Pos(nat_mul(magnitude(a), magnitude(b))))
 
 
 @dependent
 def le(a: Int, b: Int) -> Bool:
+    """Compare signed integers with non-strict order."""
     match a:
         case Pos(n):
             match b:
@@ -130,6 +141,7 @@ def le(a: Int, b: Int) -> Bool:
 
 @dependent
 def lt(a: Int, b: Int) -> Bool:
+    """Compare signed integers with strict order."""
     match a:
         case Pos(n):
             match b:
@@ -147,6 +159,7 @@ def lt(a: Int, b: Int) -> Bool:
 
 @dependent
 def eq(a: Int, b: Int) -> Bool:
+    """Compare signed integers for equality."""
     match a:
         case Pos(n):
             match b:
@@ -164,12 +177,14 @@ def eq(a: Int, b: Int) -> Bool:
 
 @dependent
 def quotient(a: Int, b: Int) -> Int:
+    """Return the signed quotient."""
     qr = nat_divmod(magnitude(a), magnitude(b))
     return select[Int](bool_eq(negative(a), negative(b)), negative_nat(nat_add(qr.fst, select[Nat](nat_eq(qr.snd, 0), 1, 0))), Pos(qr.fst))
 
 
 @dependent
 def remainder(a: Int, b: Int) -> Int:
+    """Return the signed remainder."""
     qr = nat_divmod(magnitude(a), magnitude(b))
     r = select[Nat](bool_eq(negative(a), negative(b)), select[Nat](nat_eq(qr.snd, 0), nat_sub(magnitude(b), qr.snd), 0), qr.snd)
     return select[Int](negative(b), Pos(r), negative_nat(r))
@@ -177,11 +192,13 @@ def remainder(a: Int, b: Int) -> Int:
 
 @verified
 def to_nat(n: Refined[Int, lambda n: Eq[Bool, le(Pos(0), n), True_()]]) -> Refined[Nat, lambda r: Eq[Nat, r, magnitude(n)]]:
+    """Convert a proved nonnegative integer to a natural number."""
     return magnitude(n)
 
 
 @theorem
 def eq_true(a: Int, b: Int, test: Eq[Bool, eq(a, b), True_()]) -> Eq[Int, a, b]:
+    """A true signed equality test yields propositional equality."""
     match a:
         case Pos(n):
             match b:

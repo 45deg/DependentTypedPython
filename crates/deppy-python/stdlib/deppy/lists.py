@@ -401,6 +401,7 @@ def filter_head[A: Type, P: Type](x: A, d: Decidable[P], tail: List[A]) -> List[
 def filter[A: Type, P: Pi[A, lambda _: Type]](
     decide: Pi[A, lambda x: Decidable[P(x)]], xs: List[A]
 ) -> List[A]:
+    """Keep entries whose predicate decision is positive."""
     match xs:
         case Nil():
             return Nil[A]()
@@ -514,6 +515,7 @@ def filter_nodup[A: Type, P: Pi[A, lambda _: Type]](
 def count[A: Type, P: Pi[A, lambda _: Type]](
     decide: Pi[A, lambda x: Decidable[P(x)]], xs: List[A]
 ) -> Nat:
+    """Count entries whose predicate decision is positive."""
     match xs:
         case Nil():
             return 0
@@ -593,6 +595,7 @@ def reject_head[A: Type, P: Type](x: A, d: Decidable[P], tail: List[A]) -> List[
 def reject[A: Type, P: Pi[A, lambda _: Type]](
     decide: Pi[A, lambda x: Decidable[P(x)]], xs: List[A]
 ) -> List[A]:
+    """Keep entries whose predicate decision is negative."""
     match xs:
         case Nil():
             return Nil[A]()
@@ -664,6 +667,7 @@ def find_removal[A: Type](x: A, xs: List[A], member: Mem(x, xs)) -> Sigma[List[A
 
 @theorem(decreases="r")
 def removal_mem[A: Type, x: A, ys: List[A], zs: List[A]](r: Removal[A, x, ys, zs]) -> Mem(x, ys):
+    """A removal proof implies membership in the source list."""
     match r:
         case RemoveHere(tail):
             return Left(refl(x))
@@ -683,6 +687,7 @@ def removal_length[A: Type, x: A, ys: List[A], zs: List[A]](r: Removal[A, x, ys,
 
 @theorem(decreases="xs")
 def map_mem[A: Type, B: Type](f: Pi[A, lambda _: B], x: A, xs: List[A], member: Mem(x, xs)) -> Mem(f(x), map(f, xs)):
+    """Mapping a list transports membership through the map."""
     match xs:
         case Nil():
             return absurd(Mem(f(x), Nil[B]()), member)

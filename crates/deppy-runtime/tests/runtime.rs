@@ -28,6 +28,39 @@ fn run_generated(generated: &str, assertions: &str) {
         String::from_utf8_lossy(&result.stderr)
     );
 }
+
+#[test]
+fn p0_boolean_and_natural_comparisons_execute_from_owner_modules() {
+    run(
+        r#"from __future__ import annotations
+from deppy import dependent, Nat
+from deppy.data import Bool
+from deppy.bool import bool_not
+from deppy.nat_bool import equal, nat_eq, nat_le, nat_lt
+
+@dependent
+def structural(n: Nat, m: Nat) -> Bool:
+    return equal(n, m)
+
+@dependent
+def guard(n: Nat, m: Nat) -> Bool:
+    return nat_eq(n, m)
+
+@dependent
+def less(n: Nat, m: Nat) -> Bool:
+    return nat_lt(n, m)
+
+@dependent
+def at_most(n: Nat, m: Nat) -> Bool:
+    return nat_le(n, m)
+
+@dependent
+def flip(flag: Bool) -> Bool:
+    return bool_not(flag)
+"#,
+        "\nfor n in range(4):\n    for m in range(4):\n        assert exports['structural'](n, m)[1] == int(n == m)\n        assert exports['guard'](n, m)[1] == int(n == m)\n        assert exports['less'](n, m)[1] == int(n < m)\n        assert exports['at_most'](n, m)[1] == int(n <= m)\nassert exports['flip'](exports['structural'](0, 0))[1] == 0\nassert exports['flip'](exports['structural'](0, 1))[1] == 1\n",
+    );
+}
 #[test]
 fn theorem_alias_retains_checked_runtime_bodies() {
     run(

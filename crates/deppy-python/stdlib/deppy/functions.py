@@ -14,11 +14,13 @@ class Bijection[A: Type, B: Type]:
 
 @dependent
 def identity_bijection[A: Type]() -> Bijection[A, A]:
+    """The identity map is a bijection."""
     return Bijection[A, A](lambda x: x, lambda x: x, lambda x: refl(x), lambda x: refl(x))
 
 
 @dependent
 def inverse_bijection[A: Type, B: Type](b: Bijection[A, B]) -> Bijection[B, A]:
+    """Reverse a bijection by exchanging its forward and backward maps."""
     return Bijection[B, A](b.backward, b.forward, b.right_inverse, b.left_inverse)
 
 
