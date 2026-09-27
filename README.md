@@ -6,6 +6,27 @@ DepPy is experimental and under construction. It accepts a documented subset of 
 
 The kernel checks dependent functions, equality proofs, indexed inductive families, and structural recursion. The verified frontend supports contracts, local assignment, branches, loops, and a limited proof search. Its VCs become dependent core propositions checked by the same kernel. Generated programs are separate from proof validity. See the [language specification](docs/reference.md), [proof guide](docs/proofs.md), and [verified specification](docs/verified.md) for the accepted subset and limits.
 
+## Example
+
+From [proofs.py](crates/deppy-python/examples/core/proofs.py), a proof by induction that adding zero on the right leaves a natural number unchanged:
+
+```python
+from deppy import dependent, Nat, Eq, Z, S, refl, cong
+
+@dependent(decreases="n")
+def zero_right(n: Nat) -> Eq[Nat, n + 0, n]:
+    match n:
+        case Z():
+            return refl(Z())
+        case S(k):
+            return cong(S, zero_right(k))
+```
+
+```sh
+cargo run -p deppy-python --locked --offline -- eval crates/deppy-python/examples/core/proofs.py zero_right 0
+# refl(0)
+```
+
 ## Current limitations
 
 The checker covers the [specified language subset](docs/reference.md), not arbitrary Python. Unsupported syntax and proof obligations are rejected. Generated Python has been compared with a test reference model on selected examples, but general preservation of source behavior and proof erasure has not been established. Some proof exports remain unsupported because their computations require erased arguments. Deep recursion has no stack or memory guarantee. See the [verification scope](docs/development.md) and [roadmap](docs/roadmap.md) for the evidence and remaining work.
