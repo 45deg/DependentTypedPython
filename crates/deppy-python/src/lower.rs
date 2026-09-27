@@ -166,6 +166,10 @@ pub(super) fn module(
                 );
                 declarations.push(declaration);
             }
+            Stmt::If(statement) if is_main_guard(statement) => {
+                // A script entry point is ordinary Python, never a checked export.
+                imports_done = true;
+            }
             Stmt::Assert(_) => {
                 imports_done = true;
             }
@@ -174,6 +178,18 @@ pub(super) fn module(
     }
     Ok(declarations)
 }
+fn is_main_guard(statement: &ast::StmtIf) -> bool {
+    if !statement.elif_else_clauses.is_empty() {
+        return false;
+    }
+    let Expr::Compare(test) = statement.test.as_ref() else {
+        return false;
+    };
+    test.ops.as_ref() == [ast::CmpOp::Eq]
+        && matches!(test.left.as_ref(), Expr::Name(name) if name.id.as_str() == "__name__")
+        && matches!(test.comparators.as_ref(), [Expr::StringLiteral(value)] if value.value.to_str() == "__main__")
+}
+
 impl Lowerer {
     fn qualified(&self, name: &str) -> String {
         if self.namespace.is_empty() {

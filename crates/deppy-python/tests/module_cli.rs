@@ -155,3 +155,40 @@ fn goal_cli_reports_unfinished_proofs_without_claiming_success() {
     assert!(stdout.contains("\"expected\":\"Eq[Nat, n, n]\""));
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn cli_checks_script_declarations_without_executing_main() {
+    let root = std::env::temp_dir().join(format!("deppy-main-cli-{}", std::process::id()));
+    fs::create_dir_all(&root).unwrap();
+    let file = root.join("script.py");
+    let definition =
+        "from deppy import Nat\nfrom deppy.verified import verified\n@verified\ndef identity(n: Nat) -> Nat:\n    return n\n";
+    fs::write(&file, format!("{definition}\nif __name__ == '__main__':\n    raise RuntimeError('must not execute')\n")).unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_deppy-python"))
+        .args(["eval", file.to_str().unwrap(), "identity", "8"])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&result.stdout), "8\n");
+    for guard in ["if True:", "if __name__ != '__main__':"] {
+        fs::write(&file, format!("{definition}\n{guard}\n    pass\n")).unwrap();
+        assert!(!Command::new(env!("CARGO_BIN_EXE_deppy-python"))
+            .arg(&file)
+            .output()
+            .unwrap()
+            .status
+            .success());
+    }
+    fs::write(&file, "from deppy import Nat\nfrom deppy.verified import verified\n@verified\ndef wrong(n: Nat) -> Nat:\n    return False\nif __name__ == '__main__':\n    print(wrong(1))\n").unwrap();
+    assert!(!Command::new(env!("CARGO_BIN_EXE_deppy-python"))
+        .arg(&file)
+        .output()
+        .unwrap()
+        .status
+        .success());
+    fs::remove_dir_all(root).unwrap();
+}

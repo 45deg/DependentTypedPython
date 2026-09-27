@@ -27,6 +27,23 @@ cargo run -p deppy-python --locked --offline -- eval crates/deppy-python/example
 # refl(0)
 ```
 
+## Run the original Python source
+
+Install the shared standard library as a Python 3.14 package:
+
+```sh
+uv venv --python 3.14
+uv pip install --python .venv/bin/python -e .
+source .venv/bin/activate
+python crates/deppy-python/examples/verified/direct.py
+# 42
+```
+
+Select `.venv/bin/python` in VS Code to resolve `deppy` imports. Direct execution
+runs the source without checking proofs or contracts; verify the file separately
+with `deppy-python` when needed. See [Python execution](docs/python-runtime.md)
+for editor setup, supported behavior, and limitations.
+
 ## Current limitations
 
 The checker covers the [specified language subset](docs/reference.md), not arbitrary Python. Unsupported syntax and proof obligations are rejected. Generated Python has been compared with a test reference model on selected examples, but general preservation of source behavior and proof erasure has not been established. Some proof exports remain unsupported because their computations require erased arguments. Deep recursion has no stack or memory guarantee. See the [verification scope](docs/development.md) and [roadmap](docs/roadmap.md) for the evidence and remaining work.

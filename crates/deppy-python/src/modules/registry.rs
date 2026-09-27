@@ -75,14 +75,8 @@ pub(super) fn builtin_exports(module: &str) -> Exports {
         .collect()
 }
 
-// The public prelude reexports checked declarations and compiler-provided forms.
-// It has no standalone Python definitions, so its source lives with the registry.
-const PRELUDE: &str = "\
-from deppy._builtins import inductive, constructor, Index, induct, absurd, dependent, theorem, hole, axiom, record, Type, Nat, Z, S, Vec, VNil, VCons, Fin, FZ, FS, Eq, refl, J, nat_elim, vec_elim, fin_elim, record_elim, ann, lam, implicit_lam, ImplicitPi, vnil, vcons, pair, fin0_elim, Pi, Sigma, Pair\n\
-from deppy.tactics import intro, exact, apply, rewrite, rewrite_in, cases, induction\n\
-from deppy.equality import sym, trans, cong, cong2, transport, transport_refl, transport_trans\n\
-from deppy.nat import add, mul, add_zero, add_succ, add_assoc, add_comm, add_swap, mul_zero, mul_one, mul_add_right, pred_or, succ_injective, add_left_cancel, add_right_cancel\n\
-from deppy.fin import fin_case\n";
+// Python packaging and the static loader share the same public prelude.
+const PRELUDE: &str = include_str!("../../stdlib/deppy/__init__.py");
 
 pub(super) fn standard(name: &str) -> Option<&'static str> {
     match name {

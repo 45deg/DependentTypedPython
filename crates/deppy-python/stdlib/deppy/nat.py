@@ -1,4 +1,4 @@
-from deppy._builtins import dependent, theorem, Type, Nat, Z, S, Eq, refl
+from deppy._builtins import dependent, theorem, Type, Nat, Z, S, nat_elim, Eq, refl
 from deppy.equality import sym, trans, cong, cong2, transport
 from deppy.data import Empty, Unit, MkUnit
 

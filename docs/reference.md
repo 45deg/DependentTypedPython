@@ -58,7 +58,7 @@ The dependent subset accepts static imports from checked `deppy` modules and loc
 
 `@record` creates a nominal, nonrecursive, single-constructor record with typed fields. A field may depend on preceding fields (`self.n`), and selection (`r.value`) resolves against the receiver's nominal type. The default universe is 0; `@record(level=1)` selects another concrete level. Inheritance, methods, defaults, recursive records, and ambiguous receiver types are rejected. Use `@inductive` for recursive data.
 
-The frontend rejects unsupported Python features rather than treating them as unchecked code: reassignment in `@dependent`, default/keyword/variadic parameters, arbitrary attribute access, effects, unverified recursion, and unsupported annotations. Undecorated functions and module-level assertions are parsed but not checked as DepPy proofs or included in generated exports. Static parsing is distinct from CPython execution or a general semantic-preservation theorem.
+The frontend rejects unsupported Python features rather than treating them as unchecked code: reassignment in `@dependent`, default/keyword/variadic parameters, arbitrary attribute access, effects, unverified recursion, and unsupported annotations. Undecorated functions, module-level assertions, and the body of an `if __name__ == "__main__":` entry point without `elif`/`else` are parsed but not checked as DepPy proofs or included in generated exports. Static parsing is distinct from CPython execution or a general semantic-preservation theorem.
 
 ## Runtime interface
 
@@ -81,3 +81,5 @@ The boundary checks Vec length, Fin bound, known element types, dependent fields
 `CheckSession` can reuse checked dependency snapshots for identical sources and options; the root module is checked again. Changes to dependencies invalidate their snapshots. `FrontendOptions` selects the Python target and processing budgets. `CheckedModule.interface` exposes checked names, declaration kinds, constructors, axiom dependencies, and the associated kernel snapshot. Serialized interfaces do not bypass checking.
 
 `hole("name")` and `analyze_module` expose goals with local context and source spans. A module with unresolved goals or diagnostics has no `CheckedModule`. See [verification scope](development.md) for checks and their limits.
+
+The installable [Python source runtime](python-runtime.md) is a separate execution path that shares standard-library sources and does not run the checker.

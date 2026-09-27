@@ -10,6 +10,8 @@ Start with the [project README](../README.md). English is the canonical document
 4. [Verified programs](verified.md) — contracts, VCs, expressions, loops, refinements, and specification reuse.
 5. [Mathematical library](math-library.md) — available modules and API design rules.
 
+6. [Python source execution](python-runtime.md) — package installation, editor imports, direct execution, and its limits.
+
 ## Reference and project work
 
 - [Generated mathematical API](index.rst) — Sphinx entry point for docstrings.

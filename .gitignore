@@ -1,6 +1,26 @@
+# Rust build output
 /target/
-docs/_build/
+
+# Python environments, build output, and package metadata
+/.venv/
+/build/
+/dist/
+*.egg-info/
+
+# Python bytecode and tool caches
 __pycache__/
-*.pyc
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Generated documentation and web demo assets
+/docs/_build/
 /web-demo/checker.wasm
 /web-demo/examples.json
+
+# macOS metadata
+.DS_Store
+
+# Keep generated deppy/*.pyi and py.typed under version control:
+# package builds consume them, and CI checks them against the shared sources.

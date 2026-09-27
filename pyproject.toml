@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deppy"
+version = "0.1.0"
+description = "Python execution support for DepPy source definitions"
+readme = "README.md"
+requires-python = ">=3.14"
+license = "MIT"
+
+[tool.setuptools]
+package-dir = {"" = "crates/deppy-python/stdlib"}
+
+[tool.setuptools.packages.find]
+where = ["crates/deppy-python/stdlib"]
+include = ["deppy"]
+
+[tool.setuptools.package-data]
+deppy = ["*.pyi", "py.typed"]

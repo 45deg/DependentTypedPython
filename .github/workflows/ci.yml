@@ -80,3 +80,15 @@ jobs:
 
       - name: Check Python fixture syntax
         run: python scripts/check_python_syntax.py
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install Python source runtime
+        run: uv pip install --system .
+
+      - name: Check generated editor stubs
+        run: python scripts/generate_python_stubs.py --check
+
+      - name: Test direct Python execution
+        run: python -m unittest discover -s tests -v
