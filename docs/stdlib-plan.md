@@ -64,6 +64,6 @@ Extend `deppy.permutations` with append compatibility, reverse permutation and f
 4. Add Fin construction, enumerations, and Vec/List interoperability.
 5. Expand integer/division laws, then promote algebra and finite products.
 
-Each implementation should include accepted and rejected proof clients, axiom-dependency checks, and concrete normalization tests. Add extracted-Python execution tests where values are representable; report erasure budgets or boundary limitations separately. Registry/import smoke coverage should include every supported module, but it does not replace semantic tests. Use [development.md](development.md) for commands.
+Each implementation should include accepted and rejected proof clients, axiom-dependency checks, and concrete normalization tests. Add extracted-Python execution tests where values are representable; report erasure budgets or boundary limitations separately. Registry/import smoke coverage should include every supported module, but it does not replace semantic tests. See [verification scope](development.md) for the limits of existing checks.
 
 Universe polymorphism, function extensionality, quotient types, general well-founded recursion, and composite-value support in verified programs require separate language or axiom decisions. They should not be treated as missing Python helper functions or prerequisites for all library expansion.

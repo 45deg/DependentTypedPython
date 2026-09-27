@@ -50,7 +50,7 @@ The standalone elaborator accepts Rust-built ASTs; `deppy-python` parses Python 
 
 ## Python frontend
 
-`lower_module(source, Target)` parses Python 3.12, 3.13, or 3.14 with Ruff and returns declarations and UTF-8 byte ranges. `check_module` checks a fresh environment and returns checked definitions plus its elaborator, or fails without returning a partial checked module. The CLI defaults to Python 3.14 syntax and reports file, line, and column. Executing source files as Python requires 3.14 for deferred annotations. The Ruff parser, AST, and text-size crates are pinned together at `=0.0.12`.
+`lower_module(source, Target)` parses Python 3.12, 3.13, or 3.14 and returns declarations and UTF-8 byte ranges. `check_module` checks a fresh environment and returns checked definitions plus its elaborator, or fails without returning a partial checked module. Diagnostics include file, line, and column.
 
 The dependent subset accepts static imports from checked `deppy` modules and local sources, annotated positional parameters and returns, implicit `[A: Type]` parameters, immutable local assignments, pure expressions, `return`, and structurally checked `match`/recursion. Constants may use `def name() -> A`. Supported expressions include `Type[level]`, dependent function and pair types, Nat/Vec/Fin/Eq constructors and eliminators, position-based application, explicit bracketed implicit arguments, and Nat literals. Built-in compatibility forms are illustrated by `crates/deppy-python/examples/core/basics.py` and `proofs.py`.
 
@@ -64,7 +64,7 @@ The frontend rejects unsupported Python features rather than treating them as un
 
 `deppy-runtime::compile_module(source, Target)` and its CLI generate a standalone Python module. Public names are called through `exports['name']`; implicit type arguments are omitted. Public functions validate argument/result schemas and rebuild immutable values. Higher-order boundaries wrap callbacks to check each call's arguments and result; callback termination is not established.
 
-Repeat `--export NAME` to generate only selected root declarations and their runtime dependencies. Without this option, the CLI exports every root declaration. The library equivalent is `compile_exports_with_resolver(source, target, resolver, names)`. Selection happens after the entire module is checked, so an invalid unselected proof still rejects compilation. Unknown names are errors. This allows executable functions to be extracted from a module that also contains proofs with unsupported runtime uses of erased arguments.
+The `--export NAME` option selects root declarations and their runtime dependencies; without it, the CLI exports every root declaration. The library equivalent is `compile_exports_with_resolver(source, target, resolver, names)`. Selection happens after the entire module is checked, so an invalid unselected proof still rejects compilation. Unknown names are errors. This allows executable functions to be extracted from a module that also contains proofs with unsupported runtime uses of erased arguments.
 
 | Checked value | Python boundary representation |
 | --- | --- |
@@ -78,11 +78,6 @@ Repeat `--export NAME` to generate only selected root declarations and their run
 
 The boundary checks Vec length, Fin bound, known element types, dependent fields, constructor arity, nominal tags, and representable indices. Mutable lists, forged tags, and wrong bounds are rejected. Erased type parameters are treated as opaque immutable data rather than checked against an original Python class. Proofs cannot enter from external Python, and a public schema that requires erased evidence or an arbitrary type family is rejected. Generated classes are not source-compatible with arbitrary Python record classes. Rust checking and generated Python calls remain subject to stack/memory limits.
 
-```sh
-cargo run -p deppy-runtime --locked --offline -- crates/deppy-python/examples/core/proofs.py > /tmp/deppy_proofs.py
-uv run --no-project --offline --python 3.14 python -c "import runpy; f = runpy.run_path('/tmp/deppy_proofs.py')['exports']; print(f['get'](3, (10, 20, 30), (3, 1)))"
-```
-
 `CheckSession` can reuse checked dependency snapshots for identical sources and options; the root module is checked again. Changes to dependencies invalidate their snapshots. `FrontendOptions` selects the Python target and processing budgets. `CheckedModule.interface` exposes checked names, declaration kinds, constructors, axiom dependencies, and the associated kernel snapshot. Serialized interfaces do not bypass checking.
 
-`hole("name")` and `analyze_module` expose goals with local context and source spans. A module with unresolved goals or diagnostics has no `CheckedModule`. Run `deppy-python --goals file.py` or `--json file.py` to inspect it. See [development and verification](development.md) for checks and their limits.
+`hole("name")` and `analyze_module` expose goals with local context and source spans. A module with unresolved goals or diagnostics has no `CheckedModule`. See [verification scope](development.md) for checks and their limits.

@@ -13,7 +13,7 @@ The [documentation index](README.md) links the accepted specifications. This pag
 | Runtime and compatibility | External Python proof inputs, `Proof[...]`, arbitrary type-family schemas or public boundaries needing erased information, source-compatible record classes |
 | Assurance | General semantic preservation from CPython source to Verified HIR and from checked terms to extracted code; stack and memory guarantees for deep recursion |
 
-Implicit refinement subtyping, general higher-order unification, and complete automatic proof search are outside the current scope. The verified numeric example's six computational functions have generated-Python execution checks under the default budgets; exporting its `gcd_correct` proof remains unsupported because its computation uses erased arguments. The reproducible checks and their limits are in [development.md](development.md).
+Implicit refinement subtyping, general higher-order unification, and complete automatic proof search are outside the current scope. The verified numeric example's six computational functions have generated-Python execution checks under the default budgets; exporting its `gcd_correct` proof remains unsupported because its computation uses erased arguments. Their coverage and limits are in [verification scope](development.md).
 
 ## Acceptance criteria for verified extensions
 

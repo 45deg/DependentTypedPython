@@ -13,7 +13,7 @@ Start with the [project README](../README.md). English is the canonical document
 ## Reference and project work
 
 - [Generated mathematical API](index.rst) — Sphinx entry point for docstrings.
-- [Development and verification](development.md) — commands and the limits of each check.
+- [Verification scope](development.md) — coverage and the limits of each check.
 - [Roadmap](roadmap.md) — unsupported features and acceptance criteria for proposed extensions.
 - [Standard-library plan](stdlib-plan.md) — implemented coverage, API inconsistencies, missing foundations, and ordered extension proposals.
 
