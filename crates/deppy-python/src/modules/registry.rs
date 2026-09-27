@@ -77,7 +77,7 @@ pub(super) fn builtin_exports(module: &str) -> Exports {
 
 // The public prelude reexports checked declarations and compiler-provided forms.
 // It has no standalone Python definitions, so its source lives with the registry.
-const PRELUDE: &str = "from __future__ import annotations\n\
+const PRELUDE: &str = "\
 from deppy._builtins import inductive, constructor, Index, induct, absurd, dependent, theorem, hole, axiom, record, Type, Nat, Z, S, Vec, VNil, VCons, Fin, FZ, FS, Eq, refl, J, nat_elim, vec_elim, fin_elim, record_elim, ann, lam, implicit_lam, ImplicitPi, vnil, vcons, pair, fin0_elim, Pi, Sigma, Pair\n\
 from deppy.tactics import intro, exact, apply, rewrite, rewrite_in, cases, induction\n\
 from deppy.equality import sym, trans, cong, cong2, transport, transport_refl, transport_trans\n\

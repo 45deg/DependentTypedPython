@@ -1,4 +1,3 @@
-from __future__ import annotations
 from deppy import theorem, Nat, S, Eq, refl
 from deppy.equality import cong
 from deppy.verified import verified, Refined, verified_spec

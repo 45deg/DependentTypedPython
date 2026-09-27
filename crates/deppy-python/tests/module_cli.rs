@@ -36,7 +36,7 @@ fn cli_accepts_an_elaboration_budget_and_rejects_invalid_values() {
     let path = root.join("proof.py");
     fs::write(
         &path,
-        "from __future__ import annotations\nfrom deppy import dependent, Nat, Eq, refl\n@dependent\ndef proof(n: Nat) -> Eq[Nat, n, n]:\n    return refl(n)\n",
+        "from deppy import dependent, Nat, Eq, refl\n@dependent\ndef proof(n: Nat) -> Eq[Nat, n, n]:\n    return refl(n)\n",
     )
     .unwrap();
     let run = |steps: &str| {
@@ -72,8 +72,7 @@ fn cli_accepts_an_elaboration_budget_and_rejects_invalid_values() {
 fn cli_resolves_local_modules_without_executing_python() {
     let root = std::env::temp_dir().join(format!("deppy-library-cli-{}", std::process::id()));
     fs::create_dir_all(root.join("proofs")).unwrap();
-    let library = r#"from __future__ import annotations
-from deppy import dependent, Nat, Eq, refl
+    let library = r#"from deppy import dependent, Nat, Eq, refl
 from deppy.equality import trans
 assert False, 'ordinary Python must never execute during checking'
 @dependent
@@ -85,7 +84,7 @@ def proof(n: Nat) -> Eq[Nat, n, n]:
 "#;
     fs::write(root.join("proofs/__init__.py"), library).unwrap();
     let main = root.join("main.py");
-    fs::write(&main, "from __future__ import annotations\nfrom deppy import dependent, Nat, Eq\nfrom proofs import identity, proof\n@dependent\ndef run(n: Nat) -> Nat:\n    return identity(n)\n@dependent\ndef verify(n: Nat) -> Eq[Nat, n, n]:\n    return proof(n)\n").unwrap();
+    fs::write(&main, "from deppy import dependent, Nat, Eq\nfrom proofs import identity, proof\n@dependent\ndef run(n: Nat) -> Nat:\n    return identity(n)\n@dependent\ndef verify(n: Nat) -> Eq[Nat, n, n]:\n    return proof(n)\n").unwrap();
     let checked = Command::new(env!("CARGO_BIN_EXE_deppy-python"))
         .arg(&main)
         .output()
@@ -106,7 +105,7 @@ def proof(n: Nat) -> Eq[Nat, n, n]:
         .output()
         .unwrap();
     assert!(!failed.status.success());
-    assert!(String::from_utf8_lossy(&failed.stderr).contains("proofs/__init__.py:7:12:"));
+    assert!(String::from_utf8_lossy(&failed.stderr).contains("proofs/__init__.py:6:12:"));
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -133,7 +132,7 @@ fn goal_cli_reports_unfinished_proofs_without_claiming_success() {
     let root = std::env::temp_dir().join(format!("deppy-goals-cli-{}", std::process::id()));
     fs::create_dir_all(&root).unwrap();
     let path = root.join("goals.py");
-    fs::write(&path, "from __future__ import annotations\nfrom deppy import dependent, Nat, Eq, hole\n@dependent\ndef identity(n: Nat) -> Eq[Nat, n, n]:\n    return hole('identity')\n").unwrap();
+    fs::write(&path, "from deppy import dependent, Nat, Eq, hole\n@dependent\ndef identity(n: Nat) -> Eq[Nat, n, n]:\n    return hole('identity')\n").unwrap();
     let text = Command::new(env!("CARGO_BIN_EXE_deppy-python"))
         .arg("--goals")
         .arg(&path)

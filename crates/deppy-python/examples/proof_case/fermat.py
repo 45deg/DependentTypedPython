@@ -1,4 +1,3 @@
-from __future__ import annotations
 
 # Finite-field formulation of Fermat's little theorem. The carrier is the
 # NONZERO elements of the field, multiplication is a group operation, and

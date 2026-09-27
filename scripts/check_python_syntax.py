@@ -1,9 +1,9 @@
-"""Compile source fixtures without importing or executing them (CPython 3.12–3.14)."""
+"""Compile source fixtures without importing or executing them (CPython 3.14)."""
 import pathlib
 import sys
 
-if sys.implementation.name != "cpython" or not (3, 12) <= sys.version_info[:2] <= (3, 14):
-    raise SystemExit("CPython 3.12–3.14 is required")
+if sys.implementation.name != "cpython" or sys.version_info[:2] != (3, 14):
+    raise SystemExit("CPython 3.14 is required")
 
 root = pathlib.Path(__file__).resolve().parent.parent
 paths = list((root / "crates/deppy-python/examples").rglob("*.py"))

@@ -1,4 +1,3 @@
-from __future__ import annotations
 from deppy import dependent, Nat, Z, S, Eq, refl
 from deppy.indexed import IVec, INil, ICons, IFin, IFZ, IFS, get
 

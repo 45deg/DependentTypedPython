@@ -3,7 +3,6 @@
 `@dependent` bodies are a statically checked pure subset. The frontend does not execute CPython to obtain proofs. Explicit type annotations, motives, and eliminators are available when inference or automatic match lowering is insufficient.
 
 ```python
-from __future__ import annotations
 from deppy import dependent, Nat, Eq, refl, trans
 
 @dependent

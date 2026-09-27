@@ -18,7 +18,7 @@ The kernel checks dependent functions, equality proofs, indexed inductive famili
 
 ## Try it
 
-Install a Rust toolchain with Cargo and Python 3.12–3.14, then run these commands from the repository root. Cargo uses `Cargo.lock`; fetch dependencies once with `cargo fetch --locked` if they are not cached. The `--offline` commands below require that fetch to have succeeded.
+Install a Rust toolchain with Cargo and Python 3.14, then run these commands from the repository root. Cargo uses `Cargo.lock`; fetch dependencies once with `cargo fetch --locked` if they are not cached. The `--offline` commands below require that fetch to have succeeded.
 
 ```sh
 cargo test --workspace --locked --offline
@@ -51,7 +51,7 @@ The editor loads CodeMirror 6 and Python language support from pinned JSPM CDN U
 
 ## Current limitations
 
-The checker covers the [specified language subset](docs/reference.md), not arbitrary Python. Unsupported syntax and proof obligations are rejected. Generated Python has been compared with a test reference model on selected examples, but general preservation of source behavior and proof erasure has not been established. Generated execution of the verified numeric examples remains unverified because proof erasure exceeds the default checking budget. Deep recursion has no stack or memory guarantee. Python 3.13 is an accepted parser target, but its generated runtime behavior has not been checked here. See the [development checks](docs/development.md) and [roadmap](docs/roadmap.md) for the evidence and remaining work.
+The checker covers the [specified language subset](docs/reference.md), not arbitrary Python. Unsupported syntax and proof obligations are rejected. Generated Python has been compared with a test reference model on selected examples, but general preservation of source behavior and proof erasure has not been established. Generated execution of the verified numeric examples remains unverified because proof erasure exceeds the default checking budget. Deep recursion has no stack or memory guarantee. Executing source files as Python requires 3.14 for deferred annotations. See the [development checks](docs/development.md) and [roadmap](docs/roadmap.md) for the evidence and remaining work.
 
 ## Examples
 

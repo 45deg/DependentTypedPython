@@ -50,9 +50,9 @@ The standalone elaborator accepts Rust-built ASTs; `deppy-python` parses Python 
 
 ## Python frontend
 
-`lower_module(source, Target)` parses Python 3.12, 3.13, or 3.14 with Ruff and returns declarations and UTF-8 byte ranges. `check_module` checks a fresh environment and returns checked definitions plus its elaborator, or fails without returning a partial checked module. The CLI defaults to Python 3.14 syntax and reports file, line, and column. The Ruff parser, AST, and text-size crates are pinned together at `=0.0.12`.
+`lower_module(source, Target)` parses Python 3.12, 3.13, or 3.14 with Ruff and returns declarations and UTF-8 byte ranges. `check_module` checks a fresh environment and returns checked definitions plus its elaborator, or fails without returning a partial checked module. The CLI defaults to Python 3.14 syntax and reports file, line, and column. Executing source files as Python requires 3.14 for deferred annotations. The Ruff parser, AST, and text-size crates are pinned together at `=0.0.12`.
 
-The dependent subset accepts `from __future__ import annotations`, static imports from checked `deppy` modules and local sources, annotated positional parameters and returns, implicit `[A: Type]` parameters, immutable local assignments, pure expressions, `return`, and structurally checked `match`/recursion. Constants may use `def name() -> A`. Supported expressions include `Type[level]`, dependent function and pair types, Nat/Vec/Fin/Eq constructors and eliminators, position-based application, explicit bracketed implicit arguments, and Nat literals. Built-in compatibility forms are illustrated by `crates/deppy-python/examples/core/basics.py` and `proofs.py`.
+The dependent subset accepts static imports from checked `deppy` modules and local sources, annotated positional parameters and returns, implicit `[A: Type]` parameters, immutable local assignments, pure expressions, `return`, and structurally checked `match`/recursion. Constants may use `def name() -> A`. Supported expressions include `Type[level]`, dependent function and pair types, Nat/Vec/Fin/Eq constructors and eliminators, position-based application, explicit bracketed implicit arguments, and Nat literals. Built-in compatibility forms are illustrated by `crates/deppy-python/examples/core/basics.py` and `proofs.py`.
 
 `@dependent(decreases="parameter", motive_level=0)` selects a structural argument and concrete result universe. Recursive calls must follow direct substructure and pass all parameters in order. General `@inductive` patterns have the rules in [inductive families](inductives.md); built-in compatibility patterns retain their specific restrictions. Pattern captures cannot shadow existing local or global names. Values defined before a match are checked in their original context and re-elaborated under a refined branch context; even unused bad definitions are rejected.
 
@@ -80,7 +80,7 @@ The boundary checks Vec length, Fin bound, known element types, dependent fields
 
 ```sh
 cargo run -p deppy-runtime --locked --offline -- crates/deppy-python/examples/core/proofs.py > /tmp/deppy_proofs.py
-uv run --no-project --offline --python 3.12 python -c "import runpy; f = runpy.run_path('/tmp/deppy_proofs.py')['exports']; print(f['get'](3, (10, 20, 30), (3, 1)))"
+uv run --no-project --offline --python 3.14 python -c "import runpy; f = runpy.run_path('/tmp/deppy_proofs.py')['exports']; print(f['get'](3, (10, 20, 30), (3, 1)))"
 ```
 
 `CheckSession` can reuse checked dependency snapshots for identical sources and options; the root module is checked again. Changes to dependencies invalidate their snapshots. `FrontendOptions` selects the Python target and processing budgets. `CheckedModule.interface` exposes checked names, declaration kinds, constructors, axiom dependencies, and the associated kernel snapshot. Serialized interfaces do not bypass checking.

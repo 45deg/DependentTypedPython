@@ -1,4 +1,3 @@
-from __future__ import annotations
 from deppy import dependent, Type, Nat, S, Eq, refl, absurd
 from deppy.nat import add, pred_or
 from deppy.data import Empty, decision_weight

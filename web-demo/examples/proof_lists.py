@@ -1,4 +1,3 @@
-from __future__ import annotations
 from deppy import dependent, Nat, Eq
 from deppy.lists import List, Nil, Cons, append, map, reverse, append_assoc, map_identity, reverse_involution
 

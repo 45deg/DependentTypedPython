@@ -1,4 +1,3 @@
-from __future__ import annotations
 from deppy._builtins import dependent, Type, Pi, Eq, refl, J
 
 

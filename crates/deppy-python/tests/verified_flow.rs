@@ -1,5 +1,5 @@
 use deppy_python::{analyze_module, check_module, Target};
-const HEADER: &str = "from __future__ import annotations\nfrom deppy import Nat, Eq, refl, theorem\nfrom deppy.data import Bool, True_, False_\nfrom deppy.verified import verified, Refined\nfrom deppy.nat import pred_or\nfrom deppy.verified_loop import decreases, invariant\n";
+const HEADER: &str = "from deppy import Nat, Eq, refl, theorem\nfrom deppy.data import Bool, True_, False_\nfrom deppy.verified import verified, Refined\nfrom deppy.nat import pred_or\nfrom deppy.verified_loop import decreases, invariant\n";
 fn check(body: &str) {
     let source = format!("{HEADER}{body}");
     let checked =

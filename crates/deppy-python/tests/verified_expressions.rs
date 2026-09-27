@@ -1,5 +1,5 @@
 use deppy_python::{analyze_module, check_module, check_module_with_resolver, Target};
-const HEADER: &str = "from __future__ import annotations\nfrom deppy import Nat, Eq, refl, theorem\nfrom deppy.data import Bool, True_, False_, MkUnit\nfrom deppy.verified import verified, Refined, nat_lt\nfrom deppy.nat import pred_or\nfrom deppy.nat_order import LT\nfrom deppy.verified_loop import decreases\n";
+const HEADER: &str = "from deppy import Nat, Eq, refl, theorem\nfrom deppy.data import Bool, True_, False_, MkUnit\nfrom deppy.verified import verified, Refined, nat_lt\nfrom deppy.nat import pred_or\nfrom deppy.nat_order import LT\nfrom deppy.verified_loop import decreases\n";
 const LIB: &str = "@verified\ndef zero(n: Refined[Nat, lambda n: Eq[Nat, n, 0]]) -> Refined[Nat, lambda r: Eq[Nat, r, 0]]:\n    return n\n";
 fn check(body: &str) {
     let source = format!("{HEADER}{LIB}{body}");

@@ -1,6 +1,6 @@
-"""Compare committed source fixtures with generated Python (requires Python 3.12+).
+"""Compare committed source fixtures with generated Python (requires Python 3.14).
 
-Run: uv run --python 3.12 scripts/check_python_runtime.py
+Run: uv run --python 3.14 scripts/check_python_runtime.py
 Only repository fixtures are executed, using the test-only reference model.
 """
 from pathlib import Path
@@ -8,6 +8,9 @@ import subprocess
 import sys
 import types
 import reference_deppy as ref
+
+if sys.version_info[:2] != (3, 14):
+    raise SystemExit("Python 3.14 is required")
 
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLES = ROOT / 'crates/deppy-python/examples/core'

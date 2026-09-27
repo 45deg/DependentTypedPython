@@ -1,4 +1,3 @@
-from __future__ import annotations
 from deppy import inductive, constructor, dependent, Type, Nat
 @inductive(level=1)
 class Box:

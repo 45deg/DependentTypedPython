@@ -1,7 +1,7 @@
 use deppy_python::{analyze_module, check_module, check_module_with_resolver, Target};
 const TARGET: Target = Target::Python314;
 const EXAMPLE: &str = include_str!("../examples/verified/verified_composition.py");
-const HEADER: &str = "from __future__ import annotations\nfrom deppy import dependent, theorem, Nat, S, Eq, refl\nfrom deppy.data import Bool, Unit, MkUnit, True_, False_\nfrom deppy.verified import verified, Refined, verified_spec\n";
+const HEADER: &str = "from deppy import dependent, theorem, Nat, S, Eq, refl\nfrom deppy.data import Bool, Unit, MkUnit, True_, False_\nfrom deppy.verified import verified, Refined, verified_spec\n";
 
 #[test]
 fn contracts_compose_and_cannot_use_callee_implementation_to_prove_continuation() {

@@ -1,4 +1,3 @@
-from __future__ import annotations
 from deppy._builtins import inductive, constructor, dependent, theorem, absurd, Nat, Z, S, Eq, refl
 from deppy.equality import cong
 from deppy.data import Bool, False_, True_

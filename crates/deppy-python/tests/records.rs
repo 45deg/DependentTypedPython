@@ -1,7 +1,8 @@
 use deppy_core::Term;
 use deppy_elab::Expr as E;
 use deppy_python::{check_module, Target};
-const HEADER: &str = "from __future__ import annotations\nfrom deppy import dependent, record, Type, Nat, Z, S, Vec, VNil, Sigma, Pair\n";
+const HEADER: &str =
+    "from deppy import dependent, record, Type, Nat, Z, S, Vec, VNil, Sigma, Pair\n";
 fn check(body: &str) -> deppy_python::CheckedModule {
     check_module(&format!("{HEADER}{body}"), Target::Python314).unwrap()
 }
@@ -112,9 +113,9 @@ fn record_field_references_do_not_capture_lambda_or_global_names() {
     check("@record\nclass R:\n    new: Nat\n@dependent\ndef read(n: Nat) -> Nat:\n    return R(n).new");
     // The second field is a function returning evidence about the stored n,
     // even when its lambda parameter happens to have the same source name.
-    let source = "from __future__ import annotations\nfrom deppy import record, dependent, Nat, Eq, Pi, Z, refl\n@record\nclass R:\n    n: Nat\n    proof: Pi[Nat, lambda n: Eq[Nat, self.n, self.n]]\n@dependent\ndef proof(n: Nat) -> Eq[Nat, Z(), Z()]:\n    return refl(Z())\n@dependent\ndef make(n: Nat) -> R:\n    return R(Z(), proof)\n";
+    let source = "from deppy import record, dependent, Nat, Eq, Pi, Z, refl\n@record\nclass R:\n    n: Nat\n    proof: Pi[Nat, lambda n: Eq[Nat, self.n, self.n]]\n@dependent\ndef proof(n: Nat) -> Eq[Nat, Z(), Z()]:\n    return refl(Z())\n@dependent\ndef make(n: Nat) -> R:\n    return R(Z(), proof)\n";
     check_module(source, Target::Python314).unwrap();
-    let globals = "from __future__ import annotations\nfrom deppy import record, dependent, Nat\n@dependent\ndef value(n: Nat) -> Nat:\n    return n\n@record\nclass R:\n    value: Nat\n    other: Nat\n";
+    let globals = "from deppy import record, dependent, Nat\n@dependent\ndef value(n: Nat) -> Nat:\n    return n\n@record\nclass R:\n    value: Nat\n    other: Nat\n";
     check_module(globals, Target::Python314).unwrap();
     // A field called Nat must not capture the imported Nat used by the next field.
     check("@record\nclass R:\n    Nat: Nat\n    other: Nat\n@dependent\ndef make(n: Nat) -> R:\n    return R(n, n)");

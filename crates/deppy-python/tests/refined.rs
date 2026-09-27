@@ -1,7 +1,6 @@
 use deppy_python::{analyze_module, check_module, Target};
 const TARGET: Target = Target::Python314;
-const HEADER: &str = r#"from __future__ import annotations
-from deppy import dependent, theorem, Nat, S, Eq, refl, hole
+const HEADER: &str = r#"from deppy import dependent, theorem, Nat, S, Eq, refl, hole
 from deppy.data import Bool, True_, False_, Unit, MkUnit
 from deppy.nat import add
 from deppy.verified import verified, Refined, verified_spec

@@ -1,4 +1,3 @@
-from __future__ import annotations
 from deppy import Nat, S, Eq, refl
 from deppy.nat import add
 from deppy.data import Bool

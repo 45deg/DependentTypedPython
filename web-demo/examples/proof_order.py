@@ -1,4 +1,3 @@
-from __future__ import annotations
 from deppy import dependent, Nat, Eq
 from deppy.data import Empty
 from deppy.nat_order import LE, LT, le_antisymm, lt_irrefl, lt_trans

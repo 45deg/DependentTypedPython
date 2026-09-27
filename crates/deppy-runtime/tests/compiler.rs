@@ -2,7 +2,7 @@ use deppy_python::Target;
 use deppy_runtime::{compile_module, compile_module_with_resolver};
 
 const TARGET: Target = Target::Python314;
-const HEADER: &str = "from __future__ import annotations\nfrom deppy import dependent, axiom, Nat, Eq, refl, J, Pi, ann\n";
+const HEADER: &str = "from deppy import dependent, axiom, Nat, Eq, refl, J, Pi, ann\n";
 
 fn source(body: &str) -> String {
     format!("{HEADER}{body}")
@@ -45,7 +45,6 @@ fn discarded_axiomatic_proofs_cannot_leak_into_runtime_j() {
 fn general_boundaries_reject_erased_indices() {
     for source in [
         r#"
-from __future__ import annotations
 from deppy import inductive, constructor, Index, Type, Nat
 @inductive
 class TypeIndexed:
@@ -54,7 +53,6 @@ class TypeIndexed:
     def Mk() -> TypeIndexed[Nat]: ...
 "#,
         r#"
-from __future__ import annotations
 from deppy import inductive, constructor, dependent, Type, Nat, Index
 @inductive
 class Indexed:
@@ -66,7 +64,6 @@ def identity[n: Nat](x: Indexed[n]) -> Indexed[n]:
     return x
 "#,
         r#"
-from __future__ import annotations
 from deppy import inductive, constructor, Index, Nat, Eq, refl
 from deppy.lists import List, Nil
 @inductive

@@ -31,14 +31,12 @@ The integration test checks the entire example and its imported GCD proof with t
 ## Python
 
 ```sh
-uv run --no-project --offline --python 3.12 scripts/check_python_syntax.py
 uv run --no-project --offline --python 3.14 scripts/check_python_syntax.py
-uv run --no-project --offline --python 3.12 scripts/check_python_runtime.py
 uv run --no-project --offline --python 3.14 scripts/check_python_runtime.py
 python3 scripts/check_fermat.py
 ```
 
-The syntax check compiles source without executing programs or checking proofs. Runtime differential checks compare fixtures with a test-only reference model; agreement is not a general semantic-preservation proof. Python 3.13 is an accepted parser target, but its runtime behavior has not been checked here.
+The syntax check compiles source without executing programs or checking proofs. Runtime differential checks compare fixtures with a test-only reference model; agreement is not a general semantic-preservation proof. Executing source fixtures requires Python 3.14 for deferred annotations.
 
 ## Documentation
 

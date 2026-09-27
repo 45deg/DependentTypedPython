@@ -1,4 +1,3 @@
-from __future__ import annotations
 from deppy import dependent, Type, Nat, Vec, VNil, VCons, Fin, FZ, FS, fin0_elim
 
 

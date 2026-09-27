@@ -3,7 +3,7 @@ use deppy_python::{
 };
 const TARGET: Target = Target::Python314;
 const EXAMPLE: &str = include_str!("../examples/verified/refined_arguments.py");
-const HEADER: &str = "from __future__ import annotations\nfrom deppy import dependent, theorem, Nat, Eq, refl, Pair\nfrom deppy.data import Bool, True_, Unit, MkUnit\nfrom deppy.verified import verified, Refined, verified_spec\nfrom deppy.tactics import exact\n";
+const HEADER: &str = "from deppy import dependent, theorem, Nat, Eq, refl, Pair\nfrom deppy.data import Bool, True_, Unit, MkUnit\nfrom deppy.verified import verified, Refined, verified_spec\nfrom deppy.tactics import exact\n";
 
 #[test]
 fn refined_contracts_compose_with_tactics_and_reject_false_evidence() {

@@ -1,4 +1,3 @@
-from __future__ import annotations
 from deppy._builtins import invariant, decreases, dependent, theorem, Sigma, Type, Pi, Nat, Z, S, Eq, refl, absurd
 from deppy.data import Bool, False_, True_, Sum, Left, Right, sum_elim, Unit
 from deppy.nat_order import LE, LT, le_refl, le_pred, le_trans, pred_lt, lt_decide

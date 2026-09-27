@@ -47,6 +47,6 @@ fn reverse_get_rejects_incorrect_proofs_and_indices() {
 
 #[test]
 fn transitivity_rejects_disconnected_equalities() {
-    let source = "from __future__ import annotations\nfrom deppy import dependent, Nat, Eq, refl, trans\n@dependent\ndef bad(n: Nat) -> Eq[Nat, 0, 1]:\n    return trans(refl(0), refl(1))\n";
+    let source = "from deppy import dependent, Nat, Eq, refl, trans\n@dependent\ndef bad(n: Nat) -> Eq[Nat, 0, 1]:\n    return trans(refl(0), refl(1))\n";
     assert!(check_module(source, Target::Python314).is_err());
 }

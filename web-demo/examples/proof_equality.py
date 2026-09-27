@@ -1,4 +1,3 @@
-from __future__ import annotations
 from deppy import dependent, Nat, Eq, refl, sym, trans, cong, S
 
 

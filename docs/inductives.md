@@ -7,7 +7,6 @@ A kernel `DataDecl` has parameter and index telescopes, a concrete universe, and
 Strict positivity is checked after unfolding type aliases. Negative and double-negative occurrences, changed recursive parameters, self-referential result indices, and constructor types using their own eliminator are rejected. Mutual inductives, nested recursion through an existing type constructor, and universe polymorphism are not accepted.
 
 ```python
-from __future__ import annotations
 from deppy import inductive, constructor, dependent, Type
 
 @inductive

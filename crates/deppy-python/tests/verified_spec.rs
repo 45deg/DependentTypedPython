@@ -3,8 +3,7 @@ use deppy_python::{
     check_module, check_module_with_resolver, CheckSession, FrontendOptions, Target,
 };
 const TARGET: Target = Target::Python314;
-const HEADER: &str = r#"from __future__ import annotations
-from deppy import dependent, theorem, axiom, Nat, S, Eq, refl
+const HEADER: &str = r#"from deppy import dependent, theorem, axiom, Nat, S, Eq, refl
 from deppy.data import Unit, MkUnit
 from deppy.nat import add
 from deppy.verified import verified, verified_spec
@@ -45,10 +44,7 @@ fn alias_and_reexport_preserve_the_specification_binding() {
     let mut resolver = |name: &str| {
         Ok(match name {
             "library" => Some(library()),
-            "facade" => Some(
-                "from __future__ import annotations\nfrom library import identity as renamed\n"
-                    .into(),
-            ),
+            "facade" => Some("from library import identity as renamed\n".into()),
             _ => None,
         })
     };

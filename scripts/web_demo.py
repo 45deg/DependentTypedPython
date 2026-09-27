@@ -1,7 +1,5 @@
 """Serve the built client-only DepPy demo as static files on localhost."""
 
-from __future__ import annotations
-
 import argparse
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path

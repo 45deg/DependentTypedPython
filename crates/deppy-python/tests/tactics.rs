@@ -1,6 +1,6 @@
 use deppy_python::{analyze_module, check_module, Target};
 const TARGET: Target = Target::Python314;
-const HEADER: &str = "from __future__ import annotations\nfrom deppy import theorem, Nat, Z, S, Type, Eq, Pi, refl, hole\nfrom deppy.tactics import intro, exact, apply, rewrite, rewrite_in, cases, induction\n";
+const HEADER: &str = "from deppy import theorem, Nat, Z, S, Type, Eq, Pi, refl, hole\nfrom deppy.tactics import intro, exact, apply, rewrite, rewrite_in, cases, induction\n";
 
 #[test]
 fn small_tactics_generate_checked_axiom_free_terms() {

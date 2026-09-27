@@ -1,4 +1,3 @@
-from __future__ import annotations
 from deppy import axiom, dependent, Type, Pi, Eq, sym
 
 

@@ -32,8 +32,7 @@ fn run_generated(generated: &str, assertions: &str) {
 #[test]
 fn p0_boolean_and_natural_comparisons_execute_from_owner_modules() {
     run(
-        r#"from __future__ import annotations
-from deppy import dependent, Nat
+        r#"from deppy import dependent, Nat
 from deppy.data import Bool
 from deppy.bool import bool_not
 from deppy.nat_bool import equal, nat_eq, nat_le, nat_lt
@@ -64,7 +63,7 @@ def flip(flag: Bool) -> Bool:
 #[test]
 fn theorem_alias_retains_checked_runtime_bodies() {
     run(
-        "from __future__ import annotations\nfrom deppy import theorem, Nat, Eq, refl\n@theorem\ndef hidden(n: Nat) -> Nat:\n    return n\n@theorem\ndef proof(n: Nat) -> Eq[Nat, n, n]:\n    return refl(n)\n",
+        "from deppy import theorem, Nat, Eq, refl\n@theorem\ndef hidden(n: Nat) -> Nat:\n    return n\n@theorem\ndef proof(n: Nat) -> Eq[Nat, n, n]:\n    return refl(n)\n",
         "\nassert exports['hidden'](7) == 7\nassert exports['proof'](7) is None\n",
     );
 }
@@ -83,7 +82,7 @@ fn pre_match_definitions_execute() {
 }
 #[test]
 fn erased_runtime_use_is_rejected_by_compiler() {
-    let source = "from __future__ import annotations\nfrom deppy import dependent, Type, Nat, Vec\n@dependent\ndef bad[T: Type, n: Nat](xs: Vec[T, n]) -> Nat:\n    return n\n";
+    let source = "from deppy import dependent, Type, Nat, Vec\n@dependent\ndef bad[T: Type, n: Nat](xs: Vec[T, n]) -> Nat:\n    return n\n";
     assert!(compile_module(source, Target::Python314)
         .unwrap_err()
         .message
@@ -140,13 +139,12 @@ assert exports['add'](128, 3) == 131
 }
 #[test]
 fn unchecked_source_is_never_emitted_or_executed() {
-    run("from __future__ import annotations\nfrom deppy import dependent, Nat\ndef unchecked():\n    raise RuntimeError('must not run')\n@dependent\ndef safe(n: Nat) -> Nat:\n    return n\nassert False\n", "\nassert list(exports) == ['safe']\nassert exports['safe'](3) == 3\n");
+    run("from deppy import dependent, Nat\ndef unchecked():\n    raise RuntimeError('must not run')\n@dependent\ndef safe(n: Nat) -> Nat:\n    return n\nassert False\n", "\nassert list(exports) == ['safe']\nassert exports['safe'](3) == 3\n");
 }
 
 #[test]
 fn fin_recursion_and_equality_transport_execute() {
-    run(r#"from __future__ import annotations
-from deppy import dependent, Nat, Z, S, Fin, FZ, FS
+    run(r#"from deppy import dependent, Nat, Z, S, Fin, FZ, FS
 @dependent(decreases="i")
 def rank(n: Nat, i: Fin[n]) -> Nat:
     match i:
@@ -156,8 +154,7 @@ def rank(n: Nat, i: Fin[n]) -> Nat:
             return S(rank(k, j))
 "#, "\nfor n in range(1, 9):\n    for i in range(n):\n        assert exports['rank'](n, (n, i)) == i\n");
     // zero_right exercises J via cong; proof arguments from Python are rejected.
-    run(r#"from __future__ import annotations
-from deppy import dependent, Nat, Eq
+    run(r#"from deppy import dependent, Nat, Eq
 @dependent
 def use_proof(n: Nat, p: Eq[Nat, n, n]) -> Nat:
     return n
@@ -166,19 +163,18 @@ def use_proof(n: Nat, p: Eq[Nat, n, n]) -> Nat:
 
 #[test]
 fn unsupported_boundaries_report_a_compile_error() {
-    let source = "from __future__ import annotations\nfrom deppy import dependent, Type, Nat, Vec\n@dependent\ndef keep[T: Type, n: Nat](xs: Vec[T, n]) -> Vec[T, n]:\n    return xs\n";
+    let source = "from deppy import dependent, Type, Nat, Vec\n@dependent\ndef keep[T: Type, n: Nat](xs: Vec[T, n]) -> Vec[T, n]:\n    return xs\n";
     assert!(compile_module(source, Target::Python314)
         .unwrap_err()
         .message
         .contains("runtime boundary"));
-    let source = "from __future__ import annotations\nfrom deppy import dependent, Nat, Pi\n@dependent\ndef apply(f: Pi[Nat, lambda n: Nat], n: Nat) -> Nat:\n    return f(n)\n";
+    let source = "from deppy import dependent, Nat, Pi\n@dependent\ndef apply(f: Pi[Nat, lambda n: Nat], n: Nat) -> Nat:\n    return f(n)\n";
     run(source, "\nassert exports['apply'](lambda n: n + 1, 3) == 4\nfor f in [3, lambda n: -1, lambda n: 'bad']:\n    try:\n        exports['apply'](f, 3)\n    except TypeError:\n        pass\n    else:\n        raise AssertionError('invalid callback accepted')\n");
 }
 
 #[test]
 fn higher_order_fields_and_value_parameters_are_validated() {
-    let library = r#"from __future__ import annotations
-from deppy import inductive, constructor, Nat, Pi, Vec
+    let library = r#"from deppy import inductive, constructor, Nat, Pi, Vec
 @inductive
 class Sized[n: Nat]:
     @constructor
@@ -188,8 +184,7 @@ class Higher:
     @constructor
     def Callback(f: Pi[Nat, lambda k: Vec[Nat, k]]) -> Higher: ...
 "#;
-    let source = r#"from __future__ import annotations
-from deppy import dependent, Nat, Vec, Pi, induct
+    let source = r#"from deppy import dependent, Nat, Vec, Pi, induct
 from helper import Sized, Mk, Higher, Callback
 @dependent
 def pack(n: Nat, xs: Vec[Nat, n]) -> Sized[n]:
@@ -234,7 +229,7 @@ fn concrete_vector_carriers_and_large_literals_are_checked() {
     // The core uses recursive Rust traversals; reserve enough stack for this
     // parser-depth regression, independently of the default test thread stack.
     std::thread::Builder::new().stack_size(16 * 1024 * 1024).spawn(|| {
-    run("from __future__ import annotations\nfrom deppy import dependent, Nat, Vec\n@dependent\ndef keep(n: Nat, xs: Vec[Nat, n]) -> Vec[Nat, n]:\n    return xs\n@dependent\ndef literal(n: Nat) -> Nat:\n    return 256\n", r#"
+    run("from deppy import dependent, Nat, Vec\n@dependent\ndef keep(n: Nat, xs: Vec[Nat, n]) -> Vec[Nat, n]:\n    return xs\n@dependent\ndef literal(n: Nat) -> Nat:\n    return 256\n", r#"
 assert exports['literal'](0) == 256
 assert exports['keep'](2, (0, 1)) == (0, 1)
 for xs in [(-1,), (True,), ('x',)]:
@@ -306,8 +301,7 @@ for n in range(1, 5):
 "#,
     );
     run(
-        r#"from __future__ import annotations
-from deppy import dependent, record, Type, Nat, S, Vec, vnil, vcons, Eq, refl, Pi, nat_elim, record_elim
+        r#"from deppy import dependent, record, Type, Nat, S, Vec, vnil, vcons, Eq, refl, Pi, nat_elim, record_elim
 from deppy.equality import sym, trans, cong, transport
 @record
 class Box:
@@ -339,7 +333,6 @@ for n in range(6):
 fn proof_results_are_discarded_but_computational_proofs_remain_available() {
     run(
         r#"
-from __future__ import annotations
 from deppy import dependent, Nat, Eq, refl, J, Pi, ann
 from deppy.equality import sym
 @dependent
@@ -408,7 +401,6 @@ assert exports['zero_right'](10000) is None
 fn general_list_and_binary_tree_execute_with_checked_boundaries() {
     run(
         r#"
-from __future__ import annotations
 from deppy import dependent, inductive, constructor, Type, Nat, S, induct, nat_elim
 @inductive
 class List[A: Type]:
@@ -476,7 +468,6 @@ for bad in [tree, (xs[0], True, xs[2]), (xs[0], 9, ()),
 fn general_indexed_vector_runtime_checks_indices_and_computes_get() {
     run(
         r#"
-from __future__ import annotations
 from deppy import dependent, Nat, Z, S
 from deppy.indexed import IVec, INil, ICons, IFin, IFZ, IFS, get
 @dependent
@@ -538,7 +529,6 @@ for args in [(one, xs, first), (two, xs, exports['first'](z)),
 #[test]
 fn general_function_recursive_fields_and_proof_fields_compute_internally() {
     let library = r#"
-from __future__ import annotations
 from deppy import dependent, inductive, constructor, Pi, Nat, S, induct, Eq, refl, J
 @inductive
 class Tree:
@@ -561,7 +551,6 @@ def proof_computation() -> Nat:
     return induct(0, Witness(refl(0)), lambda _: Nat, lambda p: J(0, Nat, 0, lambda end, q: Nat, 7, 0, p))
 "#;
     let source = r#"
-from __future__ import annotations
 from deppy import dependent, Nat
 from helper import compute, proof_computation
 @dependent

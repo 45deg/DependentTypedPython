@@ -1,6 +1,6 @@
 use deppy_python::{analyze_module, check_module, check_module_with_resolver, Target};
 const TARGET: Target = Target::Python314;
-const HEADER: &str = "from __future__ import annotations\nfrom deppy import Nat, Eq, refl, theorem, hole\nfrom deppy.data import Bool, True_, False_, Unit, MkUnit\nfrom deppy.verified import verified, Refined, verified_spec\nfrom deppy.verified_loop import decreases\nfrom deppy.nat_order import LE, LT\n";
+const HEADER: &str = "from deppy import Nat, Eq, refl, theorem, hole\nfrom deppy.data import Bool, True_, False_, Unit, MkUnit\nfrom deppy.verified import verified, Refined, verified_spec\nfrom deppy.verified_loop import decreases\nfrom deppy.nat_order import LE, LT\n";
 const LOOP: &str = include_str!("../examples/verified/verified_annotations.py");
 
 #[test]

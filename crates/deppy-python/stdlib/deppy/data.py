@@ -1,4 +1,3 @@
-from __future__ import annotations
 from deppy._builtins import inductive, constructor, dependent, Type, Pi, Sigma, Pair, Nat, Eq, refl, absurd
 from deppy.equality import transport
 

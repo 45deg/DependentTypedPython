@@ -1,4 +1,3 @@
-from __future__ import annotations
 from deppy._builtins import dependent, theorem, Nat, Z, S, Eq, refl, Sigma, Pair, Pi, absurd
 from deppy.nat import add, mul, pred_or, add_zero, add_comm, add_succ
 from deppy.nat_order import LE, LT, LEZero, LESucc, pred_lt, le_trans, le_weaken, le_refl, le_decide, lt_decide

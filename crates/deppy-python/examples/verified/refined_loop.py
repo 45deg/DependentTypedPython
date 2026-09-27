@@ -1,4 +1,3 @@
-from __future__ import annotations
 from deppy import theorem, Nat, Z, S, Eq, refl, absurd
 from deppy.data import Bool, False_, MkUnit
 from deppy.equality import sym

@@ -1,5 +1,5 @@
 use deppy_python::{check_module, Target};
-const LIST: &str = "from __future__ import annotations\nfrom deppy import inductive, constructor, dependent, Type, Nat, induct, Eq, refl\n@inductive\nclass List[A: Type]:\n    @constructor\n    def Nil() -> List[A]: ...\n    @constructor\n    def Cons(head: A, tail: List[A]) -> List[A]: ...\n";
+const LIST: &str = "from deppy import inductive, constructor, dependent, Type, Nat, induct, Eq, refl\n@inductive\nclass List[A: Type]:\n    @constructor\n    def Nil() -> List[A]: ...\n    @constructor\n    def Cons(head: A, tail: List[A]) -> List[A]: ...\n";
 
 #[test]
 fn generic_coverage_termination_and_metadata() {
@@ -44,8 +44,8 @@ fn goals_display_general_family_names() {
 #[test]
 fn imported_constructor_aliases_share_nominal_identity() {
     let library = LIST.to_owned();
-    let left = "from __future__ import annotations\nfrom base import List, Nil, Cons\n".to_owned();
-    let right = "from __future__ import annotations\nfrom base import List, Nil, Cons\n".to_owned();
+    let left = "from base import List, Nil, Cons\n".to_owned();
+    let right = "from base import List, Nil, Cons\n".to_owned();
     let mut resolver = |name: &str| {
         Ok(match name {
             "base" => Some(library.clone()),
@@ -54,7 +54,7 @@ fn imported_constructor_aliases_share_nominal_identity() {
             _ => None,
         })
     };
-    let root = "from __future__ import annotations\nfrom deppy import dependent, Nat\nfrom left import List as L, Nil as N\nfrom right import List as R, Cons as C\n@dependent\ndef value() -> R[Nat]:\n    return C(0, N[Nat]())\n";
+    let root = "from deppy import dependent, Nat\nfrom left import List as L, Nil as N\nfrom right import List as R, Cons as C\n@dependent\ndef value() -> R[Nat]:\n    return C(0, N[Nat]())\n";
     deppy_python::check_module_with_resolver(root, Target::Python314, &mut resolver)
         .unwrap_or_else(|e| panic!("{e}"));
 }

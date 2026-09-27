@@ -4,7 +4,7 @@ use deppy_python::{check_module, check_module_with_resolver, Target};
 fn theorem_alias_checks_bodies_and_is_opaque() {
     for decorator in ["@prove", "@prove()"] {
         let source = format!(
-            "from __future__ import annotations\nfrom deppy import theorem as prove\nfrom deppy import dependent, Nat, Eq, refl\n{decorator}\ndef hidden() -> Nat:\n    return 0\n"
+            "from deppy import theorem as prove\nfrom deppy import dependent, Nat, Eq, refl\n{decorator}\ndef hidden() -> Nat:\n    return 0\n"
         );
         let checked = check_module(&source, Target::Python314).unwrap();
         assert_eq!(
@@ -24,7 +24,7 @@ fn theorem_alias_checks_bodies_and_is_opaque() {
 
 #[test]
 fn recursive_theorem_supports_structural_options_without_transparency_options() {
-    let source = "from __future__ import annotations\nfrom deppy import theorem, Nat, Z, S, Eq, refl, cong\n@theorem(decreases=\"n\", motive_level=0)\ndef identity(n: Nat) -> Eq[Nat, n, n]:\n    match n:\n        case Z():\n            return refl(0)\n        case S(k):\n            return cong(lambda x: S(x), identity(k))\n";
+    let source = "from deppy import theorem, Nat, Z, S, Eq, refl, cong\n@theorem(decreases=\"n\", motive_level=0)\ndef identity(n: Nat) -> Eq[Nat, n, n]:\n    match n:\n        case Z():\n            return refl(0)\n        case S(k):\n            return cong(lambda x: S(x), identity(k))\n";
     let checked = check_module(source, Target::Python314).unwrap();
     assert_eq!(
         checked.interface.exports()["identity"].kind,
@@ -52,9 +52,9 @@ fn recursive_theorem_supports_structural_options_without_transparency_options() 
 
 #[test]
 fn theorem_alias_preserves_axiom_dependencies_through_reexport() {
-    let library = "from __future__ import annotations\nfrom deppy import theorem, axiom, Nat, Eq\n@axiom\ndef assumption() -> Eq[Nat, 0, 0]:\n    ...\n@theorem\ndef proof() -> Eq[Nat, 0, 0]:\n    return assumption()\n";
+    let library = "from deppy import theorem, axiom, Nat, Eq\n@axiom\ndef assumption() -> Eq[Nat, 0, 0]:\n    ...\n@theorem\ndef proof() -> Eq[Nat, 0, 0]:\n    return assumption()\n";
     let bridge = "from deppy import theorem as prove\nfrom library import proof\n";
-    let source = "from __future__ import annotations\nfrom deppy import Nat, Eq\nfrom bridge import prove, proof\n@prove\ndef use() -> Eq[Nat, 0, 0]:\n    return proof()\n";
+    let source = "from deppy import Nat, Eq\nfrom bridge import prove, proof\n@prove\ndef use() -> Eq[Nat, 0, 0]:\n    return proof()\n";
     let mut resolver = |name: &str| {
         Ok(match name {
             "library" => Some(library.to_owned()),
@@ -71,8 +71,8 @@ fn theorem_alias_preserves_axiom_dependencies_through_reexport() {
 
 #[test]
 fn opaque_theorems_check_bodies_and_preserve_dependencies_across_imports() {
-    let library = "from __future__ import annotations\nfrom deppy import dependent, axiom, Nat, Eq, refl\n@axiom\ndef assumption() -> Eq[Nat, 0, 0]:\n    ...\n@dependent(opaque=True)\ndef theorem() -> Eq[Nat, 0, 0]:\n    return assumption()\n";
-    let source = "from __future__ import annotations\nfrom deppy import dependent, Nat, Eq\nfrom library import theorem\n@dependent\ndef use() -> Eq[Nat, 0, 0]:\n    return theorem()\n";
+    let library = "from deppy import dependent, axiom, Nat, Eq, refl\n@axiom\ndef assumption() -> Eq[Nat, 0, 0]:\n    ...\n@dependent(opaque=True)\ndef theorem() -> Eq[Nat, 0, 0]:\n    return assumption()\n";
+    let source = "from deppy import dependent, Nat, Eq\nfrom library import theorem\n@dependent\ndef use() -> Eq[Nat, 0, 0]:\n    return theorem()\n";
     let mut resolver = |name: &str| Ok((name == "library").then(|| library.to_owned()));
     let module = check_module_with_resolver(source, Target::Python314, &mut resolver).unwrap();
     assert_eq!(module.axiom_dependencies["use"], vec!["library.assumption"]);
@@ -100,7 +100,7 @@ fn opaque_theorems_check_bodies_and_preserve_dependencies_across_imports() {
 
 #[test]
 fn opaque_values_do_not_unfold_during_elaboration() {
-    let source = "from __future__ import annotations\nfrom deppy import dependent, Nat, Eq, refl\n@dependent(opaque=True)\ndef hidden() -> Nat:\n    return 0\n@dependent\ndef wrong() -> Eq[Nat, hidden(), 0]:\n    return refl(0)\n";
+    let source = "from deppy import dependent, Nat, Eq, refl\n@dependent(opaque=True)\ndef hidden() -> Nat:\n    return 0\n@dependent\ndef wrong() -> Eq[Nat, hidden(), 0]:\n    return refl(0)\n";
     assert!(check_module(source, Target::Python314).is_err());
     assert!(check_module(
         &source.replace("opaque=True", "opaque=False"),
@@ -121,7 +121,7 @@ fn opaque_values_do_not_unfold_during_elaboration() {
 
 #[test]
 fn checked_interface_retains_the_exact_environment_and_declaration_kind() {
-    let source = "from __future__ import annotations\nfrom deppy import dependent, Nat\n@dependent(opaque=True)\ndef theorem() -> Nat:\n    return 0\n";
+    let source = "from deppy import dependent, Nat\n@dependent(opaque=True)\ndef theorem() -> Nat:\n    return 0\n";
     let mut module = check_module(source, Target::Python314).unwrap();
     let entry = &module.interface.exports()["theorem"];
     assert_eq!(entry.kind, deppy_python::DeclarationKind::Opaque);
@@ -144,9 +144,9 @@ fn checked_interface_retains_the_exact_environment_and_declaration_kind() {
 
 #[test]
 fn diamond_imports_share_opaque_declaration_identity() {
-    let common = "from __future__ import annotations\nfrom deppy import dependent, Nat\n@dependent(opaque=True)\ndef hidden() -> Nat:\n    return 0\n";
+    let common = "from deppy import dependent, Nat\n@dependent(opaque=True)\ndef hidden() -> Nat:\n    return 0\n";
     let bridge = "from common import hidden\n";
-    let source = "from __future__ import annotations\nfrom deppy import dependent, Nat, Eq, refl\nfrom left import hidden as a\nfrom right import hidden as b\n@dependent\ndef same() -> Eq[Nat, a(), b()]:\n    return refl(a())\n";
+    let source = "from deppy import dependent, Nat, Eq, refl\nfrom left import hidden as a\nfrom right import hidden as b\n@dependent\ndef same() -> Eq[Nat, a(), b()]:\n    return refl(a())\n";
     let mut common_loads = 0;
     let mut resolver = |name: &str| {
         Ok(match name {

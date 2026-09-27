@@ -2,7 +2,7 @@ use deppy_python::{analyze_module, check_module, Target};
 
 #[test]
 fn goals_preserve_context_and_never_register_unfinished_definitions() {
-    let source = "from __future__ import annotations\nfrom deppy import dependent, Nat, Eq, hole\n@dependent\ndef unfinished(n: Nat) -> Eq[Nat, n, n]:\n    x: Nat = n\n    return hole('identity')\n";
+    let source = "from deppy import dependent, Nat, Eq, hole\n@dependent\ndef unfinished(n: Nat) -> Eq[Nat, n, n]:\n    x: Nat = n\n    return hole('identity')\n";
     let analysis = analyze_module(source, Target::Python314);
     assert!(analysis.checked.is_none());
     assert_eq!(analysis.goals.len(), 1, "{:?}", analysis.diagnostics);
@@ -19,7 +19,7 @@ fn goals_preserve_context_and_never_register_unfinished_definitions() {
 
 #[test]
 fn unused_holes_remain_unfinished_and_untyped_holes_are_rejected() {
-    let source = "from __future__ import annotations\nfrom deppy import dependent, Nat, hole\n@dependent\ndef unfinished() -> Nat:\n    unused: Nat = hole('unused')\n    return 0\n";
+    let source = "from deppy import dependent, Nat, hole\n@dependent\ndef unfinished() -> Nat:\n    unused: Nat = hole('unused')\n    return 0\n";
     assert_eq!(analyze_module(source, Target::Python314).goals.len(), 1);
     let untyped = source.replace("unused: Nat", "unused");
     let result = analyze_module(&untyped, Target::Python314);
@@ -30,20 +30,21 @@ fn unused_holes_remain_unfinished_and_untyped_holes_are_rejected() {
 
 #[test]
 fn diagnostics_point_at_expressions_and_imported_sources() {
-    let source = "from __future__ import annotations\nfrom deppy import dependent, Nat\n@dependent\ndef wrong() -> Nat:\n    return Nat\n";
+    let source =
+        "from deppy import dependent, Nat\n@dependent\ndef wrong() -> Nat:\n    return Nat\n";
     let error = match check_module(source, Target::Python314) {
         Err(e) => e,
         Ok(_) => panic!("expected error"),
     };
     assert_eq!(&source[error.span.start..error.span.end], "Nat");
-    assert_eq!(error.details.line, Some(5));
+    assert_eq!(error.details.line, Some(4));
     assert_eq!(error.details.column, Some(12));
     assert_eq!(error.details.expected.as_deref(), Some("Nat"));
     assert_eq!(error.details.actual.as_deref(), Some("Type"));
     assert_eq!(error.details.related.len(), 1);
     let mut resolver = |name: &str| Ok((name == "library").then(|| source.to_owned()));
     let result = deppy_python::analyze_module_with_resolver(
-        "from __future__ import annotations\nfrom library import wrong\n",
+        "from library import wrong\n",
         Target::Python314,
         &mut resolver,
     );
@@ -51,12 +52,12 @@ fn diagnostics_point_at_expressions_and_imported_sources() {
         result.diagnostics[0].details.source.as_deref(),
         Some("library")
     );
-    assert_eq!(result.diagnostics[0].details.line, Some(5));
+    assert_eq!(result.diagnostics[0].details.line, Some(4));
 }
 
 #[test]
 fn analysis_collects_independent_goals_with_distinct_ids() {
-    let source = "from __future__ import annotations\nfrom deppy import dependent, Nat, hole\n@dependent\ndef first() -> Nat:\n    return hole('a')\n@dependent\ndef second() -> Nat:\n    return hole('b')\n@dependent\ndef blocked() -> Nat:\n    return first()\n";
+    let source = "from deppy import dependent, Nat, hole\n@dependent\ndef first() -> Nat:\n    return hole('a')\n@dependent\ndef second() -> Nat:\n    return hole('b')\n@dependent\ndef blocked() -> Nat:\n    return first()\n";
     let analysis = analyze_module(source, Target::Python314);
     assert_eq!(analysis.goals.len(), 2);
     assert_ne!(analysis.goals[0].id, analysis.goals[1].id);
@@ -69,7 +70,7 @@ fn analysis_collects_independent_goals_with_distinct_ids() {
 
 #[test]
 fn structural_goals_keep_pattern_binder_names() {
-    let source = "from __future__ import annotations\nfrom deppy import dependent, Nat, Z, S, hole\n@dependent(decreases='n')\ndef count(n: Nat) -> Nat:\n    match n:\n        case Z():\n            return 0\n        case S(k):\n            return hole('step')\n";
+    let source = "from deppy import dependent, Nat, Z, S, hole\n@dependent(decreases='n')\ndef count(n: Nat) -> Nat:\n    match n:\n        case Z():\n            return 0\n        case S(k):\n            return hole('step')\n";
     let analysis = analyze_module(source, Target::Python314);
     assert_eq!(analysis.goals.len(), 1, "{:?}", analysis.diagnostics);
     assert!(analysis.goals[0]
@@ -84,7 +85,8 @@ fn structural_goals_keep_pattern_binder_names() {
 
 #[test]
 fn configurable_budgets_fail_closed() {
-    let source = "from __future__ import annotations\nfrom deppy import dependent, Nat\n@dependent\ndef value() -> Nat:\n    return 0\n";
+    let source =
+        "from deppy import dependent, Nat\n@dependent\ndef value() -> Nat:\n    return 0\n";
     for options in [
         deppy_python::FrontendOptions {
             elaboration_steps: 0,
@@ -102,7 +104,7 @@ fn configurable_budgets_fail_closed() {
 
 #[test]
 fn goal_diagnostics_share_ids_locations_and_root_identity() {
-    let source = "from __future__ import annotations\nfrom deppy import dependent, Nat, hole\n@dependent\ndef first() -> Nat:\n    return hole('a')\n@dependent\ndef second() -> Nat:\n    return hole('b')\n";
+    let source = "from deppy import dependent, Nat, hole\n@dependent\ndef first() -> Nat:\n    return hole('a')\n@dependent\ndef second() -> Nat:\n    return hole('b')\n";
     let mut analysis = deppy_python::analyze_module_with_options(source, Default::default());
     analysis.set_root_source_name("proof.py");
     assert_eq!(analysis.goals.len(), 2);
@@ -120,7 +122,7 @@ fn goal_diagnostics_share_ids_locations_and_root_identity() {
 
 #[test]
 fn naming_root_does_not_replace_imported_goal_sources() {
-    let library = "from __future__ import annotations\nfrom deppy import dependent, Nat, hole\n@dependent\ndef unfinished() -> Nat:\n    return hole('imported')\n";
+    let library = "from deppy import dependent, Nat, hole\n@dependent\ndef unfinished() -> Nat:\n    return hole('imported')\n";
     let mut resolver = |name: &str| Ok((name == "library").then(|| library.to_owned()));
     let mut analysis = deppy_python::analyze_module_with_resolver(
         "from library import unfinished\n",
@@ -137,19 +139,19 @@ fn naming_root_does_not_replace_imported_goal_sources() {
         analysis.diagnostics[0].details.source.as_deref(),
         Some("library")
     );
-    assert_eq!(analysis.diagnostics[0].details.line, Some(5));
+    assert_eq!(analysis.diagnostics[0].details.line, Some(4));
     assert_eq!(analysis.diagnostics[0].details.column, Some(12));
 }
 
 #[test]
 fn annotated_hole_has_expected_type_and_unicode_source_coordinates() {
-    let source = "from __future__ import annotations\nfrom deppy import dependent, Nat, hole, ann\n@dependent\ndef proof() -> Nat:\n    証明 = ann(hole('名前'), Nat)\n    return 証明\n";
+    let source = "from deppy import dependent, Nat, hole, ann\n@dependent\ndef proof() -> Nat:\n    証明 = ann(hole('名前'), Nat)\n    return 証明\n";
     let analysis = analyze_module(source, Target::Python314);
     assert!(analysis.checked.is_none());
     assert_eq!(analysis.goals.len(), 1, "{:?}", analysis.diagnostics);
     assert_eq!(analysis.goals[0].expected, "Nat");
     let diagnostic = &analysis.diagnostics[0];
-    assert_eq!(diagnostic.details.line, Some(5));
+    assert_eq!(diagnostic.details.line, Some(4));
     assert_eq!(diagnostic.details.column, Some(14));
     assert_eq!(
         &source[diagnostic.span.start..diagnostic.span.end],
@@ -159,7 +161,7 @@ fn annotated_hole_has_expected_type_and_unicode_source_coordinates() {
 
 #[test]
 fn structural_diagnostics_locate_duplicate_wrong_and_missing_patterns() {
-    let prefix = "from __future__ import annotations\nfrom deppy import dependent, Nat, Z, S, VNil\n@dependent(decreases='n')\ndef count(n: Nat) -> Nat:\n    ";
+    let prefix = "from deppy import dependent, Nat, Z, S, VNil\n@dependent(decreases='n')\ndef count(n: Nat) -> Nat:\n    ";
     for (body, offending) in [
         ("match n:\n        case Z():\n            return 0\n        case Z():\n            return 0\n", "Z()"),
         ("match n:\n        case VNil():\n            return 0\n", "VNil()"),
@@ -177,10 +179,10 @@ fn structural_diagnostics_locate_duplicate_wrong_and_missing_patterns() {
 
 #[test]
 fn nested_pattern_diagnostics_keep_import_source_and_inner_span() {
-    let source = "from __future__ import annotations\nfrom deppy import dependent, Nat, Z, S, Fin, FZ, FS\n@dependent(decreases='n')\ndef count(n: Nat, i: Fin[n]) -> Nat:\n    match n:\n        case Z():\n            return 0\n        case S(k):\n            match i:\n                case FZ(a):\n                    return 0\n                case FZ(b):\n                    return 0\n";
+    let source = "from deppy import dependent, Nat, Z, S, Fin, FZ, FS\n@dependent(decreases='n')\ndef count(n: Nat, i: Fin[n]) -> Nat:\n    match n:\n        case Z():\n            return 0\n        case S(k):\n            match i:\n                case FZ(a):\n                    return 0\n                case FZ(b):\n                    return 0\n";
     let mut resolver = |name: &str| Ok((name == "library").then(|| source.to_owned()));
     let result = deppy_python::analyze_module_with_resolver(
-        "from __future__ import annotations\nfrom library import count\n",
+        "from library import count\n",
         Target::Python314,
         &mut resolver,
     );
@@ -188,13 +190,12 @@ fn nested_pattern_diagnostics_keep_import_source_and_inner_span() {
     let error = &result.diagnostics[0];
     assert_eq!(&source[error.span.start..error.span.end], "FZ(b)");
     assert_eq!(error.details.source.as_deref(), Some("library"));
-    assert_eq!(error.details.line, Some(12));
+    assert_eq!(error.details.line, Some(11));
 }
 
 #[test]
 fn type_shape_and_reflexivity_errors_include_type_details() {
-    let prefix =
-        "from __future__ import annotations\nfrom deppy import dependent, Nat, Eq, refl, Pi\n";
+    let prefix = "from deppy import dependent, Nat, Eq, refl, Pi\n";
     for source in [
         "@dependent\ndef bad(x: 0) -> Nat:\n    return 0\n",
         "@dependent\ndef bad(x: Nat) -> Nat:\n    return x(0)\n",

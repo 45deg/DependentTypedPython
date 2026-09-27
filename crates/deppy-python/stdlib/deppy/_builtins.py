@@ -1,4 +1,3 @@
-from __future__ import annotations
 
 # Compiler primitives. @builtin declarations are checked by the module loader.
 # Their implementation and typing rules live in the frontend. Annotations on

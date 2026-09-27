@@ -1,4 +1,3 @@
-from __future__ import annotations
 from deppy._builtins import dependent, theorem, Type, Pi, Nat, Z, S, Vec, VNil, VCons, vnil, vcons, Fin, FZ, FS, fin0_elim, nat_elim, vec_elim, Eq, refl
 from deppy.equality import trans, cong, cong2
 from deppy.nat import add

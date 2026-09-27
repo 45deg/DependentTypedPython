@@ -1,5 +1,5 @@
 use deppy_python::{analyze_module, check_module, Target};
-const HEADER: &str = "from __future__ import annotations\nfrom deppy import Nat, Eq, refl, theorem\nfrom deppy.verified import verified, Refined\nfrom deppy.data import Bool, True_\nfrom deppy.nat_order import LE, LT\nfrom deppy.arithmetic import sub, quotient, remainder\nfrom deppy.verified_loop import decreases\n";
+const HEADER: &str = "from deppy import Nat, Eq, refl, theorem\nfrom deppy.verified import verified, Refined\nfrom deppy.data import Bool, True_\nfrom deppy.nat_order import LE, LT\nfrom deppy.arithmetic import sub, quotient, remainder\nfrom deppy.verified_loop import decreases\n";
 fn check(body: &str) {
     let source = format!("{HEADER}{body}");
     let checked =
@@ -307,7 +307,6 @@ def conditional_arithmetic(flag: Bool) -> Int:
 #[test]
 fn operators_link_their_libraries_without_explicit_helper_imports() {
     let source = r#"
-from __future__ import annotations
 from deppy import Nat, Eq, refl, theorem
 from deppy.verified import verified
 @verified

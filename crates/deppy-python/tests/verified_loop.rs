@@ -109,8 +109,7 @@ fn generic_loop_theorems_are_axiom_free() {
 
 #[test]
 fn zero_iteration_loop_preserves_mixed_scalar_state() {
-    let source = r#"from __future__ import annotations
-from deppy import dependent, Nat, Eq, refl, Pair, absurd
+    let source = r#"from deppy import dependent, Nat, Eq, refl, Pair, absurd
 from deppy.data import Bool, False_, Unit, MkUnit
 from deppy.nat_order import LT
 from deppy.verified import verified, false_ne_true

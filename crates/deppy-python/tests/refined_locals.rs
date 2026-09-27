@@ -1,7 +1,7 @@
 use deppy_python::{analyze_module, check_module, check_module_with_resolver, Target};
 const TARGET: Target = Target::Python314;
 const LOOP: &str = include_str!("../examples/verified/refined_loop.py");
-const HEADER: &str = "from __future__ import annotations\nfrom deppy import theorem, Nat, Eq, refl, S\nfrom deppy.data import Bool, True_, Unit, MkUnit\nfrom deppy.verified import verified, Refined, verified_spec\nfrom deppy.tactics import exact, rewrite\nfrom deppy.nat_order import LE, le_refl\n";
+const HEADER: &str = "from deppy import theorem, Nat, Eq, refl, S\nfrom deppy.data import Bool, True_, Unit, MkUnit\nfrom deppy.verified import verified, Refined, verified_spec\nfrom deppy.tactics import exact, rewrite\nfrom deppy.nat_order import LE, le_refl\n";
 
 #[test]
 fn loop_uses_only_contracts_and_exports_a_checked_specification() {

@@ -50,9 +50,7 @@ pub(super) fn module(
     };
     let mut declarations = vec![];
     let mut names = HashSet::new();
-    let mut future = false;
     let mut imports_done = false;
-    let mut future_done = false;
     for (i, stmt) in body.iter().enumerate() {
         match stmt {
             Stmt::Expr(e) if i == 0 && matches!(e.value.as_ref(), Expr::StringLiteral(_)) => {}
@@ -61,21 +59,7 @@ pub(super) fn module(
                     return Err(error(stmt, "only initial absolute imports are supported"));
                 }
                 let module = import.module.as_ref().map(|m| m.as_str()).unwrap_or("");
-                if module == "__future__" {
-                    if future_done
-                        || future
-                        || import.names.len() != 1
-                        || import.names[0].name.as_str() != "annotations"
-                        || import.names[0].asname.is_some()
-                    {
-                        return Err(error(
-                            stmt,
-                            "expected a single initial 'from __future__ import annotations'",
-                        ));
-                    }
-                    future = true;
-                } else if module == "deppy" || libraries.contains_key(module) {
-                    future_done = true;
+                if module == "deppy" || libraries.contains_key(module) {
                     for alias in &import.names {
                         let original = alias.name.as_str();
                         let name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
@@ -115,9 +99,6 @@ pub(super) fn module(
                 }
                 if f.decorator_list.is_empty() {
                     continue;
-                }
-                if !future {
-                    return Err(error(f, "from __future__ import annotations is required"));
                 }
                 let decorator = match &f.decorator_list[0].expression {
                     Expr::Call(c) => c.func.as_ref(),
@@ -159,12 +140,6 @@ pub(super) fn module(
                 imports_done = true;
                 if !names.insert(class.name.to_string()) {
                     return Err(error(class, "duplicate module binding"));
-                }
-                if !future {
-                    return Err(error(
-                        class,
-                        "from __future__ import annotations is required",
-                    ));
                 }
                 let decorator = class.decorator_list.first().map(|d| match &d.expression {
                     Expr::Call(c) => c.func.as_ref(),

@@ -1,4 +1,3 @@
-from __future__ import annotations
 from deppy import dependent, Type, Pi, Nat, S, Eq, trans, Fin, fin0_elim, fin_case, Vec, VCons, vec_elim
 from deppy.vectors import get, snoc, reverse, mirror, get_snoc_last, get_snoc_weaken
 

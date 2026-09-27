@@ -6,11 +6,11 @@ fn cli_resolves_local_modules_and_emits_working_code() {
     fs::create_dir_all(root.join("proofs")).unwrap();
     fs::write(
         root.join("proofs/__init__.py"),
-        "from __future__ import annotations\nfrom deppy import dependent, Nat, Eq, refl\n@dependent\ndef identity(n: Nat) -> Nat:\n    return n\n@dependent\ndef proof(n: Nat) -> Eq[Nat, n, n]:\n    return refl(n)\n",
+        "from deppy import dependent, Nat, Eq, refl\n@dependent\ndef identity(n: Nat) -> Nat:\n    return n\n@dependent\ndef proof(n: Nat) -> Eq[Nat, n, n]:\n    return refl(n)\n",
     )
     .unwrap();
     let main = root.join("main.py");
-    fs::write(&main, "from __future__ import annotations\nfrom deppy import dependent, Nat, Eq\nfrom proofs import identity, proof\n@dependent\ndef run(n: Nat) -> Nat:\n    return identity(n)\n@dependent\ndef verify(n: Nat) -> Eq[Nat, n, n]:\n    return proof(n)\n").unwrap();
+    fs::write(&main, "from deppy import dependent, Nat, Eq\nfrom proofs import identity, proof\n@dependent\ndef run(n: Nat) -> Nat:\n    return identity(n)\n@dependent\ndef verify(n: Nat) -> Eq[Nat, n, n]:\n    return proof(n)\n").unwrap();
     let compiled = Command::new(env!("CARGO_BIN_EXE_deppy-runtime"))
         .arg(&main)
         .output()

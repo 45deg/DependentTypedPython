@@ -1,7 +1,5 @@
 """Check DepPy examples through the CLI without executing them as Python."""
 
-from __future__ import annotations
-
 import os
 import subprocess
 import tempfile
@@ -164,7 +162,7 @@ def main() -> None:
     mutation(executable, CORE / "higher_universe.py", "@inductive(level=1)", "@inductive")
     mutation(executable, PROOF_CASE / "cantor.py", "lambda x: negate(f(x)(x))", "lambda x: f(x)(x)", forbidden=("budget",))
 
-    boolean_header = "from __future__ import annotations\nfrom deppy import dependent, Eq, refl, Nat\nfrom deppy.bool import Bool, False_, True_, negate, conjunction, disjunction, xor, eq_decide\nfrom deppy.data import decision_weight\n"
+    boolean_header = "from deppy import dependent, Eq, refl, Nat\nfrom deppy.bool import Bool, False_, True_, negate, conjunction, disjunction, xor, eq_decide\nfrom deppy.data import decision_weight\n"
     boolean = lambda value: "True_()" if value else "False_()"
     truth_table = [boolean_header]
     index = 0
@@ -187,10 +185,10 @@ def main() -> None:
     for expression in ("negate(False_())", "conjunction(True_(), True_())", "disjunction(False_(), True_())", "xor(False_(), True_())"):
         rejected(executable, boolean_header + f"@dependent\ndef invalid() -> Eq[Bool, {expression}, False_()]:\n    return refl(False_())\n", expression, forbidden=("budget", "import"))
 
-    rejected(executable, "from __future__ import annotations\nfrom deppy import inductive, constructor, Pi, Nat\n@inductive\nclass Bad:\n    @constructor\n    def Mk(f: Pi[Bad, Nat]) -> Bad: ...\n", "negative recursion")
-    rejected(executable, "from __future__ import annotations\nfrom deppy import inductive, constructor, dependent, Type, Pi, Nat\n@dependent\ndef Negative(T: Type) -> Type:\n    return Pi[T, lambda _: Nat]\n@inductive\nclass Bad:\n    @constructor\n    def Mk(f: Negative(Bad)) -> Bad: ...\n", "negative alias")
+    rejected(executable, "from deppy import inductive, constructor, Pi, Nat\n@inductive\nclass Bad:\n    @constructor\n    def Mk(f: Pi[Bad, Nat]) -> Bad: ...\n", "negative recursion")
+    rejected(executable, "from deppy import inductive, constructor, dependent, Type, Pi, Nat\n@dependent\ndef Negative(T: Type) -> Type:\n    return Pi[T, lambda _: Nat]\n@inductive\nclass Bad:\n    @constructor\n    def Mk(f: Negative(Bad)) -> Bad: ...\n", "negative alias")
 
-    indexed_header = "from __future__ import annotations\nfrom deppy import dependent, Nat, Z, S, absurd\nfrom deppy.indexed import IFin\n"
+    indexed_header = "from deppy import dependent, Nat, Z, S, absurd\nfrom deppy.indexed import IFin\n"
     for params, bound, should_accept in (("", "Z()", True), ("", "S(Z())", False), ("n: Nat, ", "n", False)):
         source = indexed_header + f"@dependent\ndef impossible({params}i: IFin[{bound}]) -> Nat:\n    return absurd(Nat, i)\n"
         if should_accept:

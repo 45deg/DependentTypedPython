@@ -1,4 +1,3 @@
-from __future__ import annotations
 from deppy import Nat, Eq
 from deppy.nat import pred_or
 from deppy.nat_order import LE, LT

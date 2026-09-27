@@ -1,4 +1,3 @@
-from __future__ import annotations
 from deppy import theorem, Nat, Eq
 from deppy.data import MkUnit
 from deppy.verified import verified_spec

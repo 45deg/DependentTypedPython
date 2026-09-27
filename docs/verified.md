@@ -3,7 +3,6 @@
 `@verified` statically checks a pure imperative subset over Nat, Bool, and Int. It accepts local assignments, branches, multiple or nested `while` loops, Nat-bounded `for range`, `continue`, `break`, and `return`. The frontend builds Verified HIR, generates verification conditions (VCs), and checks their proofs as ordinary dependent core terms. Decorators and annotations are parsed, not run as CPython code. A function with unresolved VCs is not registered as verified.
 
 ```python
-from __future__ import annotations
 from deppy import Nat, Eq
 from deppy.nat import add
 from deppy.verified import verified, Refined

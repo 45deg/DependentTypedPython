@@ -1,4 +1,3 @@
-from __future__ import annotations
 from deppy._builtins import dependent, theorem, Type, Nat, S, Fin, FZ, FS, Pi, Eq, refl, absurd, fin0_elim, nat_elim, fin_elim
 from deppy.nat_order import LT, LEZero, LESucc
 from deppy.nat import succ_injective, zero_ne_succ

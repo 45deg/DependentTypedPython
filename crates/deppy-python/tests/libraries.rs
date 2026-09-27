@@ -2,7 +2,7 @@ use deppy_core::Term;
 use deppy_elab::Expr as E;
 use deppy_python::{check_module, check_module_with_resolver, DeclarationKind, Target};
 const TARGET: Target = Target::Python314;
-const HEADER: &str = "from __future__ import annotations\nfrom deppy import dependent, axiom, Type, Nat, Z, S, Pi, ImplicitPi, Eq, refl, J, nat_elim, vec_elim, fin_elim, Fin, FZ, FS, Vec, vnil, vcons, lam, implicit_lam, ann, record, record_elim\n";
+const HEADER: &str = "from deppy import dependent, axiom, Type, Nat, Z, S, Pi, ImplicitPi, Eq, refl, J, nat_elim, vec_elim, fin_elim, Fin, FZ, FS, Vec, vnil, vcons, lam, implicit_lam, ann, record, record_elim\n";
 fn source(body: &str) -> String {
     format!("{HEADER}{body}")
 }
@@ -12,8 +12,7 @@ fn nat(n: usize) -> E {
 
 #[test]
 fn public_modules_group_builtins_and_checked_library_definitions() {
-    let source = r#"from __future__ import annotations
-from deppy import dependent, Type, Sigma, Pair, record
+    let source = r#"from deppy import dependent, Type, Sigma, Pair, record
 from deppy.nat import Nat, Z, S
 from deppy.equality import Eq, refl, sym
 from deppy.fin import Fin, FZ
@@ -45,8 +44,7 @@ def boxed(n: Nat) -> Box[Nat]:
 
 #[test]
 fn top_level_is_the_prelude_and_there_is_no_prelude_submodule() {
-    let source = r#"from __future__ import annotations
-from deppy import dependent, Nat, Eq, refl, sym
+    let source = r#"from deppy import dependent, Nat, Eq, refl, sym
 
 @dependent
 def symmetric(n: Nat) -> Eq[Nat, n, n]:
@@ -73,8 +71,7 @@ def symmetric(n: Nat) -> Eq[Nat, n, n]:
 
 #[test]
 fn p0_math_library_shares_types_and_computes() {
-    let source = r#"from __future__ import annotations
-from deppy import dependent, Type, Nat, Eq, refl
+    let source = r#"from deppy import dependent, Type, Nat, Eq, refl
 from deppy.nat import add, mul
 from deppy.data import Decidable, Yes
 from deppy.data import Decidable as LogicalDecision
@@ -183,8 +180,7 @@ fn p0_verified_compatibility_names_are_real_declarations() {
 
 #[test]
 fn p0_removal_imports_share_evidence_and_reject_bad_indices() {
-    let source = r#"from __future__ import annotations
-from deppy import theorem, dependent, Nat, Eq, refl, S
+    let source = r#"from deppy import theorem, dependent, Nat, Eq, refl, S
 from deppy.data import Decidable, Yes
 from deppy.lists import List, Nil, Cons, Removal as ListRemoval, RemoveHere as ListHere, removal_length, length, count
 from deppy.finite import Removal as FiniteRemoval, RemoveHere as FiniteHere, RemoveThere as FiniteThere, removal_present, removal_count
@@ -211,8 +207,7 @@ def finite_constructor_in_lists() -> ListRemoval[Nat, 1, Cons(1, Nil[Nat]()), Ni
 "#;
     let checked = check_module(source, TARGET).unwrap_or_else(|e| panic!("{e}"));
     assert!(checked.axiom_dependencies.values().all(Vec::is_empty));
-    let old_client = r#"from __future__ import annotations
-from deppy import theorem, Nat
+    let old_client = r#"from deppy import theorem, Nat
 from deppy.lists import Nil, Cons
 from deppy.finite import Removal, RemoveHere, find_removal
 @theorem
@@ -228,8 +223,7 @@ def old_path() -> Removal[Nat, 1, Cons(1, Nil[Nat]()), Nil[Nat]()]:
 
 #[test]
 fn p0_comparison_compatibility_preserves_open_and_closed_reduction() {
-    let source = r#"from __future__ import annotations
-from deppy import dependent, theorem, Nat, S, Eq, refl
+    let source = r#"from deppy import dependent, theorem, Nat, S, Eq, refl
 from deppy.data import Bool, True_, False_
 from deppy.bool import select, bool_not, bool_eq, negate
 from deppy.nat_bool import nat_le, nat_eq, equal, equal_nat_eq
@@ -332,18 +326,13 @@ fn p0_documented_members_and_compatibility_paths_are_checked_imports() {
             module = Some(path.trim_end_matches(".py"));
         } else if let Some(members) = line.trim().strip_prefix(":members: ") {
             let module = module.expect("members require a source module");
-            let source = format!(
-                "from __future__ import annotations\nfrom deppy.{module} import {}\n",
-                members
-            );
+            let source = format!("from deppy.{module} import {}\n", members);
             check_module(&source, TARGET).unwrap_or_else(|e| panic!("deppy.{module}: {e}"));
         }
         if let Some(alias) = line.trim().strip_prefix("* - ``deppy.") {
             if let Some(qualified) = alias.strip_suffix("``") {
                 let (module, name) = qualified.rsplit_once('.').unwrap();
-                let source = format!(
-                    "from __future__ import annotations\nfrom deppy.{module} import {name}\n"
-                );
+                let source = format!("from deppy.{module} import {name}\n");
                 check_module(&source, TARGET).unwrap_or_else(|e| panic!("deppy.{qualified}: {e}"));
             }
         }
@@ -352,8 +341,7 @@ fn p0_documented_members_and_compatibility_paths_are_checked_imports() {
 
 #[test]
 fn math_lemmas_and_finite_carrier_are_axiom_free() {
-    let source = r#"from __future__ import annotations
-from deppy import dependent, theorem, Type, Pi, Sigma, Pair, Nat, Fin, FZ, FS, Vec, VNil, VCons, Eq, refl, absurd
+    let source = r#"from deppy import dependent, theorem, Type, Pi, Sigma, Pair, Nat, Fin, FZ, FS, Vec, VNil, VCons, Eq, refl, absurd
 from deppy.nat import add, mul, mul_comm, mul_assoc, mul_add_left
 from deppy.nat_order import LE, LT, le_total, le_to_lt_succ, lt_succ_to_le, strong_induction, mul_le_mul_left, mul_le_mul_right, mul_left_cancel_pos
 from deppy.data import Empty, Unit, Sum, Left, MkUnit, Decidable, Yes
@@ -608,7 +596,7 @@ def sample(n: Nat) -> Eq[Box[Nat], Box[Nat](0, vnil(Nat)), Box[Nat](0, vnil(Nat)
 fn checked_libraries_alias_reexport_and_namespace_their_definitions() {
     let left = source("@dependent\ndef same(n: Nat) -> Nat:\n    return S(n)\n");
     let right = source("@dependent\ndef same(n: Nat) -> Nat:\n    return n\n");
-    let reexport = "from __future__ import annotations\nfrom left import same as again\n";
+    let reexport = "from left import same as again\n";
     let main = source("from left import same as inc\nfrom right import same\nfrom facade import again\n@dependent\ndef run(n: Nat) -> Nat:\n    return again(inc(same(n)))\n");
     let mut resolver = |name: &str| {
         Ok(match name {
@@ -648,9 +636,9 @@ fn invalid_import_graphs_and_unchecked_names_are_rejected() {
     let main =
         source("from lib import value\n@dependent\ndef use(n: Nat) -> Nat:\n    return value(n)\n");
     for lib in [
-        "from __future__ import annotations\nfrom lib import value\n",
-        "from __future__ import annotations\ndef value(n):\n    return n\n",
-        "from __future__ import annotations\nfrom deppy import dependent, Nat\n@dependent\ndef value(n: Nat) -> Nat:\n    return Nat\n",
+        "from lib import value\n",
+        "def value(n):\n    return n\n",
+        "from deppy import dependent, Nat\n@dependent\ndef value(n: Nat) -> Nat:\n    return Nat\n",
     ] {
         let mut resolver = |_: &str| Ok(Some(lib.into()));
         assert!(check_module_with_resolver(&main, TARGET, &mut resolver).is_err());

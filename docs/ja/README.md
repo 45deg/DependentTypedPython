@@ -4,7 +4,7 @@ DepPyはPython風の構文を持つ依存型言語です。`@dependent` で全�
 
 DepPyは実験段階です。対応するPython構文は一部に限られ、元のPythonコードと生成コードの動作が一般に一致することは証明されていません。利用前に英語版READMEの[現在の制約](../../README.md#current-limitations)を確認してください。
 
-RustのツールチェーンとPython 3.12〜3.14を用意し、リポジトリのルートで次のコマンドを実行します。依存パッケージが未取得の場合は、先に `cargo fetch --locked` を実行してください。
+RustのツールチェーンとPython 3.14を用意し、リポジトリのルートで次のコマンドを実行します。依存パッケージが未取得の場合は、先に `cargo fetch --locked` を実行してください。
 
 ```sh
 cargo test --workspace --locked --offline

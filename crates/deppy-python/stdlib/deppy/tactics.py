@@ -1,4 +1,3 @@
-from __future__ import annotations
 
 # Proof tactics are compiler forms; their calls elaborate to checked terms.
 # Their result types depend on the surrounding proof goal.

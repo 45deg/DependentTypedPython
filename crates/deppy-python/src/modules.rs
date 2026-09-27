@@ -235,9 +235,6 @@ impl<R: SourceResolver> Loader<'_, R> {
                     return Err(error("only absolute eager source imports are supported"));
                 }
                 let module = import.module.as_ref().map_or("", |m| m.as_str());
-                if module == "__future__" {
-                    continue;
-                }
                 let available = self.load(module)?;
                 for alias in &import.names {
                     if let Some(binding) = available.get(alias.name.as_str()) {

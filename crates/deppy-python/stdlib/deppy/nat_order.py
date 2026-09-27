@@ -1,4 +1,3 @@
-from __future__ import annotations
 from deppy._builtins import inductive, constructor, Index, dependent, theorem, Nat, Z, S, Type, Pi, Eq, refl, absurd
 from deppy.data import Empty, Unit, MkUnit, Sum, Left, Right, Decidable, Yes, No, sum_elim
 from deppy.nat import add, add_comm, add_zero, pred_or, mul, mul_comm

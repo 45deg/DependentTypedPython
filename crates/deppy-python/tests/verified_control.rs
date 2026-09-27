@@ -1,5 +1,5 @@
 use deppy_python::{analyze_module, check_module, Target};
-const HEADER: &str = "from __future__ import annotations\nfrom deppy import Nat, Eq, refl, theorem\nfrom deppy.data import Bool, True_, False_\nfrom deppy.verified import verified, Refined, nat_lt\nfrom deppy.nat_order import LT\nfrom deppy.nat import pred_or\nfrom deppy.verified_loop import invariant, decreases\n";
+const HEADER: &str = "from deppy import Nat, Eq, refl, theorem\nfrom deppy.data import Bool, True_, False_\nfrom deppy.verified import verified, Refined, nat_lt\nfrom deppy.nat_order import LT\nfrom deppy.nat import pred_or\nfrom deppy.verified_loop import invariant, decreases\n";
 fn check(body: &str) {
     check_budget(body, 1_000_000, false);
 }
@@ -284,7 +284,7 @@ def bounded(stop: Nat, stride: Refined[Nat, lambda s: LT(0, s)]) -> Nat:
 
 #[test]
 fn range_links_its_checked_interpreter_without_a_directive_import() {
-    let source = "from __future__ import annotations\nfrom deppy import Nat\nfrom deppy.verified import verified\n@verified\ndef count(n: Nat) -> Nat:\n    i = 0\n    total = 0\n    for i in range(n):\n        total += 1\n    return total\n";
+    let source = "from deppy import Nat\nfrom deppy.verified import verified\n@verified\ndef count(n: Nat) -> Nat:\n    i = 0\n    total = 0\n    for i in range(n):\n        total += 1\n    return total\n";
     check_module(source, Target::Python314).unwrap_or_else(|e| panic!("{e}"));
 }
 

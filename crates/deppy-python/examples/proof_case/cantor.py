@@ -1,4 +1,3 @@
-from __future__ import annotations
 
 from deppy import theorem, Type, Pi, Sigma, Eq
 from deppy.equality import sym

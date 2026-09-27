@@ -1,7 +1,7 @@
 use deppy_core::Term;
 use deppy_elab::Expr as E;
 use deppy_python::{check_module, lower_module, Target};
-const HEADER: &str = "from __future__ import annotations\nfrom deppy import dependent, Type, Nat, Z, S, Vec, VNil, VCons, Fin, FZ, FS, Eq, refl, Pi, Sigma, Pair\n";
+const HEADER: &str = "from deppy import dependent, Type, Nat, Z, S, Vec, VNil, VCons, Fin, FZ, FS, Eq, refl, Pi, Sigma, Pair\n";
 fn source(body: &str) -> String {
     format!("{HEADER}\n{body}")
 }
@@ -40,7 +40,7 @@ fn explicit_type_arguments_and_higher_universes() {
 }
 #[test]
 fn import_aliases_and_unicode_ranges() {
-    let src = "from __future__ import annotations\nfrom deppy import dependent as dep, Nat as 自然数\n@dep\ndef 同一(値: 自然数) -> 自然数:\n    return 値\n";
+    let src = "from deppy import dependent as dep, Nat as 自然数\n@dep\ndef 同一(値: 自然数) -> 自然数:\n    return 値\n";
     let m = check_module(src, Target::Python314).unwrap();
     assert_eq!(m.definitions[0].0, "同一");
     let span = m.definitions[0].2;
@@ -82,17 +82,16 @@ fn annotations_are_required_and_never_executed() {
     }
 }
 #[test]
-fn future_import_and_static_import_rules() {
+fn static_import_rules() {
     assert!(check_module(
         "from deppy import dependent, Nat\n@dependent\ndef f(n: Nat) -> Nat:\n    return n",
         Target::Python314
     )
-    .is_err());
+    .is_ok());
     for src in [
         "from deppy import *",
         "from os import system",
         "from .deppy import Nat",
-        "from deppy import Nat\nfrom __future__ import annotations",
         "from deppy import Nat as N, Type as N",
     ] {
         assert!(lower_module(src, Target::Python314).is_err());
