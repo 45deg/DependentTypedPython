@@ -19,6 +19,7 @@ Cargo uses `Cargo.lock`. Fetch dependencies once with `cargo fetch --locked` if 
 
 ```sh
 cargo test --workspace --locked --offline
+python3 scripts/check_deppy_examples.py
 cargo run -p deppy-python --locked --offline -- crates/deppy-python/examples/core/basics.py
 cargo run -p deppy-python --locked --offline -- eval crates/deppy-python/examples/core/basics.py twice 0
 cargo run -p deppy-python --locked --offline -- crates/deppy-python/examples/verified/verified_annotations.py

@@ -6,11 +6,12 @@ Run commands from the repository root. Cargo dependencies follow `Cargo.lock`; f
 
 ```sh
 cargo test --workspace --locked --offline
+python3 scripts/check_deppy_examples.py
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked --offline -- -D warnings
 ```
 
-For a focused check, specify an integration test, for example `cargo test -p deppy-python --locked --offline --test refined`. The test suite includes accepted and rejected typing, proof, termination, and boundary cases.
+For a focused Rust check, specify an integration test, for example `cargo test -p deppy-python --locked --offline --test refined`. `check_deppy_examples.py` checks accepted examples, rejected variants, and normalized results through the CLI. Rust integration tests remain for internal API behavior.
 
 ## Python
 
