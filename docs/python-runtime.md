@@ -96,3 +96,18 @@ python scripts/generate_python_stubs.py --check
 This execution path runs source bodies, whereas `deppy-runtime` extracts checked
 core terms. Tests compare selected results with expected values; they do not
 establish general equivalence between either Python execution path and the kernel.
+
+## Browser execution
+
+The web playground's **Run Python** button loads Pyodide 314.0.0 (Python 3.14)
+from jsDelivr on demand and runs the editor contents as `main.py`, including
+its `if __name__ == "__main__":` block. Select **Run · verified twice** for an
+example that prints `42`. **Check** remains the separate type/proof checker;
+completion of a Python run does not mean a proof passed.
+
+`scripts/build_web_demo.py` bundles the same `stdlib/deppy/*.py` sources into
+`web-demo/deppy-runtime.zip`; no second runtime implementation is maintained.
+Serve the generated assets with `scripts/web_demo.py`. The CDN must be reachable.
+Each run starts a fresh Web Worker and Python environment. **Stop** terminates
+it, including infinite loops. Standard output and errors appear in Results;
+interactive `input()` is unsupported and displayed output is bounded.

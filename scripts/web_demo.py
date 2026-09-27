@@ -18,7 +18,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
-    if not (STATIC / "checker.wasm").is_file() or not (STATIC / "examples.json").is_file():
+    if any(not (STATIC / name).is_file() for name in ("checker.wasm", "examples.json", "deppy-runtime.zip")):
         parser.error("先に python3 scripts/build_web_demo.py を実行してください。")
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     print(f"DepPy web demo: http://127.0.0.1:{server.server_port}/", flush=True)

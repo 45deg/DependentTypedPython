@@ -18,6 +18,7 @@ __pycache__/
 /docs/_build/
 /web-demo/checker.wasm
 /web-demo/examples.json
+/web-demo/deppy-runtime.zip
 
 # macOS metadata
 .DS_Store

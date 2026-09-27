@@ -3,12 +3,14 @@
 import json
 import shutil
 import subprocess
+import zipfile
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "web-demo"
 EXAMPLES = {
+    "direct": ("Run · verified twice", "Verified Programs", ROOT / "crates/deppy-python/examples/verified/direct.py"),
     "basics": ("Basics", "Start", OUTPUT / "examples/basics.py"),
     "proof_equality": ("Part 1 · Equality", "Proofs", OUTPUT / "examples/proof_equality.py"),
     "proof_induction": ("Part 2 · Induction", "Proofs", OUTPUT / "examples/proof_induction.py"),
@@ -32,6 +34,10 @@ def main() -> None:
         for key, (label, group, path) in EXAMPLES.items()
     }
     (OUTPUT / "examples.json").write_text(json.dumps(examples, ensure_ascii=False))
+    stdlib = ROOT / "crates/deppy-python/stdlib"
+    with zipfile.ZipFile(OUTPUT / "deppy-runtime.zip", "w", zipfile.ZIP_DEFLATED) as archive:
+        for path in sorted((stdlib / "deppy").rglob("*.py")):
+            archive.write(path, path.relative_to(stdlib))
     print(f"Built static demo in {OUTPUT}")
 
 
