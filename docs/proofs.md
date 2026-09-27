@@ -13,7 +13,7 @@ def reflexive(n: Nat) -> Eq[Nat, n, n]:
 
 ## Modules and imports
 
-The bundled sources live in `crates/deppy-python/stdlib/deppy/`. They are elaborated as ordinary declarations and rechecked by the kernel. `deppy` is the common prelude. Domain modules include `deppy.core` (functions and types), `deppy.nat`, `deppy.equality`, `deppy.sigma`, `deppy.fin`, `deppy.vectors`, `deppy.records`, and the general inductive modules described in [inductive families](inductives.md). Derived equality lemmas such as `trans` and `cong` are Python definitions using `J`, not special frontend operations.
+The bundled definitions live in `crates/deppy-python/stdlib/deppy/`. They are elaborated as ordinary declarations and rechecked by the kernel. The `deppy` prelude is registered in `registry.rs`; compiler-provided forms are declared with `@builtin` in `_builtins.py` and `tactics.py` and implemented by the frontend. Domain modules include `deppy.nat`, `deppy.equality`, `deppy.fin`, `deppy.vectors`, and the general inductive modules described in [inductive families](inductives.md). Derived equality lemmas such as `trans` and `cong` are Python definitions using `J`, not special frontend operations.
 
 The CLI resolves imports from the input file's parent directory. `from proofs.lemmas import lemma` reads `proofs/lemmas.py` or `proofs/lemmas/__init__.py` beneath that root. Symlinks escaping the root are rejected. Absolute `from module import name`, aliases, and reexports of checked declarations are supported. Relative, wildcard, cyclic, and dynamic imports, site-packages, and use of undecorated Python functions are rejected. The resolver does not run package initialization code. Module names separate same-named declarations. Within each module, declarations must precede their uses.
 
@@ -53,7 +53,7 @@ Erasure does not change typing, normalization, conversion, or axiom tracking. It
 
 `hole("name")` creates a typed goal where an expected type is available. Use `ann(hole("name"), A)` otherwise. `--goals` prints local context and expected type; `--json` returns structured diagnostics and goals. `analyze_module` and `analyze_module_with_resolver` expose the same data. User holes are separate from inference metavariables; even an unused hole leaves the module incomplete. Incomplete declarations are not registered as checked declarations.
 
-`deppy.tactics` constructs ordinary proof terms checked by the kernel:
+`deppy.tactics` declares proof tactics that elaborate to ordinary proof terms checked by the kernel:
 
 | Expression | Effect |
 | --- | --- |

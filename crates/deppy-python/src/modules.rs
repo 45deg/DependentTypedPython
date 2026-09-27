@@ -2,7 +2,7 @@
 mod registry;
 mod resolver;
 use crate::{Declaration, DeclarationBody, Diagnostic, Module, Span, Target};
-use registry::{builtin_exports, standard};
+use registry::{builtin_exports, declares_builtins, is_builtin, standard};
 pub use resolver::{FileResolver, SourceResolver};
 use ruff_python_ast::{Mod, Stmt};
 use std::collections::{HashMap, HashSet};
@@ -73,6 +73,46 @@ fn parse(source: &str, target: Target) -> Result<Vec<Stmt>, Diagnostic> {
         unreachable!()
     };
     Ok(module.body.into_iter().collect())
+}
+
+// Compiler forms are declared in bundled sources, but have no checked Python
+// body to lower. User modules cannot introduce @builtin declarations.
+fn extract_builtin_declarations(
+    name: &str,
+    body: Vec<Stmt>,
+) -> Result<(Vec<Stmt>, Exports), Diagnostic> {
+    if !declares_builtins(name) {
+        return Ok((body, Exports::new()));
+    }
+    let mut remaining = Vec::new();
+    let mut exports = Exports::new();
+    for stmt in body {
+        let declaration = match &stmt {
+            Stmt::FunctionDef(f) => Some((f.name.as_str(), &f.decorator_list, &f.body)),
+            Stmt::ClassDef(c) => Some((c.name.as_str(), &c.decorator_list, &c.body)),
+            _ => None,
+        };
+        if let Some((builtin, decorators, statements)) = declaration {
+            let marked = decorators.len() == 1
+                && matches!(&decorators[0].expression, ruff_python_ast::Expr::Name(n) if n.id.as_str() == "builtin");
+            if marked {
+                if !is_builtin(builtin)
+                    || statements.len() != 1
+                    || !matches!(&statements[0], Stmt::Expr(e) if matches!(e.value.as_ref(), ruff_python_ast::Expr::EllipsisLiteral(_)))
+                    || exports
+                        .insert(builtin.into(), Binding::builtin(builtin))
+                        .is_some()
+                {
+                    return Err(error(format!(
+                        "invalid compiler builtin declaration: {name}.{builtin}"
+                    )));
+                }
+                continue;
+            }
+        }
+        remaining.push(stmt);
+    }
+    Ok((remaining, exports))
 }
 
 pub fn lower_module_with_resolver(
@@ -184,9 +224,11 @@ impl<R: SourceResolver> Loader<'_, R> {
         if self.total_bytes > 8_000_000 {
             return Err(error("checked module graph exceeds source size limit"));
         }
-        let body = parse(source, self.target)?;
+        let (body, declared_builtins) =
+            extract_builtin_declarations(name, parse(source, self.target)?)?;
         let mut libraries = HashMap::new();
         let mut exports = builtin_exports(name);
+        exports.extend(declared_builtins);
         for stmt in &body {
             if let Stmt::ImportFrom(import) = stmt {
                 if import.level != 0 || import.is_lazy {
@@ -336,5 +378,42 @@ impl<R: SourceResolver> Loader<'_, R> {
         }
         self.declarations.extend(declarations);
         Ok(exports)
+    }
+}
+
+#[cfg(test)]
+mod builtin_declaration_tests {
+    use super::{extract_builtin_declarations, parse, Target};
+
+    #[test]
+    fn bundled_builtin_declarations_are_validated_and_exported() {
+        let target = Target::Python314;
+        for (module, source, example) in [
+            (
+                "deppy._builtins",
+                include_str!("../stdlib/deppy/_builtins.py"),
+                "Nat",
+            ),
+            (
+                "deppy.tactics",
+                include_str!("../stdlib/deppy/tactics.py"),
+                "rewrite",
+            ),
+        ] {
+            let (_, exports) =
+                extract_builtin_declarations(module, parse(source, target).unwrap()).unwrap();
+            assert_eq!(exports[example].builtin.as_deref(), Some(example));
+        }
+        let malformed = "@builtin\ndef exact(proof):\n    return proof\n";
+        assert!(
+            extract_builtin_declarations("deppy.tactics", parse(malformed, target).unwrap())
+                .is_err()
+        );
+        let (_, user_exports) = extract_builtin_declarations(
+            "client",
+            parse("@builtin\ndef exact(proof): ...\n", target).unwrap(),
+        )
+        .unwrap();
+        assert!(user_exports.is_empty());
     }
 }

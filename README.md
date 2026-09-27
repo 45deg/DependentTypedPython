@@ -27,7 +27,20 @@ cargo run -p deppy-runtime --locked --offline -- crates/deppy-python/examples/pr
 
 `--elaboration-steps N` sets a positive, per-declaration checking budget; the default is 1,000,000. Raising it changes neither typing rules nor axiom handling.
 
+### Browser demo
+
+Build the WebAssembly checker and static assets from the repository root:
+
+```sh
+python3 scripts/build_web_demo.py
+python3 scripts/web_demo.py
+```
+
+Open <http://127.0.0.1:8000/>. The browser runs the DepPy checker in WebAssembly; no verification API or server-side Python execution is used. The Python server only serves static files and binds to localhost. The same `web-demo/` files can be served by a static host. The demo offers editable examples and shows diagnostics and open goals, with a 64 KiB source limit. Submitted Python source is never executed or sent to a server. Use `--port N` to choose another port.
+
 The [proof examples](crates/deppy-python/examples/proof_case/) include [Lagrange's theorem](crates/deppy-python/examples/proof_case/lagrange.py), [Fermat's theorem via Lagrange](crates/deppy-python/examples/proof_case/fermat.py), and a [direct Fermat proof](crates/deppy-python/examples/proof_case/fermat2.py). They share finite enumeration and group definitions in [common.py](crates/deppy-python/examples/proof_case/common.py). The Fermat examples assume a finite field's nonzero multiplicative group and its enumeration; they do not construct a field from primality or modular arithmetic.
+
+The [Cantor example](crates/deppy-python/examples/proof_case/cantor.py) proves by diagonalization that no map from `A` to Boolean-valued functions on `A` is surjective. It uses no axioms or function extensionality.
 
 ```sh
 cargo run -p deppy-python --locked --offline -- --elaboration-steps 100000000 crates/deppy-python/examples/proof_case/fermat.py

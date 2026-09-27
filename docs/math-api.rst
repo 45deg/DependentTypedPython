@@ -11,6 +11,11 @@ Logical data and decisions
 
 .. deppy-api:: crates/deppy-python/stdlib/deppy/data.py
 
+Booleans
+--------
+
+.. deppy-api:: crates/deppy-python/stdlib/deppy/bool.py
+
 Natural numbers and order
 -------------------------
 

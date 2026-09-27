@@ -9,7 +9,7 @@ The [documentation index](README.md) links the accepted specifications. This pag
 | Elaboration | Keyword selection of implicit arguments, deferred constraint retry, metavariable pruning, broader unification, and semantic-value/closure evaluation |
 | Type theory and patterns | Universe polymorphism, mutual inductives, nested recursion through existing type constructors, and indexed patterns with nonlinear or neutral function applications |
 | Verified programs | Contract calls in `while` guards; general Int bounds and dynamic negative steps for `range`; lexicographic measures and general well-founded relations; invariant inference beyond local `Refined` annotations; combining safety conditions in guards or measures with a single `proof=`; broader arithmetic proof search; cross-base refinement conversions |
-| Mathematics | Remaining general multiplication laws, shared types between examples and the standard library, and promotion of finite enumeration, permutations, and group theory into the standard library |
+| Mathematics | Shared removal evidence and public API cleanup; Option/decision helpers, Fin construction and standard enumerations, Vec/List interoperability, integer laws, and promotion of algebra/finite products; see the [standard-library plan](stdlib-plan.md) |
 | Runtime and compatibility | External Python proof inputs, `Proof[...]`, arbitrary type-family schemas or public boundaries needing erased information, source-compatible record classes, and CPython 3.13 runtime checks |
 | Assurance | General semantic preservation from CPython source to Verified HIR and from checked terms to extracted code; stack and memory guarantees for deep recursion |
 

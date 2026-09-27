@@ -13,13 +13,11 @@ fn nat(n: usize) -> E {
 #[test]
 fn public_modules_group_builtins_and_checked_library_definitions() {
     let source = r#"from __future__ import annotations
-from deppy.core import dependent, Type
+from deppy import dependent, Type, Sigma, Pair, record
 from deppy.nat import Nat, Z, S
 from deppy.equality import Eq, refl, sym
-from deppy.sigma import Sigma, Pair
 from deppy.fin import Fin, FZ
 from deppy.vectors import Vec, VNil
-from deppy.records import record
 
 @record
 class Box[A: Type]:
@@ -60,6 +58,17 @@ def symmetric(n: Nat) -> Eq[Nat, n, n]:
         TARGET
     )
     .is_err());
+    for module in ["core", "logic", "records", "sigma"] {
+        let source = format!("from deppy.{module} import missing\n");
+        let error = match check_module(&source, TARGET) {
+            Ok(_) => panic!("removed module deppy.{module} was accepted"),
+            Err(error) => error,
+        };
+        assert!(
+            error.to_string().contains("unknown standard module"),
+            "{module}: {error}"
+        );
+    }
 }
 
 #[test]
@@ -68,7 +77,7 @@ fn p0_math_library_shares_types_and_computes() {
 from deppy import dependent, Type, Nat, Eq, refl
 from deppy.nat import add, mul
 from deppy.data import Decidable, Yes
-from deppy.logic import Decidable as LogicalDecision
+from deppy.data import Decidable as LogicalDecision
 from deppy.lists import List, Nil, Cons, length, filter
 from deppy.nat_order import LE, LEZero, LESucc, LT, le_refl, le_trans
 

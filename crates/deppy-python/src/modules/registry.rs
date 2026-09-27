@@ -53,46 +53,36 @@ const BUILTINS: &[&str] = &[
     "Pair",
 ];
 
-fn builtin_names(module: &str) -> &'static [&'static str] {
-    match module {
-        "deppy.tactics" => &[
-            "intro",
-            "exact",
-            "apply",
-            "rewrite",
-            "rewrite_in",
-            "cases",
-            "induction",
-        ],
-        "deppy._builtins" => BUILTINS,
-        "deppy.core" => &[
-            "dependent",
-            "theorem",
-            "hole",
-            "axiom",
-            "Type",
-            "Pi",
-            "ImplicitPi",
-            "lam",
-            "implicit_lam",
-            "ann",
-        ],
-        "deppy.nat" => &["Nat", "Z", "S", "nat_elim"],
-        "deppy.equality" => &["Eq", "refl", "J"],
-        "deppy.sigma" => &["Sigma", "Pair", "pair"],
-        "deppy.fin" => &["Fin", "FZ", "FS", "fin_elim", "fin0_elim"],
-        "deppy.vectors" => &["Vec", "VNil", "VCons", "vnil", "vcons", "vec_elim"],
-        "deppy.records" => &["record", "record_elim"],
-        _ => &[],
-    }
+pub(super) fn is_builtin(name: &str) -> bool {
+    BUILTINS.contains(&name)
+}
+
+pub(super) fn declares_builtins(module: &str) -> bool {
+    matches!(module, "deppy._builtins" | "deppy.tactics")
 }
 
 pub(super) fn builtin_exports(module: &str) -> Exports {
-    builtin_names(module)
+    let names: &[&str] = match module {
+        "deppy.nat" => &["Nat", "Z", "S", "nat_elim"],
+        "deppy.equality" => &["Eq", "refl", "J"],
+        "deppy.fin" => &["Fin", "FZ", "FS", "fin_elim", "fin0_elim"],
+        "deppy.vectors" => &["Vec", "VNil", "VCons", "vnil", "vcons", "vec_elim"],
+        _ => &[],
+    };
+    names
         .iter()
         .map(|name| ((*name).into(), Binding::builtin(name)))
         .collect()
 }
+
+// The public prelude reexports checked declarations and compiler-provided forms.
+// It has no standalone Python definitions, so its source lives with the registry.
+const PRELUDE: &str = "from __future__ import annotations\n\
+from deppy._builtins import inductive, constructor, Index, induct, absurd, dependent, theorem, hole, axiom, record, Type, Nat, Z, S, Vec, VNil, VCons, Fin, FZ, FS, Eq, refl, J, nat_elim, vec_elim, fin_elim, record_elim, ann, lam, implicit_lam, ImplicitPi, vnil, vcons, pair, fin0_elim, Pi, Sigma, Pair\n\
+from deppy.tactics import intro, exact, apply, rewrite, rewrite_in, cases, induction\n\
+from deppy.equality import sym, trans, cong, cong2, transport, transport_refl, transport_trans\n\
+from deppy.nat import add, mul, add_zero, add_succ, add_assoc, add_comm, add_swap, mul_zero, mul_one, mul_add_right, pred_or, succ_injective, add_left_cancel, add_right_cancel\n\
+from deppy.fin import fin_case\n";
 
 pub(super) fn standard(name: &str) -> Option<&'static str> {
     match name {
@@ -104,21 +94,18 @@ pub(super) fn standard(name: &str) -> Option<&'static str> {
         "deppy.naturals" => Some(include_str!("../../stdlib/deppy/naturals.py")),
         "deppy.indexed" => Some(include_str!("../../stdlib/deppy/indexed.py")),
         "deppy.data" => Some(include_str!("../../stdlib/deppy/data.py")),
-        "deppy.logic" => Some(include_str!("../../stdlib/deppy/logic.py")),
+        "deppy.bool" => Some(include_str!("../../stdlib/deppy/bool.py")),
         "deppy.lists" => Some(include_str!("../../stdlib/deppy/lists.py")),
         "deppy.finite" => Some(include_str!("../../stdlib/deppy/finite.py")),
         "deppy.functions" => Some(include_str!("../../stdlib/deppy/functions.py")),
         "deppy.permutations" => Some(include_str!("../../stdlib/deppy/permutations.py")),
         "deppy.nat_order" => Some(include_str!("../../stdlib/deppy/nat_order.py")),
-        "deppy" => Some(include_str!("../../stdlib/deppy/__init__.py")),
+        "deppy" => Some(PRELUDE),
         "deppy._builtins" => Some(include_str!("../../stdlib/deppy/_builtins.py")),
-        "deppy.core" => Some(include_str!("../../stdlib/deppy/core.py")),
         "deppy.nat" => Some(include_str!("../../stdlib/deppy/nat.py")),
         "deppy.vectors" => Some(include_str!("../../stdlib/deppy/vectors.py")),
         "deppy.fin" => Some(include_str!("../../stdlib/deppy/fin.py")),
         "deppy.equality" => Some(include_str!("../../stdlib/deppy/equality.py")),
-        "deppy.sigma" => Some(include_str!("../../stdlib/deppy/sigma.py")),
-        "deppy.records" => Some(include_str!("../../stdlib/deppy/records.py")),
         _ => None,
     }
 }

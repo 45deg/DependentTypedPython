@@ -1,29 +1,24 @@
 use deppy_python::{check_module, check_module_with_resolver, Target};
 
 #[test]
-fn theorem_alias_checks_bodies_and_is_opaque_from_both_public_modules() {
-    for import in [
-        "from deppy import theorem as prove",
-        "from deppy.core import theorem as prove",
-    ] {
-        for decorator in ["@prove", "@prove()"] {
-            let source = format!(
-                "from __future__ import annotations\n{import}\nfrom deppy import dependent, Nat, Eq, refl\n{decorator}\ndef hidden() -> Nat:\n    return 0\n"
-            );
-            let checked = check_module(&source, Target::Python314).unwrap();
-            assert_eq!(
-                checked.interface.exports()["hidden"].kind,
-                deppy_python::DeclarationKind::Opaque
-            );
-            assert!(checked.axiom_dependencies["hidden"].is_empty());
-            assert!(
-                check_module(&source.replace("return 0", "return Nat"), Target::Python314).is_err()
-            );
-            let unfold = format!(
-                "{source}\n@dependent\ndef wrong() -> Eq[Nat, hidden(), 0]:\n    return refl(0)\n"
-            );
-            assert!(check_module(&unfold, Target::Python314).is_err());
-        }
+fn theorem_alias_checks_bodies_and_is_opaque() {
+    for decorator in ["@prove", "@prove()"] {
+        let source = format!(
+            "from __future__ import annotations\nfrom deppy import theorem as prove\nfrom deppy import dependent, Nat, Eq, refl\n{decorator}\ndef hidden() -> Nat:\n    return 0\n"
+        );
+        let checked = check_module(&source, Target::Python314).unwrap();
+        assert_eq!(
+            checked.interface.exports()["hidden"].kind,
+            deppy_python::DeclarationKind::Opaque
+        );
+        assert!(checked.axiom_dependencies["hidden"].is_empty());
+        assert!(
+            check_module(&source.replace("return 0", "return Nat"), Target::Python314).is_err()
+        );
+        let unfold = format!(
+            "{source}\n@dependent\ndef wrong() -> Eq[Nat, hidden(), 0]:\n    return refl(0)\n"
+        );
+        assert!(check_module(&unfold, Target::Python314).is_err());
     }
 }
 
@@ -58,7 +53,7 @@ fn recursive_theorem_supports_structural_options_without_transparency_options() 
 #[test]
 fn theorem_alias_preserves_axiom_dependencies_through_reexport() {
     let library = "from __future__ import annotations\nfrom deppy import theorem, axiom, Nat, Eq\n@axiom\ndef assumption() -> Eq[Nat, 0, 0]:\n    ...\n@theorem\ndef proof() -> Eq[Nat, 0, 0]:\n    return assumption()\n";
-    let bridge = "from deppy.core import theorem as prove\nfrom library import proof\n";
+    let bridge = "from deppy import theorem as prove\nfrom library import proof\n";
     let source = "from __future__ import annotations\nfrom deppy import Nat, Eq\nfrom bridge import prove, proof\n@prove\ndef use() -> Eq[Nat, 0, 0]:\n    return proof()\n";
     let mut resolver = |name: &str| {
         Ok(match name {
