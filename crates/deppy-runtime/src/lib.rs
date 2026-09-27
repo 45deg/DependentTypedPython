@@ -18,6 +18,34 @@ pub fn compile_module_with_resolver(
     )?)
 }
 
+/// Check the entire module, then generate only the named public declarations
+/// and their runtime dependencies. Unselected proofs are still kernel checked.
+pub fn compile_exports_with_resolver(
+    source: &str,
+    target: Target,
+    resolver: &mut impl deppy_python::SourceResolver,
+    exports: &[&str],
+) -> Result<String, Diagnostic> {
+    let mut checked = deppy_python::check_module_with_resolver(source, target, resolver)?;
+    for name in exports {
+        if !checked
+            .definitions
+            .iter()
+            .any(|(public, _, _)| public == name)
+        {
+            return Err(Diagnostic {
+                details: Default::default(),
+                span: Span { start: 0, end: 0 },
+                message: format!("unknown runtime export {name}"),
+            });
+        }
+    }
+    checked
+        .definitions
+        .retain(|(name, _, _)| exports.contains(&name.as_str()));
+    compile_checked(checked)
+}
+
 fn compile_checked(checked: deppy_python::CheckedModule) -> Result<String, Diagnostic> {
     let kernel = checked.elaborator.kernel();
     let roots = checked.definitions.iter().map(|(name, public_id, _)| {

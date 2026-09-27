@@ -37,9 +37,24 @@ enum ProofDemand {
 impl Kernel {
     /// Kernel validation precedes usage checking, including discarded subterms.
     pub fn erase(&self, term: &Tm) -> Result<RuntimeTerm, Error> {
-        self.infer(term)?;
+        let ty = self.infer_value_for_erasure(term)?;
         let mut budget = Budget(self.max_steps, self.definitions.clone(), self.data.clone());
-        erase(&self.context(), term, &[], &mut budget, ProofDemand::Result)
+        erase_typed(
+            &self.context(),
+            term,
+            &[],
+            &mut ErasureBudget {
+                budget: &mut budget,
+                linker: None,
+            },
+            ProofDemand::Result,
+            Some(ty),
+        )
+    }
+
+    fn infer_value_for_erasure(&self, term: &Tm) -> Result<Val, Error> {
+        let mut budget = Budget(self.max_steps, self.definitions.clone(), self.data.clone());
+        synth(&self.context(), term, &mut budget)
     }
 
     /// Erase every definition, including private helpers.
@@ -51,27 +66,71 @@ impl Kernel {
     }
 
     /// Erase public definitions and the private helpers referenced by their
-    /// runtime IR. Unused checked library definitions need no runtime code.
+    /// runtime IR, in dependency order. Computational proof uses get separate
+    /// private IDs so they never reuse a discarded result marker. Unused checked
+    /// library definitions need no runtime code.
     pub fn erase_reachable_definitions(
         &self,
         roots: impl IntoIterator<Item = crate::DefId>,
     ) -> Result<Vec<(crate::DefId, RuntimeTerm)>, Error> {
-        let mut pending: Vec<_> = roots.into_iter().collect();
+        let mut linker = ErasureLinker {
+            definitions: &self.definitions,
+            targets: Default::default(),
+            sources: Default::default(),
+            next_id: 0,
+        };
+        let mut pending = roots
+            .into_iter()
+            .map(|id| linker.reference(id, ProofDemand::Result))
+            .collect::<Result<Vec<_>, _>>()?;
         let mut visited = std::collections::BTreeSet::new();
-        let mut result = std::collections::BTreeMap::new();
-        while let Some(id) = pending.pop() {
-            if !visited.insert(id) {
+        let mut terms = std::collections::BTreeMap::new();
+        while let Some(target) = pending.pop() {
+            if !visited.insert(target) {
                 continue;
             }
+            let (id, demand) = linker.sources[&target];
             let declaration = self.definition(id)?;
             let Some(body) = &declaration.body else {
                 continue;
             };
-            let term = self.erase(body)?;
+            let ty = self.infer_value_for_erasure(body)?;
+            let mut budget = Budget(self.max_steps, self.definitions.clone(), self.data.clone());
+            let term = erase_typed(
+                &self.context(),
+                body,
+                &[],
+                &mut ErasureBudget {
+                    budget: &mut budget,
+                    linker: Some(&mut linker),
+                },
+                demand,
+                Some(ty),
+            )?;
+            // Only dependencies in the final runtime body are reachable.
             runtime_globals(&term, &mut pending);
-            result.insert(id, term);
+            terms.insert(target, term);
         }
-        Ok(result.into_iter().collect())
+        // Synthetic computational variants need not follow the original ID
+        // order. Emit dependencies before users, including eager aliases.
+        let mut pending: Vec<_> = terms.keys().map(|id| (*id, false)).collect();
+        let mut visited = std::collections::BTreeSet::new();
+        let mut result = vec![];
+        while let Some((id, expanded)) = pending.pop() {
+            if expanded {
+                if let Some(term) = terms.remove(&id) {
+                    result.push((id, term));
+                }
+            } else if visited.insert(id) {
+                if let Some(term) = terms.get(&id) {
+                    let mut dependencies = vec![];
+                    runtime_globals(term, &mut dependencies);
+                    pending.push((id, true));
+                    pending.extend(dependencies.into_iter().map(|id| (id, false)));
+                }
+            }
+        }
+        Ok(result)
     }
 }
 
@@ -101,11 +160,128 @@ fn runtime_globals(term: &RuntimeTerm, pending: &mut Vec<crate::DefId>) {
         RuntimeTerm::Unit | RuntimeTerm::Var(_) => {}
     }
 }
+// A let adds one retained slot. If it disappears, renumber the surrounding
+// retained variables through lambdas and nested lets; globals remain closed.
+fn remove_unused_runtime_binder(term: &mut RuntimeTerm) -> bool {
+    fn visit(term: &mut RuntimeTerm, depth: usize, f: &mut impl FnMut(&mut usize, usize)) {
+        match term {
+            RuntimeTerm::Var(index) => f(index, depth),
+            RuntimeTerm::Lam(body) => visit(body, depth + 1, f),
+            RuntimeTerm::Let(value, body) => {
+                visit(value, depth, f);
+                visit(body, depth + 1, f);
+            }
+            RuntimeTerm::Record(_, fields)
+            | RuntimeTerm::Data(_, _, fields)
+            | RuntimeTerm::Prim(_, fields) => {
+                for field in fields {
+                    visit(field, depth, f);
+                }
+            }
+            RuntimeTerm::DataElim {
+                branches, value, ..
+            } => {
+                for branch in branches {
+                    visit(branch, depth, f);
+                }
+                visit(value, depth, f);
+            }
+            RuntimeTerm::App(a, b) | RuntimeTerm::RecordElim(_, a, b) => {
+                visit(a, depth, f);
+                visit(b, depth, f);
+            }
+            RuntimeTerm::Unit | RuntimeTerm::Global(_) => {}
+        }
+    }
+    let mut used = false;
+    visit(term, 0, &mut |index, depth| used |= *index == depth);
+    if used {
+        return false;
+    }
+    visit(term, 0, &mut |index, depth| {
+        if *index > depth {
+            *index -= 1;
+        }
+    });
+    true
+}
+
+// Single-term erasure validates globals inline. Module erasure links them and
+// checks each reachable body under its own unchanged operation budget.
+struct ErasureBudget<'a, 'defs> {
+    budget: &'a mut Budget,
+    linker: Option<&'a mut ErasureLinker<'defs>>,
+}
+impl std::ops::Deref for ErasureBudget<'_, '_> {
+    type Target = Budget;
+    fn deref(&self) -> &Budget {
+        self.budget
+    }
+}
+impl std::ops::DerefMut for ErasureBudget<'_, '_> {
+    fn deref_mut(&mut self) -> &mut Budget {
+        self.budget
+    }
+}
+
+// Result exports may discard equality evidence, while a computational use
+// (including J through higher-order helpers) must retain and validate it.
+// Link each demand separately instead of recursively duplicating checked bodies.
+struct ErasureLinker<'a> {
+    definitions: &'a std::collections::BTreeMap<crate::DefId, crate::GlobalDeclaration>,
+    targets: std::collections::BTreeMap<(crate::DefId, bool), crate::DefId>,
+    sources: std::collections::BTreeMap<crate::DefId, (crate::DefId, ProofDemand)>,
+    next_id: crate::DefId,
+}
+impl ErasureLinker<'_> {
+    fn reference(&mut self, id: crate::DefId, demand: ProofDemand) -> Result<crate::DefId, Error> {
+        if !self.definitions.contains_key(&id) {
+            return Err(Error::UnknownDefinition(id));
+        }
+        let key = (id, demand == ProofDemand::Computational);
+        if let Some(target) = self.targets.get(&key) {
+            return Ok(*target);
+        }
+        let target = if demand == ProofDemand::Result {
+            id
+        } else {
+            while self.definitions.contains_key(&self.next_id) {
+                self.next_id = self.next_id.checked_add(1).ok_or(Error::BudgetExceeded)?;
+            }
+            let target = self.next_id;
+            self.next_id = self.next_id.checked_add(1).ok_or(Error::BudgetExceeded)?;
+            target
+        };
+        self.targets.insert(key, target);
+        self.sources.insert(target, (id, demand));
+        Ok(target)
+    }
+}
+
 fn erase(
     ctx: &Context,
     term: &Tm,
     kept: &[bool],
     budget: &mut Budget,
+    demand: ProofDemand,
+) -> Result<RuntimeTerm, Error> {
+    erase_inner(
+        ctx,
+        term,
+        kept,
+        &mut ErasureBudget {
+            budget,
+            linker: None,
+        },
+        demand,
+    )
+}
+
+fn erase_inner(
+    ctx: &Context,
+    term: &Tm,
+    kept: &[bool],
+    budget: &mut ErasureBudget<'_, '_>,
     demand: ProofDemand,
 ) -> Result<RuntimeTerm, Error> {
     erase_typed(ctx, term, kept, budget, demand, None)
@@ -114,7 +290,7 @@ fn erase_typed(
     ctx: &Context,
     term: &Tm,
     kept: &[bool],
-    budget: &mut Budget,
+    budget: &mut ErasureBudget<'_, '_>,
     demand: ProofDemand,
     known_type: Option<Val>,
 ) -> Result<RuntimeTerm, Error> {
@@ -132,7 +308,7 @@ fn erase_typed(
     if demand == ProofDemand::Result && matches!(ty.as_ref(), Value::Eq(..)) {
         return Ok(RuntimeTerm::Prim("erased_proof", vec![]));
     }
-    let mut sub = |t: &Tm| erase(ctx, t, kept, budget, ProofDemand::Computational);
+    let mut sub = |t: &Tm| erase_inner(ctx, t, kept, budget, ProofDemand::Computational);
     let prim = |name, args| Ok(RuntimeTerm::Prim(name, args));
     match term.as_ref() {
         Term::Var(i) => {
@@ -159,7 +335,10 @@ fn erase_typed(
                 globals: ctx.globals.clone(),
                 ..Context::default()
             };
-            let erased = erase(&closed, &body, &[], budget, demand)?;
+            if let Some(linker) = &mut budget.linker {
+                return Ok(RuntimeTerm::Global(linker.reference(*id, demand)?));
+            }
+            let erased = erase_typed(&closed, &body, &[], budget, demand, Some(ty))?;
             // The ordinary global may have discarded its proof result. Inline
             // the checked body for computational uses instead of reusing that
             // output marker. Definitions are acyclic; the budget bounds growth.
@@ -178,7 +357,18 @@ fn erase_typed(
             let retain = *relevance == Relevance::Runtime;
             let mut next = kept.to_vec();
             next.push(retain);
-            let body = erase(&ctx.bind(domain), body, &next, budget, demand)?;
+            let Value::Pi(_, _, codomain) = ty.as_ref() else {
+                return Err(Error::ExpectedFunction);
+            };
+            let body_ty = codomain.apply(value::fresh(ctx.env.len()), budget)?;
+            let body = erase_typed(
+                &ctx.bind(domain),
+                body,
+                &next,
+                budget,
+                demand,
+                Some(body_ty),
+            )?;
             Ok(if retain {
                 RuntimeTerm::Lam(Box::new(body))
             } else {
@@ -187,78 +377,80 @@ fn erase_typed(
         }
         Term::App { function, argument } => {
             // The elaborator represents source lets as immediate lambda
-            // applications. Apply the same proof-usage rule to this encoding.
+            // applications. Apply the same unused-binding rule to this encoding.
             if let Term::Lam {
                 relevance: Relevance::Runtime,
                 domain,
                 body,
             } = function.as_ref()
             {
-                if matches!(
-                    value::eval(domain, &ctx.env, budget)?.as_ref(),
-                    Value::Eq(..)
-                ) {
-                    return erase(
-                        ctx,
-                        &Term::Let {
-                            ty: domain.clone(),
-                            value: argument.clone(),
-                            body: body.clone(),
-                        }
-                        .arc(),
-                        kept,
-                        budget,
-                        demand,
-                    );
-                }
+                return erase_typed(
+                    ctx,
+                    &Term::Let {
+                        ty: domain.clone(),
+                        value: argument.clone(),
+                        body: body.clone(),
+                    }
+                    .arc(),
+                    kept,
+                    budget,
+                    demand,
+                    Some(ty),
+                );
             }
             let ty = synth(ctx, function, budget)?;
-            let Value::Pi(relevance, _, _) = ty.as_ref() else {
+            let Value::Pi(relevance, domain, _) = ty.as_ref() else {
                 return Err(Error::ExpectedFunction);
             };
-            let f = erase(ctx, function, kept, budget, demand)?;
+            let f = erase_typed(ctx, function, kept, budget, demand, Some(ty.clone()))?;
             if *relevance == Relevance::Erased {
                 Ok(f)
             } else {
                 Ok(RuntimeTerm::App(
                     Box::new(f),
-                    Box::new(erase(
+                    Box::new(erase_typed(
                         ctx,
                         argument,
                         kept,
                         budget,
                         ProofDemand::Computational,
+                        Some(domain.clone()),
                     )?),
                 ))
             }
         }
-        Term::Let { ty, value: v, body } => {
-            let ty = value::eval(ty, &ctx.env, budget)?;
+        Term::Let {
+            ty: annotation,
+            value: v,
+            body,
+        } => {
+            let bound_ty = value::eval(annotation, &ctx.env, budget)?;
             let val = value::eval(v, &ctx.env, budget)?;
-            // Proof lets may disappear when all their uses disappear. Try with
-            // an unavailable runtime slot; keep the binding if usage requires it.
-            if matches!(ty.as_ref(), Value::Eq(..)) {
-                let mut discarded = kept.to_vec();
-                discarded.push(false);
-                match erase(
-                    &ctx.define(ty.clone(), val.clone()),
-                    body,
-                    &discarded,
-                    budget,
-                    demand,
-                ) {
-                    Ok(body) => return Ok(body),
-                    Err(Error::ErasedVariableUsed(_)) => {}
-                    Err(error) => return Err(error),
-                }
-            }
-            let rhs = erase(ctx, v, kept, budget, ProofDemand::Computational)?;
             let mut next = kept.to_vec();
             next.push(true);
-            Ok(RuntimeTerm::Let(
-                Box::new(rhs),
-                Box::new(erase(&ctx.define(ty, val), body, &next, budget, demand)?),
-            ))
+            let mut body = erase_typed(
+                &ctx.define(bound_ty.clone(), val),
+                body,
+                &next,
+                budget,
+                demand,
+                Some(ty),
+            )?;
+            // Checked pure bindings, including compound VC certificates, can
+            // disappear when the final runtime body does not use their slot.
+            // Inspect the IR once instead of speculatively re-erasing the body.
+            if remove_unused_runtime_binder(&mut body) {
+                return Ok(body);
+            }
+            let rhs = erase_typed(
+                ctx,
+                v,
+                kept,
+                budget,
+                ProofDemand::Computational,
+                Some(bound_ty),
+            )?;
+            Ok(RuntimeTerm::Let(Box::new(rhs), Box::new(body)))
         }
 
         Term::Pair { fst, snd, .. } => prim("pair", vec![sub(fst)?, sub(snd)?]),
@@ -272,7 +464,7 @@ fn erase_typed(
                 .cloned()
                 .ok_or(Error::UnknownInductive(op.id()))?;
             let p = decl.parameters.len();
-            let mut sub = |t: &Tm| erase(ctx, t, kept, budget, ProofDemand::Computational);
+            let mut sub = |t: &Tm| erase_inner(ctx, t, kept, budget, ProofDemand::Computational);
             match *op {
                 DataOp::Type(_) => Ok(RuntimeTerm::Unit),
                 DataOp::Constructor(id, c) => {

@@ -2,7 +2,9 @@
 
 DepPy is a dependently typed language with Python syntax. `@dependent` defines total functions and proofs; `@verified` checks an imperative subset by generating verification conditions (VCs). A Rust kernel checks the resulting proof terms. Source files and annotations are read statically; DepPy does not run them to obtain proofs.
 
-The repository contains four crates:
+DepPy is experimental. It accepts a documented subset of Python syntax and does not establish a general equivalence between Python source, checked terms, and generated Python code. See [Current limitations](#current-limitations) before relying on generated programs.
+
+The repository contains five crates:
 
 | Crate | Responsibility |
 | --- | --- |
@@ -10,12 +12,13 @@ The repository contains four crates:
 | `deppy-elab` | Named AST, bidirectional elaboration, metavariables, definitions, and structural recursion |
 | `deppy-python` | Ruff-based parser, static modules, `@dependent` and `@verified` lowering, and VC generation |
 | `deppy-runtime` | Optional Python generator, runtime shim, public boundary wrappers, and CLI |
+| `deppy-web` | WebAssembly checker used by the browser demo |
 
 The kernel checks dependent functions, equality proofs, indexed inductive families, and structural recursion. The verified frontend supports contracts, local assignment, branches, loops, and a limited proof search. Its VCs become dependent core propositions checked by the same kernel. The runtime backend is separate from proof validity. See the [language specification](docs/reference.md), [proof guide](docs/proofs.md), and [verified specification](docs/verified.md) for the accepted subset and limits.
 
 ## Try it
 
-Cargo uses `Cargo.lock`. Fetch dependencies once with `cargo fetch --locked` if they are not cached.
+Install a Rust toolchain with Cargo and Python 3.12–3.14, then run these commands from the repository root. Cargo uses `Cargo.lock`; fetch dependencies once with `cargo fetch --locked` if they are not cached. The `--offline` commands below require that fetch to have succeeded.
 
 ```sh
 cargo test --workspace --locked --offline
@@ -32,9 +35,10 @@ cargo run -p deppy-runtime --locked --offline -- crates/deppy-python/examples/co
 
 ### Browser demo
 
-Build the WebAssembly checker and static assets from the repository root:
+Install the Rust WebAssembly target, then build the checker and static assets from the repository root:
 
 ```sh
+rustup target add wasm32-unknown-unknown
 python3 scripts/build_web_demo.py
 python3 scripts/web_demo.py
 ```
@@ -42,6 +46,10 @@ python3 scripts/web_demo.py
 Open <http://127.0.0.1:8000/>. The browser runs the DepPy checker in WebAssembly; no verification API or server-side Python execution is used. The Python server only serves static files and binds to localhost. The same `web-demo/` files can be served by a static host. The demo offers editable examples and shows diagnostics and open goals, with a 64 KiB source limit. Submitted Python source is never executed or sent to a server. Use `--port N` to choose another port.
 
 The editor loads CodeMirror 6 and Python language support from pinned JSPM CDN URLs. If the CDN is unavailable, the plain textarea remains usable.
+
+## Current limitations
+
+The checker covers the [specified language subset](docs/reference.md), not arbitrary Python. Unsupported syntax and proof obligations are rejected. Generated Python has been compared with a test reference model on selected examples, but general preservation of source behavior and proof erasure has not been established. Generated execution of the verified numeric examples remains unverified because proof erasure exceeds the default checking budget. Deep recursion has no stack or memory guarantee. Python 3.13 is an accepted parser target, but its generated runtime behavior has not been checked here. See the [development checks](docs/development.md) and [roadmap](docs/roadmap.md) for the evidence and remaining work.
 
 ## Examples
 

@@ -34,5 +34,38 @@ fn cli_resolves_local_modules_and_emits_working_code() {
         "{}",
         String::from_utf8_lossy(&result.stderr)
     );
+    let selected = Command::new(env!("CARGO_BIN_EXE_deppy-runtime"))
+        .args(["--export", "run"])
+        .arg(&main)
+        .output()
+        .unwrap();
+    assert!(
+        selected.status.success(),
+        "{}",
+        String::from_utf8_lossy(&selected.stderr)
+    );
+    let mut code = String::from_utf8(selected.stdout).unwrap();
+    code.push_str("\nassert set(exports) == {'run'}\nassert exports['run'](9) == 9\n");
+    fs::write(&executable, code).unwrap();
+    assert!(Command::new("python3")
+        .arg("-I")
+        .arg(&executable)
+        .status()
+        .unwrap()
+        .success());
+    let missing = Command::new(env!("CARGO_BIN_EXE_deppy-runtime"))
+        .arg(&main)
+        .args(["--export", "missing"])
+        .output()
+        .unwrap();
+    assert!(!missing.status.success());
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("unknown runtime export missing"));
+    for args in [vec!["--export"], vec!["--export", "--bad"], vec!["--bad"]] {
+        let invalid = Command::new(env!("CARGO_BIN_EXE_deppy-runtime"))
+            .args(args)
+            .output()
+            .unwrap();
+        assert_eq!(invalid.status.code(), Some(2));
+    }
     fs::remove_dir_all(root).unwrap();
 }

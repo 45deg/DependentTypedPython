@@ -49,9 +49,9 @@ fn retained_indices_are_renumbered_and_erased_arguments_disappear() {
     .arc();
     assert_eq!(
         kernel.erase(&applied).unwrap(),
-        RuntimeTerm::App(
-            Box::new(RuntimeTerm::Lam(Box::new(RuntimeTerm::Var(0)))),
-            Box::new(RuntimeTerm::Data(deppy_core::standard::NAT, 0, vec![]))
+        RuntimeTerm::Let(
+            Box::new(RuntimeTerm::Data(deppy_core::standard::NAT, 0, vec![])),
+            Box::new(RuntimeTerm::Var(0))
         )
     );
 }
@@ -239,4 +239,64 @@ fn proof_lets_are_removed_only_when_their_runtime_uses_disappear() {
         k.erase(&renumbered).unwrap(),
         RuntimeTerm::Lam(Box::new(RuntimeTerm::Var(0)))
     );
+}
+
+#[test]
+fn unused_compound_certificates_preserve_nested_retained_slots() {
+    let mut k = Kernel::default();
+    let certificate = Term::Sigma {
+        domain: proposition(),
+        codomain: proposition(),
+    }
+    .arc();
+    k.declare_axiom(0, certificate.clone()).unwrap();
+    let pair_type = Term::Sigma {
+        domain: Term::Nat.arc(),
+        codomain: Term::Nat.arc(),
+    }
+    .arc();
+    // lambda outer. let unused = certificate in lambda inner.
+    //     let kept = outer in (kept, inner)
+    let body = lam(
+        Relevance::Runtime,
+        Term::Nat.arc(),
+        Term::Let {
+            ty: certificate,
+            value: Term::Global(0).arc(),
+            body: lam(
+                Relevance::Runtime,
+                Term::Nat.arc(),
+                Term::Let {
+                    ty: Term::Nat.arc(),
+                    value: Term::Var(2).arc(),
+                    body: Term::Pair {
+                        ty: pair_type,
+                        fst: Term::Var(0).arc(),
+                        snd: Term::Var(1).arc(),
+                    }
+                    .arc(),
+                }
+                .arc(),
+            ),
+        }
+        .arc(),
+    );
+    assert_eq!(
+        k.erase(&body).unwrap(),
+        RuntimeTerm::Lam(Box::new(RuntimeTerm::Lam(Box::new(RuntimeTerm::Let(
+            Box::new(RuntimeTerm::Var(1)),
+            Box::new(RuntimeTerm::Prim(
+                "pair",
+                vec![RuntimeTerm::Var(0), RuntimeTerm::Var(1)]
+            )),
+        )))))
+    );
+    // Dead bindings must still be well typed before they can be discarded.
+    let invalid = Term::Let {
+        ty: proposition(),
+        value: Term::Zero.arc(),
+        body: Term::Zero.arc(),
+    }
+    .arc();
+    assert!(matches!(k.erase(&invalid), Err(Error::TypeMismatch { .. })));
 }

@@ -41,13 +41,13 @@ An ordinary lambda is checked against an expected dependent function type; use `
 
 `@theorem` is `@dependent(opaque=True)`. Its body is checked, then kept opaque for normalization and conversion. It remains callable by its checked type, and its axiom dependencies are retained. Use transparent `@dependent` for definitions intended to compute. Runtime extraction may use the retained checked body even though conversion does not unfold it. No explicit unfold operation is provided.
 
-Axioms have no runtime implementation. Code generation rejects an axiom or proof token needed as runtime data. An axiom-dependent proof can still be extracted when its result is erased. The generator checks all loaded transparent definitions, so even an unused definition requiring an axiom at runtime can cause rejection.
+Axioms have no runtime implementation. Code generation rejects an axiom or proof token needed as runtime data. An axiom-dependent proof can still be extracted when its result is erased. The frontend checks the entire module; extraction checks runtime usage in the selected exports and their reachable helpers. An unselected, unreachable helper needs no runtime implementation.
 
 ## Proof erasure
 
-After full type checking, `Kernel::erase` removes computations whose result is known to be `Eq` when no runtime consumer needs them. An unused `Eq` let binding may be removed. Proofs passed as runtime arguments, stored in data, or supplied to a data-producing `J` are kept, because later computation may inspect them. A data-producing `J` needing an erased proof is rejected. Public proof results appear as `None`; an internal erased marker remains distinct from a runtime proof token.
+After full type checking, `Kernel::erase` removes computations whose result is known to be `Eq` when no runtime consumer needs them. A checked pure let binding may also be removed when its slot has no uses in the runtime body, including compound VC certificates. Proofs passed as runtime arguments, stored in retained data, or supplied to a data-producing `J` are kept, because later computation may inspect them. A data-producing `J` needing an erased proof is rejected. Public proof results appear as `None`; an internal erased marker remains distinct from a runtime proof token.
 
-Erasure does not change typing, normalization, conversion, or axiom tracking. It does not automatically turn explicit proof arguments into implicit ones or strip proof fields from records, Σ values, or vectors. Transparent definitions may be unfolded to retain a proof required by computation, subject to the checking budget. See `crates/deppy-python/examples/core/proof_erasure.py`.
+Erasure does not change typing, normalization, conversion, or axiom tracking. It does not automatically turn explicit proof arguments into implicit ones or strip proof fields from retained records, Σ values, or vectors. Single-term erasure may unfold definitions to retain a proof required by computation. Module extraction shares separately checked computational variants of helpers, so a computational proof never reuses an erased public result. Each body remains subject to the checking budget. See `crates/deppy-python/examples/core/proof_erasure.py`.
 
 ## Holes, goals, and tactics
 

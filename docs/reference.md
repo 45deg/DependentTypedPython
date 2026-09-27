@@ -64,6 +64,8 @@ The frontend rejects unsupported Python features rather than treating them as un
 
 `deppy-runtime::compile_module(source, Target)` and its CLI generate a standalone Python module. Public names are called through `exports['name']`; implicit type arguments are omitted. Public functions validate argument/result schemas and rebuild immutable values. Higher-order boundaries wrap callbacks to check each call's arguments and result; callback termination is not established.
 
+Repeat `--export NAME` to generate only selected root declarations and their runtime dependencies. Without this option, the CLI exports every root declaration. The library equivalent is `compile_exports_with_resolver(source, target, resolver, names)`. Selection happens after the entire module is checked, so an invalid unselected proof still rejects compilation. Unknown names are errors. This allows executable functions to be extracted from a module that also contains proofs with unsupported runtime uses of erased arguments.
+
 | Checked value | Python boundary representation |
 | --- | --- |
 | Nat | Nonnegative `int`; `bool` rejected |

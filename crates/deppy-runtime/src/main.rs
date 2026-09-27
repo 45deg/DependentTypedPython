@@ -1,14 +1,33 @@
 use deppy_python::{FileResolver, Target};
-use deppy_runtime::compile_module_with_resolver;
+use deppy_runtime::{compile_exports_with_resolver, compile_module_with_resolver};
 
 fn main() -> std::process::ExitCode {
-    let args: Vec<_> = std::env::args_os().skip(1).collect();
-    if args.len() != 1 {
-        eprintln!("usage: deppy-runtime FILE.py (Python 3.14 input syntax)");
-        return std::process::ExitCode::from(2);
+    let usage = || {
+        eprintln!("usage: deppy-runtime [--export NAME ...] FILE.py (Python 3.14 input syntax)");
+        std::process::ExitCode::from(2)
+    };
+    let mut args = std::env::args_os().skip(1);
+    let mut exports = vec![];
+    let mut path = None;
+    while let Some(arg) = args.next() {
+        if arg == "--export" {
+            let Some(name) = args.next().and_then(|name| name.into_string().ok()) else {
+                return usage();
+            };
+            if name.is_empty() || name.starts_with('-') {
+                return usage();
+            }
+            exports.push(name);
+        } else if arg.to_string_lossy().starts_with('-') || path.is_some() {
+            return usage();
+        } else {
+            path = Some(std::path::PathBuf::from(arg));
+        }
     }
-    let path = std::path::Path::new(&args[0]);
-    let source = match std::fs::read_to_string(path) {
+    let Some(path) = path else {
+        return usage();
+    };
+    let source = match std::fs::read_to_string(&path) {
         Ok(source) => source,
         Err(error) => {
             eprintln!("{}: {error}", path.display());
@@ -26,7 +45,13 @@ fn main() -> std::process::ExitCode {
             return std::process::ExitCode::FAILURE;
         }
     };
-    match compile_module_with_resolver(&source, Target::Python314, &mut resolver) {
+    let compiled = if exports.is_empty() {
+        compile_module_with_resolver(&source, Target::Python314, &mut resolver)
+    } else {
+        let names: Vec<_> = exports.iter().map(String::as_str).collect();
+        compile_exports_with_resolver(&source, Target::Python314, &mut resolver, &names)
+    };
+    match compiled {
         Ok(code) => {
             print!("{code}");
             std::process::ExitCode::SUCCESS
