@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>DepPy Playground</title>
-  <link rel="stylesheet" href="./style.css">
+  <link rel="stylesheet" href="./style.css?v=4">
   <script type="importmap">
   {
     "imports": {
@@ -38,7 +38,12 @@
 <body>
   <header class="site-header">
     <div class="brand"><span class="brand-mark" aria-hidden="true">λ</span> DepPy</div>
-    <span class="header-note">Runs in your browser</span>
+    <div class="header-links">
+      <span class="header-note">Runs in your browser</span>
+      <a class="github-link" href="https://github.com/45deg/DepPy" target="_blank" rel="noopener noreferrer" aria-label="DepPy on GitHub (opens in a new tab)">
+        <img src="./github-invertocat-black.svg" alt="" width="24" height="24">
+      </a>
+    </div>
   </header>
   <main>
     <div class="intro">
@@ -56,7 +61,7 @@
         <div class="editor-wrap" id="editor-wrap">
           <div id="fallback-editor" class="fallback-editor">
             <div id="line-numbers" class="line-numbers" aria-hidden="true">1</div>
-            <textarea id="source" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="DepPy code"></textarea>
+            <textarea id="source" wrap="soft" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="DepPy code"></textarea>
           </div>
           <div id="cm-editor" aria-label="DepPy code editor"></div>
         </div>

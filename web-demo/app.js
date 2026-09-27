@@ -41,7 +41,7 @@ async function loadCodeMirror() {
   const view = new EditorView({
     doc: source.value,
     parent: editorHost,
-    extensions: [basicSetup, python(), theme, EditorView.updateListener.of(update => {
+    extensions: [basicSetup, python(), EditorView.lineWrapping, theme, EditorView.updateListener.of(update => {
       if (update.docChanged) updateEditor();
     })],
   });
@@ -258,11 +258,19 @@ Promise.all([fetch('./examples.json').then(response => {
 }), loadChecker()]).then(([data]) => {
   examples = data;
   picker.replaceChildren();
+  const groups = new Map();
   for (const [key, value] of Object.entries(examples)) {
     const option = document.createElement('option');
     option.value = key;
     option.textContent = value.label;
-    picker.append(option);
+    const groupName = value.group || 'Examples';
+    if (!groups.has(groupName)) {
+      const group = document.createElement('optgroup');
+      group.label = groupName;
+      groups.set(groupName, group);
+      picker.append(group);
+    }
+    groups.get(groupName).append(option);
   }
   picker.value = 'basics';
   setSource(examples.basics.source);

@@ -43,7 +43,9 @@ python3 scripts/build_web_demo.py
 python3 scripts/web_demo.py
 ```
 
-Open <http://127.0.0.1:8000/>. The browser runs the DepPy checker in WebAssembly; no verification API or server-side Python execution is used. The Python server only serves static files and binds to localhost. The same `web-demo/` files can be served by a static host. The demo offers editable examples and shows diagnostics and open goals, with a 64 KiB source limit. Submitted Python source is never executed or sent to a server. Use `--port N` to choose another port.
+Open <http://127.0.0.1:8000/>. The browser runs the DepPy checker in WebAssembly; no verification API or server-side Python execution is used. The Python server only serves static files and binds to localhost. The same `web-demo/` files can be served by a static host. The demo offers editable examples, including six commented proof parts (ending with a group homomorphism kernel theorem) and a verified Fibonacci loop equal to its recursive specification. It shows diagnostics and open goals, with a 64 KiB source limit. Submitted Python source is never executed or sent to a server. Use `--port N` to choose another port.
+
+To publish at `https://45deg.github.io/deppy-web/`, copy the built contents of `web-demo/` (including `checker.wasm`, `examples.json`, and `github-invertocat-black.svg`) into `deppy-web/` in the `45deg.github.io` site's published source. The demo uses relative asset URLs and needs no path rewrite. GitHub Pages for the separate `45deg/DepPy` repository would instead use `/DepPy/` by default; putting this repository at `origin` does not publish the requested `/deppy-web/` path. The GitHub header link points to the planned `45deg/DepPy` repository. Its icon is the unmodified black Invertocat SVG from [GitHub's official Brand Toolkit](https://brand.github.com/foundations/logo).
 
 The editor loads CodeMirror 6 and Python language support from pinned JSPM CDN URLs. If the CDN is unavailable, the plain textarea remains usable.
 

@@ -11,9 +11,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "web-demo"
 EXAMPLES = {
-    "basics": ("Basics", "core/basics.py"),
-    "proofs": ("Proofs", "core/proofs.py"),
-    "verified": ("Verified", "verified/verified_annotations.py"),
+    "basics": ("Basics", "Start", OUTPUT / "examples/basics.py"),
+    "proof_equality": ("Part 1 · Equality", "Proofs", OUTPUT / "examples/proof_equality.py"),
+    "proof_induction": ("Part 2 · Induction", "Proofs", OUTPUT / "examples/proof_induction.py"),
+    "proof_vectors": ("Part 3 · Indexed vectors", "Proofs", OUTPUT / "examples/proof_vectors.py"),
+    "proof_lists": ("Part 4 · List laws", "Proofs", OUTPUT / "examples/proof_lists.py"),
+    "proof_order": ("Part 5 · Order", "Proofs", OUTPUT / "examples/proof_order.py"),
+    "algebraic": ("Part 6 · Algebraic: kernel is a subgroup", "Proofs", OUTPUT / "examples/algebraic_kernel.py"),
+    "fibonacci": ("Fibonacci · recursive = imperative", "Verified Programs", OUTPUT / "examples/fibonacci.py"),
 }
 
 
@@ -25,8 +30,8 @@ def main() -> None:
     )
     shutil.copyfile(ROOT / "target/wasm32-unknown-unknown/release/deppy_web.wasm", OUTPUT / "checker.wasm")
     examples = {
-        key: {"label": label, "source": (ROOT / "crates/deppy-python/examples" / filename).read_text()}
-        for key, (label, filename) in EXAMPLES.items()
+        key: {"label": label, "group": group, "source": path.read_text()}
+        for key, (label, group, path) in EXAMPLES.items()
     }
     (OUTPUT / "examples.json").write_text(json.dumps(examples, ensure_ascii=False))
     print(f"Built static demo in {OUTPUT}")
