@@ -4,59 +4,65 @@ from deppy import (
     inductive,
     constructor,
     record,
-    Index,
     Type,
     Pi,
-    Sigma,
     Pair,
     Nat,
     Z,
     S,
     Eq,
     refl,
-    J,
     induct,
     absurd,
 )
-from deppy.equality import sym, trans, cong, transport
+from deppy.equality import sym, transport
 from deppy.tactics import rewrite, rewrite_in
-from deppy.nat import add, add_swap
 from deppy.finite import (
     Enumeration,
     either_elim,
-    removal_present,
-    removal_include,
-    removal_keep,
     removal_nodup,
-    removal_absent,
-    removal_count,
     tail_forward,
     tail_backward,
-    SameCountAt,
-    same_count_nil,
-    same_count_step,
-    same_count,
     map_has,
-    map_injective_has,
     map_nodup,
     inverse_injective,
-    bijection_count,
-    count_map,
-    weight_unique,
-    weight_transport,
+    bijection_count as bijection_count,
+    count_map as count_map,
+    weight_transport as weight_transport,
 )
 
 # Shared finite enumeration, group, and finite-product definitions.
 # All theorem bodies are checked; no additional axioms are introduced.
 
-# Re-export the standard carriers so the finite examples share their nominal types.
+# Re-export the standard carriers and helpers used by the finite examples.
 from deppy.data import (
-    Empty, Unit, MkUnit as Unit_, Not, Sum as Either, Left, Right,
-    Decidable as Decision, Yes, No, decision_weight, weight_yes, weight_no,
+    Empty,
+    Unit,
+    MkUnit as Unit_,
+    Not as Not,
+    Left,
+    Right,
+    Decidable as Decision,
+    Yes as Yes,
+    No as No,
+    decision_weight as decision_weight,
+    weight_no as weight_no,
 )
 from deppy.lists import (
-    List, Nil, Cons, length, Mem as Has, NoDup, count,
-    reject_head, reject, map, Removal, RemoveHere, RemoveThere, find_removal,
+    List,
+    Nil,
+    Cons,
+    length as length,
+    Mem as Has,
+    NoDup,
+    count as count,
+    reject_head as reject_head,
+    reject as reject,
+    map,
+    Removal,
+    RemoveHere,
+    RemoveThere,
+    find_removal,
 )
 
 
@@ -121,9 +127,9 @@ def left_recover[A: Type](g: Group[A], a: A, x: A) -> Eq[A, g.op(g.inverse(a))(g
 
     Reassociate, apply the left inverse law, and remove the identity.
     """
-    return trans(
+    return rewrite(
         sym(g.assoc(g.inverse(a))(a)(x)),
-        trans(cong(lambda y: g.op(y)(x), g.left_inverse(a)), g.left_unit(x)),
+        rewrite(g.left_inverse(a), g.left_unit(x)),
     )
 
 
@@ -133,9 +139,9 @@ def right_recover[A: Type](g: Group[A], a: A, x: A) -> Eq[A, g.op(a)(g.op(g.inve
 
     Reassociate, apply the right inverse law, and remove the identity.
     """
-    return trans(
+    return rewrite(
         sym(g.assoc(a)(g.inverse(a))(x)),
-        trans(cong(lambda y: g.op(y)(x), g.right_inverse(a)), g.left_unit(x)),
+        rewrite(g.right_inverse(a), g.left_unit(x)),
     )
 
 
@@ -296,9 +302,9 @@ def swap_factors[A: Type](
 
     Reassociate, rewrite by commutativity, and reassociate back.
     """
-    return trans(
+    return rewrite(
         sym(g.assoc(x)(y)(z)),
-        trans(cong(lambda t: g.op(t)(z), commute), g.assoc(y)(x)(z)),
+        rewrite(commute, g.assoc(y)(x)(z)),
     )
 
 
@@ -448,8 +454,7 @@ def bijection_product[A: Type, B: Type](
         )
     )(finite.unique)(lambda x: lambda member: finite.complete(x))(
         lambda x: (
-            lambda member: transport[A, move(back(x)), x](
-                lambda q: Has(q, map(move, finite.elements)),
+            lambda member: rewrite_in(
                 right(x),
                 map_has(move, back(x), finite.elements, finite.complete(back(x))),
             )
@@ -463,16 +468,9 @@ def cancel_product[A: Type](g: Group[A], x: A, y: A, eq: Eq[A, g.op(x)(y), y]) -
 
     Multiply on the right by the inverse of y and simplify using the group laws.
     """
-    return trans(
-        sym(g.right_unit(x)),
-        trans(
-            cong(lambda t: g.op(x)(t), sym(g.right_inverse(y))),
-            trans(
-                sym(g.assoc(x)(y)(g.inverse(y))),
-                trans(cong(lambda t: g.op(t)(g.inverse(y)), eq), g.right_inverse(y)),
-            ),
-        ),
-    )
+    associated = rewrite_in(eq, g.assoc(x)(y)(g.inverse(y)))
+    cancelled = rewrite_in(g.right_inverse(y), associated)
+    return sym(rewrite_in(g.right_unit(x), cancelled))
 
 
 @dependent

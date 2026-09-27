@@ -13,8 +13,8 @@
 #   --elaboration-steps 100000000 crates/deppy-python/examples/proof_case/fermat.py
 
 from deppy import dependent, theorem, Type, Pi, Sigma, Pair, Nat, Z, S, Eq, refl, absurd
-from deppy.equality import sym, trans, cong, transport
-from deppy.tactics import rewrite
+from deppy.equality import sym, trans
+from deppy.tactics import rewrite, rewrite_in
 from deppy.nat import add, mul
 from deppy.data import decide_and, decide_implies
 from deppy.lists import All, all_decide, all_intro, all_get
@@ -66,8 +66,8 @@ def power_add[A: Type](
         case Z():
             return sym(g.left_unit(power(g, a, m)))
         case S(k):
-            return trans(
-                cong(lambda x: g.op(a)(x), power_add(g, a, k, m)),
+            return rewrite(
+                power_add(g, a, k, m),
                 sym(g.assoc(a)(power(g, a, k))(power(g, a, m))),
             )
 
@@ -84,11 +84,11 @@ def period_multiple[A: Type](
         case Z():
             return refl(g.unit)
         case S(j):
-            return trans(
+            return rewrite(
                 power_add(g, a, d, mul(d, j)),
-                trans(
-                    cong(lambda x: g.op(x)(power(g, a, mul(d, j))), period),
-                    trans(
+                rewrite(
+                    period,
+                    rewrite(
                         g.left_unit(power(g, a, mul(d, j))),
                         period_multiple(g, a, d, period, j),
                     ),
@@ -214,10 +214,10 @@ def commute_power[A: Type](
         case Z():
             return trans(g.right_unit(x), sym(g.left_unit(x)))
         case S(k):
-            return trans(
+            return rewrite(
                 swap_factors(g, x, a, power(g, a, k), commute),
-                trans(
-                    cong(lambda t: g.op(a)(t), commute_power(g, a, x, commute, k)),
+                rewrite(
+                    commute_power(g, a, x, commute, k),
                     sym(g.assoc(a)(power(g, a, k))(x)),
                 ),
             )
@@ -236,8 +236,7 @@ def left_membership[A: Type](
 
     Multiply by inverse(a), use subgroup closure, and cancel a.
     """
-    return transport[A, g.op(g.inverse(a))(g.op(a)(x)), x](
-        h.member,
+    return rewrite_in(
         left_recover(g, a, x),
         h.mul_closed(g.inverse(a))(g.op(a)(x))(h.inv_closed(a)(pa))(moved),
     )
@@ -265,38 +264,29 @@ def scalar_step[A: Type](
     """
     match d:
         case Yes(px):
-            return trans(
-                cong(
-                    lambda t: g.op(t)(g.op(power(g, a, n))(z)),
-                    selected_yes(g, g.op(a)(x), h.decide(g.op(a)(x)), h.mul_closed(a)(x)(pa)(px)),
-                ),
-                trans(
+            return rewrite(
+                selected_yes(g, g.op(a)(x), h.decide(g.op(a)(x)), h.mul_closed(a)(x)(pa)(px)),
+                rewrite(
                     g.assoc(a)(x)(g.op(power(g, a, n))(z)),
-                    trans(
-                        cong(
-                            lambda t: g.op(a)(t),
-                            swap_factors(
-                                g, x, power(g, a, n), z, commute_power(g, a, x, commute(px), n)
-                            ),
+                    rewrite(
+                        swap_factors(
+                            g, x, power(g, a, n), z, commute_power(g, a, x, commute(px), n)
                         ),
                         sym(g.assoc(a)(power(g, a, n))(g.op(x)(z))),
                     ),
                 ),
             )
         case No(np):
-            return trans(
-                cong(
-                    lambda t: g.op(t)(g.op(power(g, a, n))(z)),
-                    selected_no(
-                        g,
-                        g.op(a)(x),
-                        h.decide(g.op(a)(x)),
-                        lambda moved: np(left_membership(g, h, a, pa, x, moved)),
-                    ),
+            return rewrite(
+                selected_no(
+                    g,
+                    g.op(a)(x),
+                    h.decide(g.op(a)(x)),
+                    lambda moved: np(left_membership(g, h, a, pa, x, moved)),
                 ),
-                trans(
+                rewrite(
+                    g.left_unit(z),
                     g.left_unit(g.op(power(g, a, n))(z)),
-                    sym(cong(lambda t: g.op(power(g, a, n))(t), g.left_unit(z))),
                 ),
             )
 
@@ -322,11 +312,8 @@ def product_translate[A: Type](
         case Nil():
             return sym(g.left_unit(g.unit))
         case Cons(x, tail):
-            return trans(
-                cong(
-                    lambda t: g.op(selected(g, g.op(a)(x), h.decide(g.op(a)(x))))(t),
-                    product_translate(g, h, a, pa, commute, tail),
-                ),
+            return rewrite(
+                product_translate(g, h, a, pa, commute, tail),
                 scalar_step(
                     g,
                     h,
@@ -379,7 +366,7 @@ def abelian_subgroup_period[A: Type](
         g,
         power(g, a, count(h.decide, finite.elements)),
         product(g, lambda x: selected(g, x, h.decide(x)), finite.elements),
-        trans(sym(translated), invariant),
+        rewrite_in(translated, invariant),
     )
 
 
@@ -409,9 +396,7 @@ def equality_in_list[A: Type](
                         case Right(py):
                             return No[Eq[A, x, y]](
                                 lambda eq: unique.fst(
-                                    transport[A, y, head](
-                                        lambda q: Has(q, tail), trans(sym(eq), ex), py
-                                    )
+                                    rewrite_in(ex, rewrite_in(sym(eq), py))
                                 )
                             )
                 case Right(px):
@@ -419,7 +404,7 @@ def equality_in_list[A: Type](
                         case Left(ey):
                             return No[Eq[A, x, y]](
                                 lambda eq: unique.fst(
-                                    transport[A, x, head](lambda q: Has(q, tail), trans(eq, ey), px)
+                                    rewrite_in(ey, rewrite_in(eq, px))
                                 )
                             )
                         case Right(py):
@@ -499,12 +484,9 @@ def commute_mul[A: Type](
 
     Reassociate and move z past each factor.
     """
-    return trans[A, g.op(g.op(x)(y))(z), g.op(x)(g.op(y)(z)), g.op(z)(g.op(x)(y))](
+    return rewrite(
         g.assoc(x)(y)(z),
-        trans(
-            cong(lambda t: g.op(x)(t), py),
-            swap_factors(g, x, z, y, px),
-        ),
+        rewrite(py, swap_factors(g, x, z, y, px)),
     )
 
 
@@ -514,24 +496,13 @@ def commute_inverse[A: Type](g: Group[A], x: A, z: A, px: Commutes(g, x, z)) -> 
 ):
     r"""An inverse commutes with z whenever the original element does.
 
-    Insert an inverse pair, exchange the commuting factors, and cancel.
+    Rewrite inverse cancellation using commutation, then simplify the inverse pair.
     """
-    return trans(
-        cong(lambda t: g.op(g.inverse(x))(t), sym(g.right_unit(z))),
-        trans(
-            cong(lambda t: g.op(g.inverse(x))(g.op(z)(t)), sym(g.right_inverse(x))),
-            trans(
-                cong(lambda t: g.op(g.inverse(x))(t), sym(g.assoc(z)(x)(g.inverse(x)))),
-                trans(
-                    cong(lambda t: g.op(g.inverse(x))(g.op(t)(g.inverse(x))), sym(px)),
-                    trans(
-                        cong(lambda t: g.op(g.inverse(x))(t), g.assoc(x)(z)(g.inverse(x))),
-                        left_recover(g, x, g.op(z)(g.inverse(x))),
-                    ),
-                ),
-            ),
-        ),
-    )
+    cancelled = left_recover(g, x, g.op(z)(g.inverse(x)))
+    associated = rewrite_in(sym(g.assoc(x)(z)(g.inverse(x))), cancelled)
+    exchanged = rewrite_in(px, associated)
+    regrouped = rewrite_in(g.assoc(z)(x)(g.inverse(x)), exchanged)
+    return rewrite_in(g.right_unit(z), rewrite_in(g.right_inverse(x), regrouped))
 
 
 @theorem

@@ -13,8 +13,9 @@ from deppy import (
     absurd,
     nat_elim,
 )
-from deppy.equality import sym, trans, cong, transport
-from deppy.nat import add, mul, add_succ
+from deppy.equality import sym, trans
+from deppy.tactics import rewrite, rewrite_in
+from deppy.nat import add, mul
 from deppy.lists import count_split
 from deppy.nat_order import LE, LEZero, LESucc, le_refl, le_step, le_pred, le_trans
 from common import (
@@ -71,9 +72,7 @@ def Related[A: Type](g: Group[A], h: Subgroup[A, g], a: A, b: A) -> Type:
 @theorem
 def related_refl[A: Type](g: Group[A], h: Subgroup[A, g], a: A) -> Related(g, h, a, a):
     r"""Prove coset reflexivity from inverse cancellation and identity membership."""
-    return transport[A, g.unit, g.op(g.inverse(a))(a)](
-        h.member, sym(g.left_inverse(a)), h.unit_closed
-    )
+    return rewrite(g.left_inverse(a), h.unit_closed)
 
 
 @theorem
@@ -84,9 +83,7 @@ def related_witness[A: Type](
 
     Cancel a and transport the supplied subgroup membership proof.
     """
-    return transport[A, x, g.op(g.inverse(a))(b)](
-        h.member, trans(sym(left_recover(g, a, x)), cong(lambda y: g.op(g.inverse(a))(y), eq)), px
-    )
+    return rewrite_in(eq, rewrite_in(sym(left_recover(g, a, x)), px))
 
 
 @theorem
@@ -94,9 +91,9 @@ def cancel_right_inverse[A: Type](
     g: Group[A], a: A, x: A
 ) -> Eq[A, g.op(g.op(a)(x))(g.inverse(x)), a]:
     r"""Simplify (a*x)*inverse(x) to a by associativity and inverse cancellation."""
-    return trans(
+    return rewrite(
         g.assoc(a)(x)(g.inverse(x)),
-        trans(cong(lambda y: g.op(a)(y), g.right_inverse(x)), g.right_unit(a)),
+        rewrite(g.right_inverse(x), g.right_unit(a)),
     )
 
 
@@ -116,10 +113,7 @@ def related_sym[A: Type](
         a,
         g.inverse(x),
         h.inv_closed(x)(p),
-        trans(
-            cong(lambda y: g.op(y)(g.inverse(x)), sym(right_recover(g, a, b))),
-            cancel_right_inverse(g, a, x),
-        ),
+        rewrite_in(right_recover(g, a, b), cancel_right_inverse(g, a, x)),
     )
 
 
@@ -140,9 +134,9 @@ def related_trans[A: Type](
         c,
         g.op(x)(y),
         h.mul_closed(x)(y)(p)(q),
-        trans(
+        rewrite(
             sym(g.assoc(a)(x)(y)),
-            trans(cong(lambda z: g.op(z)(y), right_recover(g, a, b)), right_recover(g, b, c)),
+            rewrite(right_recover(g, a, b), right_recover(g, b, c)),
         ),
     )
 
@@ -268,8 +262,8 @@ def disjoint_head[A: Type, P: Pi[A, lambda _: Type], Q: Type](
     """
     match dq:
         case Yes(q):
-            return sym(
-                cong(lambda n: add(n, count(dp, rest)), weight_no(dp(x), lambda p: disjoint(p)(q)))
+            return rewrite(
+                weight_no(dp(x), lambda p: disjoint(p)(q)), refl(count(dp, rest))
             )
         case No(nq):
             return refl(add(decision_weight(dp(x)), count(dp, rest)))
@@ -290,10 +284,11 @@ def disjoint_count[A: Type, P: Pi[A, lambda _: Type], Q: Pi[A, lambda _: Type]](
         case Nil():
             return refl(0)
         case Cons(x, tail):
-            return trans(
+            return rewrite(
                 disjoint_head(dp, x, dq(x), reject(dq, tail), disjoint(x)),
-                cong(
-                    lambda n: add(decision_weight(dp(x)), n), disjoint_count(dp, dq, disjoint, tail)
+                rewrite(
+                    disjoint_count(dp, dq, disjoint, tail),
+                    refl(add(decision_weight(dp(x)), count(dp, tail))),
                 ),
             )
 
@@ -320,7 +315,7 @@ def reject_info_head[A: Type, P: Pi[A, lambda _: Type]](
                 Eq[A, x, y], Has(x, rest), Sigma[Has(x, Cons(y, tail)), lambda _: Not(P(x))]
             ](
                 member,
-                lambda eq: Pair(Left(eq), lambda px: np(transport[A, x, y](P, eq, px))),
+                lambda eq: Pair(Left(eq), lambda px: np(rewrite_in(eq, px))),
                 lambda later: Pair(Right(info(later).fst), info(later).snd),
             )
 
@@ -420,13 +415,7 @@ def uniform_remainder[A: Type, R: Pi[A, lambda a: Pi[A, lambda b: Type]]](
         dec(b), dec(a), lambda x: lambda p: class_disjoint(laws, a, b, info.snd, x, p), tail
     )
     missing = weight_no(dec(b)(a), lambda p: info.snd(laws.symmetric(b)(a)(p)))
-    return trans(
-        unchanged,
-        trans(
-            sym(cong(lambda n: add(n, class_size(dec, b, tail)), missing)),
-            uniform(b)(Right(info.fst)),
-        ),
-    )
+    return rewrite(unchanged, rewrite_in(missing, uniform(b)(Right(info.fst))))
 
 
 @theorem
@@ -442,12 +431,9 @@ def split_selected[A: Type, R: Pi[A, lambda a: Pi[A, lambda b: Type]]](
 
     Reflexivity ensures the head itself is removed from the complement.
     """
-    return trans(
+    return rewrite_in(
+        reject_head_yes(a, dec(a)(a), reject(dec(a), tail), laws.reflexive(a)),
         sym(count_split(dec(a), Cons(a, tail))),
-        cong[List[A], Nat](
-            lambda xs: add(class_size(dec, a, Cons(a, tail)), length(xs)),
-            reject_head_yes(a, dec(a)(a), reject(dec(a), tail), laws.reflexive(a)),
-        ),
     )
 
 
@@ -505,12 +491,7 @@ def partition_step[A: Type, R: Pi[A, lambda a: Pi[A, lambda b: Type]]](
         lambda b: lambda member: uniform_remainder(dec, laws, h, a, tail, uniform, b, member)
     )
     selected = uniform(a)(Left(refl(a)))
-    proof = trans(
-        split_selected(dec, laws, a, tail),
-        trans(
-            cong(lambda n: add(n, length(rest)), selected), cong(lambda n: add(h, n), result.snd)
-        ),
-    )
+    proof = rewrite_in(result.snd, rewrite_in(selected, split_selected(dec, laws, a, tail)))
     return Pair(S(result.fst), proof)
 
 
