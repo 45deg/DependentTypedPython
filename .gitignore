@@ -2,3 +2,5 @@
 docs/_build/
 __pycache__/
 *.pyc
+/web-demo/checker.wasm
+/web-demo/examples.json

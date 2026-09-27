@@ -4,6 +4,7 @@ members = [
     "crates/deppy-elab",
     "crates/deppy-python",
     "crates/deppy-runtime",
+    "crates/deppy-web",
 ]
 resolver = "2"
 
