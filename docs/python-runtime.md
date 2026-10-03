@@ -99,10 +99,16 @@ establish general equivalence between either Python execution path and the kerne
 
 ## Browser execution
 
-The web playground's **Run Python** button loads Pyodide 314.0.0 (Python 3.14)
+The web playground's **Run** button loads Pyodide 314.0.0 (Python 3.14)
 from jsDelivr on demand and runs the editor contents as `main.py`, including
 its `if __name__ == "__main__":` block. Select **Fibonacci · recursive = imperative**
-for an example that prints `fib(10) = 55`. **Check** remains the separate
+for an example that prints `fib(10) = 55`. Examples appear in one flat list. Selecting one updates the URL hash
+(e.g. `#quicksort` or `#proof_vectors`), so direct links, reloads, and
+browser back/forward navigation select the same example. `#about` opens About.
+Every demo has an ordinary entry
+point that prints concrete examples; the Quicksort demo includes empty,
+reverse-ordered, and duplicate-containing inputs. Equality-proof examples
+print `<erased proof>` because equality evidence is erased at runtime. **Check** remains the separate
 type/proof checker; completion of a Python run does not mean a proof passed.
 
 `scripts/build_web_demo.py` bundles the same `stdlib/deppy/*.py` sources into

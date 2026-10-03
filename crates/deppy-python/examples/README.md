@@ -14,4 +14,11 @@ Examples with local imports keep their dependencies in the same directory. The e
 | Recursion and induction | [list induction](core/list_induction.py), [list recursion](core/list_recursion.py), [tree size](core/tree_size.py), [tree depth](core/tree_depth.py) |
 | Indexed data | [indexed get](core/indexed_get.py), [indexed length](core/indexed_length.py), [nested indexed get](core/nested_indexed_get.py) |
 | Other checks | [docstrings](core/docstrings.py), [list theorems](core/list_theorems.py), [higher universe](core/higher_universe.py) |
-| Order proofs | [bounds and countdown](core/order_bounds.py), [impossible indexed cases](core/order_absurd.py) |
+| Order proofs | [bounds and countdown](core/order_bounds.py), [impossible indexed cases](core/order_absurd.py), [quicksort is sorted](core/quicksort.py) |
+
+`core/quicksort.py` proves `Sorted(quicksort(xs))` for every `List[Nat]`,
+without axioms. `Sorted` means nondecreasing order and allows duplicates.
+Quicksort uses a structural fuel argument initialized to the input length;
+checked length bounds rule out exhausting fuel on a nonempty list. The example
+proves sortedness and preservation of universal element predicates, but does
+not prove permutation or multiplicity preservation.

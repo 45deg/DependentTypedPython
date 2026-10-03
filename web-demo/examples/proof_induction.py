@@ -16,3 +16,10 @@ def zero_right(n: Nat) -> Eq[Nat, n + 0, n]:
             # Induction hypothesis: k + 0 = k.
             # Applying S to both sides gives S(k + 0) = S(k).
             return cong(S, zero_right(k))
+
+
+if __name__ == "__main__":
+    # Run executes these concrete examples; Check verifies the declarations above.
+    # Equality proofs print as <erased proof>: Python does not check their claims.
+    for n in (0, 1, 5):
+        print(f"{n} + 0 = {n + 0}; zero_right({n}): {zero_right(n)}")

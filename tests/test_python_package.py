@@ -61,6 +61,29 @@ class PackageTests(unittest.TestCase):
                                         capture_output=True, timeout=20)
                 self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_web_demo_run_examples(self):
+        from scripts.build_web_demo import EXAMPLES as WEB_EXAMPLES
+
+        expected = {
+            'basics': 'twice(3) = 5',
+            'proof_equality': 'same(3): <erased proof>',
+            'proof_induction': '5 + 0 = 5; zero_right(5): <erased proof>',
+            'proof_vectors': 'get([10, 20, 30], 2) = 30',
+            'proof_lists': 'reverse(reverse([0, 1])) = [0, 1]',
+            'proof_order': '5 <= 2: False',
+            'algebraic': 'ker(x mod 2) in Z/4Z = [0, 2]',
+            'proof_regular_languages': 'word [1, 0]: accepted = False',
+            'quicksort': 'quicksort([2, 0, 1, 2]) = [0, 1, 2, 2]',
+            'fibonacci': 'fib(10) = 55',
+        }
+        self.assertEqual(set(WEB_EXAMPLES), set(expected))
+        for key, (_, path) in WEB_EXAMPLES.items():
+            with self.subTest(example=key):
+                result = subprocess.run([sys.executable, str(path)], text=True,
+                                        capture_output=True, timeout=20)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(expected[key], result.stdout.splitlines())
+
     def test_every_public_module_imports(self):
         for module in pkgutil.iter_modules(deppy.__path__):
             importlib.import_module(f'deppy.{module.name}')

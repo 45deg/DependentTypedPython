@@ -117,6 +117,18 @@ def main() -> None:
     )
     for name in examples:
         accepted(executable, CORE / name, axiom_free=name.startswith("order_"))
+    quicksort = CORE / "quicksort.py"
+    accepted(executable, quicksort, axiom_free=True,
+             names=("Sorted", "quicksort", "quicksort_sorted"))
+    for name in ("empty_example", "singleton_example", "descending_example",
+                 "ordered_example", "duplicates_example"):
+        evaluated_refl(executable, quicksort, name)
+    mutation(executable, quicksort, "return Pair(above, right)",
+             "return Pair(MkUnit(), right)", forbidden=("budget", "import"))
+    mutation(executable, quicksort,
+             "return quicksort_bounded(length(xs), xs, le_refl(length(xs)))",
+             "return quicksort_bounded(0, xs, le_refl(0))",
+             forbidden=("budget", "import"))
     for name in ("data", "equality", "nat", "nat_order", "lists", "indexed"):
         accepted(executable, STDLIB / f"{name}.py", axiom_free=True)
     accepted(
@@ -135,6 +147,18 @@ def main() -> None:
         ),
     )
     accepted(executable, PROOF_CASE / "cantor.py", axiom_free=True, names=("cantor",))
+    regular_languages = ROOT / "web-demo/examples/proof_regular_languages.py"
+    accepted(executable, regular_languages, axiom_free=True,
+             names=("determinize", "nfa_to_dfa", "dfa_to_nfa", "determinize_correct", "one_has_nfa_path"))
+    for name in ("empty_rejected", "one_accepted", "one_zero_rejected", "zero_one_accepted",
+                 "both_branches_kept", "empty_subset_stays_empty"):
+        evaluated_refl(executable, regular_languages, name)
+    mutation(executable, regular_languages,
+             "return lambda r: some(n)(lambda q: conjunction(get(n, subset, q), machine.edge(q)(symbol)(r)))",
+             "return lambda r: some(n)(lambda q: machine.edge(q)(symbol)(r))",
+             forbidden=("budget", "import"))
+    mutation(executable, regular_languages, "        machine.initial,",
+             "        tabulate(n)(lambda q: False_()),", forbidden=("budget", "import"))
 
     for file, name, expected in (
         ("indexed_matches.py", "proof", "refl(9)"),

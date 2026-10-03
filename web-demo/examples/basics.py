@@ -43,3 +43,11 @@ def pack[T: Type](n: Nat, xs: Vec[T, n]) -> Sigma[Nat, lambda k: Vec[T, k]]:
 def identity_zero() -> Eq[Nat, identity(Z()), Z()]:
     # A checked equality, rather than a Python assert: identity(0) = 0.
     return refl(Z())
+
+
+if __name__ == "__main__":
+    # Run executes these concrete examples; Check verifies the declarations above.
+    print(f"identity(7) = {identity(7)}")
+    print(f"twice(3) = {twice(3)}")
+    print(f"empty(5) = {empty(5)}")
+    print(f"pack(0, empty(5)) = {pack(0, empty(5))}")

@@ -19,3 +19,15 @@ def no_strict_cycle(n: Nat, m: Nat, forward: LT(n, m), backward: LT(m, n)) -> Em
     # n < m ∧ m < n → n < n, contradicting irreflexivity.
     # Returning Empty proves these two assumptions cannot hold together.
     return lt_irrefl(n, lt_trans(n, m, n, forward, backward))
+
+
+if __name__ == "__main__":
+    # Run executes these concrete examples; Check verifies the declarations above.
+    # Equality proofs print as <erased proof>: Python does not check their claims.
+    from deppy.nat_order import le_decide, lt_decide, le_refl
+    from deppy.data import Yes
+
+    for n, m in ((2, 5), (5, 2), (3, 3)):
+        print(f"{n} <= {m}: {isinstance(le_decide(n, m), Yes)}")
+        print(f"{n} < {m}: {isinstance(lt_decide(n, m), Yes)}")
+    print(f"3 <= 3 in both directions: {same_if_both_ways(3, 3, le_refl(3), le_refl(3))}")

@@ -92,3 +92,25 @@ def kernel_mul[A: Type, B: Type](g: Group[A], h: Group[B], f: Hom[A, B, g, h], a
 def kernel_inverse[A: Type, B: Type](g: Group[A], h: Group[B], f: Hom[A, B, g, h], a: A, pa: InKernel(g, h, f, a)) -> InKernel(g, h, f, g.inverse(a)):
     # f(a⁻¹) = f(a)⁻¹ = e_H⁻¹ = e_H.
     return trans(map_inverse(g, h, f, a), trans(cong(h.inverse, pa), inverse_unit(h)))
+
+
+if __name__ == "__main__":
+    # Run executes these concrete examples; Check verifies the declarations above.
+    # A concrete homomorphism Z/4Z -> Z/2Z: send x to x mod 2.
+    # These Python records illustrate the operations; Check verifies the
+    # generic theorem above, given group laws and homomorphism laws.
+    def cyclic_group(modulus):
+        op = lambda x: lambda y: (x + y) % modulus
+        inverse = lambda x: (-x) % modulus
+        return Group(0, op, inverse,
+            lambda x: lambda y: lambda z: refl(op(op(x)(y))(z)),
+            lambda x: refl(x), lambda x: refl(x),
+            lambda x: refl(0), lambda x: refl(0))
+
+    g, h = cyclic_group(4), cyclic_group(2)
+    f = Hom(lambda x: x % 2, lambda x: lambda y: refl((x + y) % 2), refl(0))
+    kernel = [x for x in range(4) if f.map(x) == h.unit]
+    print(f"ker(x mod 2) in Z/4Z = {kernel}")
+    print(f"unit in kernel: {g.unit in kernel}")
+    print(f"closed under addition: {all(g.op(x)(y) in kernel for x in kernel for y in kernel)}")
+    print(f"closed under inverse: {all(g.inverse(x) in kernel for x in kernel)}")

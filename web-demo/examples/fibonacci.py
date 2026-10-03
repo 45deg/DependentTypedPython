@@ -113,4 +113,5 @@ def fib_loop_twice(n: Nat) -> Eq[Nat, add(fib_loop(n), fib_loop(n)), add(fib_rec
 
 
 if __name__ == "__main__":
+    # Run executes these concrete examples; Check verifies the declarations above.
     print(f"fib(10) = {fib_loop(10)}")

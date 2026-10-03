@@ -21,3 +21,11 @@ def get[T: Type](n: Nat, xs: Vec[T, n], i: Fin[n]) -> T:
                 case FS(_, j):
                     # Position S(j) → recurse into the length-k tail.
                     return get(k, rest, j)
+
+
+if __name__ == "__main__":
+    # Run executes these concrete examples; Check verifies the declarations above.
+    values = VCons(2, 10, VCons(1, 20, VCons(0, 30, VNil())))
+    print(f"get([10, 20, 30], 0) = {get(3, values, FZ(2))}")
+    print(f"get([10, 20, 30], 1) = {get(3, values, FS(2, FZ(1)))}")
+    print(f"get([10, 20, 30], 2) = {get(3, values, FS(2, FS(1, FZ(0))))}")

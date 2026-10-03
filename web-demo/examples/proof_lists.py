@@ -25,3 +25,20 @@ def reverse_twice() -> Eq[List[Nat], reverse(reverse(Cons(0, Cons(1, Nil[Nat]())
     # Involution: reverse(reverse(xs)) = xs.
     # The library proof applies to the concrete list [0, 1].
     return reverse_involution(Cons(0, Cons(1, Nil[Nat]())))
+
+
+if __name__ == "__main__":
+    # Run executes these concrete examples; Check verifies the declarations above.
+    def to_list(xs):
+        values = []
+        while isinstance(xs, Cons):
+            values.append(int(xs.head))
+            xs = xs.tail
+        return values
+
+    xs = Cons(0, Cons(1, Nil[Nat]()))
+    ys = Cons(2, Nil[Nat]())
+    print(f"append([0, 1], [2]) = {to_list(append(xs, ys))}")
+    print(f"map(x + 1, [0, 1]) = {to_list(map(lambda x: x + 1, xs))}")
+    print(f"reverse([0, 1]) = {to_list(reverse(xs))}")
+    print(f"reverse(reverse([0, 1])) = {to_list(reverse(reverse(xs)))}")
